@@ -37,7 +37,8 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # 与仓库 packageManager / lockfile 一致，避免 pnpm 9 解析 v9 lockfile 异常
+          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -50,12 +51,13 @@ jobs:
 
       - name: Build
         env:
-          # 仓库变量 VITE_BASE_PATH 优先；否则按项目页默认 /<仓库名>/
-          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || format('/{0}/', github.event.repository.name) }}
+          # 未配置仓库变量时，默认 GitHub Pages 项目页：/<仓库名>/
+          # 用户站点仓库请设 Variables：VITE_BASE_PATH = /
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH != '' && vars.VITE_BASE_PATH || format('/{0}/', github.event.repository.name) }}
         run: pnpm run build
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
