@@ -34,16 +34,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 版本仅由 package.json 的 packageManager 指定，勿在此再写 version，否则会报 Multiple versions of pnpm
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          # 与仓库 packageManager / lockfile 一致，避免 pnpm 9 解析 v9 lockfile 异常
-          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: pnpm
 
       - name: Install
