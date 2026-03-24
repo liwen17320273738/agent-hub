@@ -1,0 +1,71 @@
+# 推送到 main 自动构建并部署到 GitHub Pages
+#
+# 首次使用：
+# 1. 在 GitHub 创建仓库并推送本代码
+# 2. Settings → Pages → Build and deployment → Source 选「GitHub Actions」
+# 3. 部署完成后访问：https://<用户名>.github.io/<仓库名>/
+#
+# 若仓库名为 <用户名>.github.io（用户站点，根路径访问）：
+# Settings → Secrets and variables → Actions → Variables
+# 新增 VITE_BASE_PATH，值为 /
+#
+# 生产环境 LLM 请求为浏览器直连 API；若遇 CORS，需自建网关或在支持的环境使用 VITE_USE_RELATIVE_PROXY（见 .env.example）
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          # 仓库变量 VITE_BASE_PATH 优先；否则按项目页默认 /<仓库名>/
+          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || format('/{0}/', github.event.repository.name) }}
+        run: pnpm run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

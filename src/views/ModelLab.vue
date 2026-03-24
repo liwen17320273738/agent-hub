@@ -1,0 +1,320 @@
+<template>
+  <div class="model-lab-page">
+    <header class="page-header">
+      <h1>模型实验室</h1>
+      <p class="subtitle">参考评分 + 同一提示词下的延迟与输出对比（使用当前设置中的 API 与 Key）</p>
+    </header>
+
+    <el-alert type="info" show-icon :closable="false" class="lab-alert">
+      <template #title>关于「维度评分」</template>
+      下表 1–5 分为静态参考（性价比、速度、推理、中文、代码、指令），便于选型；不同厂商定价会变，请以账单为准。真实体感请用下方「对比实测」。
+    </el-alert>
+
+    <el-card class="lab-card">
+      <template #header>
+        <span>模型目录与维度</span>
+      </template>
+      <el-table :data="MODEL_CATALOG" stripe size="small" class="catalog-table">
+        <el-table-column prop="label" label="名称" width="140" />
+        <el-table-column prop="id" label="model id" min-width="130" />
+        <el-table-column label="厂商" width="100">
+          <template #default="{ row }">
+            {{ PROVIDER_LABEL[row.provider] }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="contextK" label="约上下文(K)" width="110" align="center" />
+        <el-table-column v-for="col in SCORE_LABELS" :key="col.key" :label="col.label" width="76" align="center">
+          <template #default="{ row }">
+            <span class="score-cell">{{ row.scores[col.key] }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="blurb" label="说明" min-width="200" show-overflow-tooltip />
+      </el-table>
+    </el-card>
+
+    <el-card class="lab-card">
+      <template #header>
+        <span>对比实测</span>
+      </template>
+      <p v-if="!settingsStore.isConfigured()" class="warn-text">请先在「设置」中配置 API Key 后再运行。</p>
+      <template v-else>
+        <p class="hint-text">
+          将使用设置里的 API 地址与 Key，仅替换 <code>model</code> 字段。请选择与当前 API
+          <strong>同一厂商</strong>下的模型，否则会直接报错。
+        </p>
+        <p v-if="matchingCatalog.length" class="hint-text">
+          根据当前 API 地址，推荐对比以下模型（最多选 4 个）：
+        </p>
+        <p v-else class="warn-text">
+          当前 API 地址未匹配内置厂商（DeepSeek / OpenAI / 通义），请在下框手动输入 model id，用逗号或换行分隔（最多 4 个）。
+        </p>
+
+        <el-checkbox-group v-if="matchingCatalog.length" v-model="benchModelIds" class="bench-checks">
+          <el-checkbox
+            v-for="m in matchingCatalog"
+            :key="m.id"
+            :label="m.id"
+            :disabled="benchModelIds.length >= 4 && !benchModelIds.includes(m.id)"
+          >
+            {{ m.label }} ({{ m.id }})
+          </el-checkbox>
+        </el-checkbox-group>
+
+        <el-input
+          v-else
+          v-model="benchCustomIdsText"
+          type="textarea"
+          :rows="3"
+          placeholder="例如：deepseek-chat&#10;deepseek-reasoner"
+          class="bench-custom"
+        />
+
+        <div class="bench-prompt-block">
+          <div class="prompt-label">测试提示词</div>
+          <el-input v-model="benchPrompt" type="textarea" :rows="4" />
+        </div>
+
+        <el-button type="primary" :loading="benchRunning" :disabled="resolvedBenchModels.length === 0" @click="runBenchmark">
+          运行对比
+        </el-button>
+
+        <el-table v-if="benchResults.length" :data="benchResults" class="result-table" stripe style="margin-top: 16px">
+          <el-table-column prop="model" label="model" width="160" />
+          <el-table-column prop="latencyMs" label="延迟(ms)" width="100" align="right" />
+          <el-table-column label="tokens" min-width="120">
+            <template #default="{ row }">
+              <span v-if="row.usage">
+                入 {{ row.usage.prompt_tokens ?? '—' }} / 出 {{ row.usage.completion_tokens ?? '—' }}
+              </span>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="error" label="错误" min-width="120" show-overflow-tooltip />
+          <el-table-column label="回复摘要" min-width="200">
+            <template #default="{ row }">
+              <span class="reply-preview">{{ row.error ? '—' : row.content.slice(0, 200) }}{{ row.content.length > 200 ? '…' : '' }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-collapse v-if="benchResults.length" class="bench-collapse">
+          <el-collapse-item title="查看完整回复" name="1">
+            <div v-for="r in benchResults" :key="r.model" class="full-block">
+              <h4>{{ r.model }}</h4>
+              <pre v-if="r.error" class="err-pre">{{ r.error }}</pre>
+              <pre v-else class="content-pre">{{ r.content }}</pre>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+      </template>
+    </el-card>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import {
+  MODEL_CATALOG,
+  SCORE_LABELS,
+  PROVIDER_LABEL,
+  catalogMatchingApiUrl,
+} from '@/services/modelCatalog'
+import { useSettingsStore } from '@/stores/settings'
+import { chatCompletionOnce } from '@/services/llm'
+
+const settingsStore = useSettingsStore()
+
+const benchPrompt = ref(
+  '请用约 200 字以内中文，说明「一人公司」使用 AI 的三条务实建议，每条一句话举例。',
+)
+const benchModelIds = ref<string[]>([])
+const benchCustomIdsText = ref('')
+const benchRunning = ref(false)
+const benchResults = ref<
+  Array<{
+    model: string
+    latencyMs: number
+    content: string
+    usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+    error?: string
+  }>
+>([])
+
+const matchingCatalog = computed(() => catalogMatchingApiUrl(settingsStore.settings.apiUrl))
+
+watch(
+  matchingCatalog,
+  (list) => {
+    if (list.length >= 2) {
+      benchModelIds.value = [list[0].id, list[1].id]
+    } else if (list.length === 1) {
+      benchModelIds.value = [list[0].id]
+    } else {
+      benchModelIds.value = []
+    }
+  },
+  { immediate: true },
+)
+
+const resolvedBenchModels = computed(() => {
+  if (matchingCatalog.value.length) {
+    return benchModelIds.value.slice(0, 4)
+  }
+  const raw = benchCustomIdsText.value
+    .split(/[\n,，;；]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return [...new Set(raw)].slice(0, 4)
+})
+
+async function runBenchmark() {
+  const models = resolvedBenchModels.value
+  if (!models.length) {
+    ElMessage.warning('请选择或填写至少一个模型')
+    return
+  }
+  if (!settingsStore.isConfigured()) return
+
+  benchRunning.value = true
+  benchResults.value = []
+  const msgs = [{ role: 'user' as const, content: benchPrompt.value }]
+
+  try {
+    for (const model of models) {
+      const r = await chatCompletionOnce(msgs, settingsStore.settings, { model })
+      benchResults.value.push({
+        model,
+        latencyMs: r.latencyMs,
+        content: r.content,
+        usage: r.usage,
+        error: r.error,
+      })
+    }
+    ElMessage.success('对比完成')
+  } finally {
+    benchRunning.value = false
+  }
+}
+</script>
+
+<style scoped>
+.model-lab-page {
+  padding: 32px 40px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: 20px;
+}
+
+.page-header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.subtitle {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.lab-alert {
+  margin-bottom: 20px;
+}
+
+.lab-card {
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+.hint-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 10px;
+}
+
+.hint-text code {
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+
+.warn-text {
+  color: #e6a23c;
+  font-size: 14px;
+}
+
+.bench-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.bench-custom {
+  margin-bottom: 16px;
+}
+
+.bench-prompt-block {
+  margin: 16px 0;
+}
+
+.prompt-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.score-cell {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.result-table .muted {
+  color: var(--text-muted);
+}
+
+.reply-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.bench-collapse {
+  margin-top: 12px;
+}
+
+.full-block {
+  margin-bottom: 20px;
+}
+
+.full-block h4 {
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.content-pre,
+.err-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.err-pre {
+  color: #f56c6c;
+}
+</style>
