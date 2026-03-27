@@ -3,293 +3,855 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0c4a6e" />
-  <title>2026清明 · 昆明⇄北海</title>
+  <meta name="theme-color" content="#0d9488" />
+  <meta name="description" content="2026清明 · 昆明至北海 · 故事与攻略" />
+  <title>清明赴海 · 昆明 ⇄ 北海</title>
   <style>
     :root {
-      --bg0: #0c1929;
-      --bg1: #0f2847;
-      --card: rgba(255, 255, 255, 0.06);
-      --border: rgba(255, 255, 255, 0.12);
-      --text: #e8f4fc;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
-      --accent2: #a5f3fc;
-      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --night: #031620;
+      --dusk: #082f3d;
+      --card: rgba(255, 248, 252, 0.06);
+      --stroke: rgba(255, 182, 193, 0.18);
+      --text: #fff5f7;
+      --muted: #c4b5d4;
+      --rose: #fda4af;
+      --gold: #fde68a;
+      --sky: #7dd3fc;
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --font: ui-sans-serif, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+      --serif: "Songti SC", "Noto Serif SC", "STSong", Georgia, serif;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
 
     body {
       margin: 0;
-      min-height: 100dvh;
-      font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-family: var(--font);
       color: var(--text);
-      background: linear-gradient(165deg, var(--bg0) 0%, var(--bg1) 45%, #0a1628 100%);
-      background-size: 200% 200%;
-      animation: bgShift 18s ease-in-out infinite;
-      padding: 1rem 1rem calc(1.5rem + var(--safe-bottom));
+      line-height: 1.65;
       overflow-x: hidden;
+      background-color: var(--night);
     }
 
-    @keyframes bgShift {
-      0%, 100% { background-position: 0% 40%; }
-      50% { background-position: 100% 60%; }
+    /* 叠在全屏水视频上的罩层，保证正文可读 */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 90% 55% at 50% -8%, rgba(56, 189, 248, 0.12) 0%, transparent 52%),
+        radial-gradient(ellipse 70% 50% at 80% 40%, rgba(14, 165, 233, 0.06) 0%, transparent 45%),
+        radial-gradient(ellipse 60% 45% at 15% 65%, rgba(244, 114, 182, 0.04) 0%, transparent 40%),
+        linear-gradient(180deg, rgba(6, 52, 72, 0.62) 0%, rgba(8, 70, 95, 0.58) 24%, rgba(6, 48, 64, 0.72) 52%, rgba(4, 38, 52, 0.78) 80%, rgba(3, 22, 32, 0.85) 100%);
+      background-size: 100% 100%, 120% 120%, 130% 130%, 100% 100%;
+      background-position: 50% 0%, 0% 50%, 100% 50%, 0 0;
+      animation: oceanBodyShift 28s ease-in-out infinite alternate;
     }
 
-    @media (prefers-reduced-motion: reduce) {
-      body { animation: none; background-size: 100% 100%; }
-      .wave-wrap, .card, h1 .dot { animation: none !important; }
-      .card { opacity: 1; transform: none; }
+    /* 全页底层：循环水景视频（首屏与滚动区共用） */
+    .page-sea {
+      position: fixed;
+      inset: 0;
+      z-index: -3;
+      pointer-events: none;
+      overflow: hidden;
+      background: #042f3e;
     }
 
-    .shell {
-      max-width: 28rem;
-      margin: 0 auto;
-      position: relative;
-      z-index: 1;
+    .page-sea__media {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      min-width: 100%;
+      min-height: 100%;
+      width: auto;
+      height: auto;
+      transform: translate(-50%, -50%);
+      object-fit: cover;
     }
 
-    header {
-      text-align: center;
-      padding: 1.25rem 0 1rem;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 1.35rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      line-height: 1.35;
-    }
-
-    h1 .dot {
-      display: inline-block;
-      width: 0.45rem;
-      height: 0.45rem;
-      border-radius: 50%;
-      background: var(--accent2);
-      margin-left: 0.35rem;
-      vertical-align: middle;
-      animation: pulse 2.2s ease-in-out infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 0.35; transform: scale(1); }
-      50% { opacity: 1; transform: scale(1.15); }
-    }
-
-    .sub {
-      margin: 0.5rem 0 0;
-      font-size: 0.8rem;
-      color: var(--muted);
-      animation: fadeIn 0.8s ease both;
-      animation-delay: 0.15s;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 0.95rem 1rem;
-      margin-bottom: 0.75rem;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      opacity: 0;
-      transform: translateY(14px);
-      animation: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    }
-
-    @keyframes rise {
-      to {
-        opacity: 1;
-        transform: translateY(0);
+    @keyframes oceanBodyShift {
+      0% {
+        background-position: 50% 0%, 0% 50%, 100% 50%, 0 0;
+      }
+      100% {
+        background-position: 52% 2%, 18% 42%, 82% 58%, 0 0;
       }
     }
 
-    .card:nth-child(1) { animation-delay: 0.05s; }
-    .card:nth-child(2) { animation-delay: 0.12s; }
-    .card:nth-child(3) { animation-delay: 0.19s; }
-    .card:nth-child(4) { animation-delay: 0.26s; }
-    .card:nth-child(5) { animation-delay: 0.33s; }
-    .card:nth-child(6) { animation-delay: 0.4s; }
-    .card:nth-child(7) { animation-delay: 0.47s; }
-    .card:nth-child(8) { animation-delay: 0.54s; }
-
-    .card h2 {
-      margin: 0 0 0.5rem;
-      font-size: 0.95rem;
-      color: var(--accent);
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .page-sea__media,
+      .chapter-visual__sea {
+        opacity: 0.85;
+      }
     }
 
-    .card h2 span.icon {
-      font-size: 1rem;
-      filter: grayscale(0.2);
-    }
-
-    .card p,
-    .card li {
-      margin: 0;
-      font-size: 0.82rem;
-      line-height: 1.55;
-      color: var(--text);
-    }
-
-    .card ul {
-      margin: 0.35rem 0 0;
-      padding-left: 1.1rem;
-    }
-
-    .card li + li {
-      margin-top: 0.25rem;
-    }
-
-    .muted {
-      color: var(--muted);
-      font-size: 0.78rem;
-    }
-
-    .tag {
-      display: inline-block;
-      font-size: 0.68rem;
-      padding: 0.15rem 0.45rem;
-      border-radius: 999px;
-      background: rgba(56, 189, 248, 0.15);
-      color: var(--accent2);
-      margin-right: 0.35rem;
-      margin-bottom: 0.35rem;
-    }
-
-    .wave-wrap {
+    /* —— 配乐（需用户点击，符合浏览器策略） —— */
+    .music-fab {
       position: fixed;
+      right: 14px;
+      bottom: calc(18px + var(--safe-b));
+      z-index: 100;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: 1px solid var(--stroke);
+      background: linear-gradient(145deg, rgba(253, 164, 175, 0.35), rgba(125, 211, 252, 0.2));
+      color: var(--text);
+      font-size: 1.15rem;
+      cursor: pointer;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .music-fab:hover { transform: scale(1.06); }
+    .music-fab.playing { animation: fabPulse 2.4s ease-in-out infinite; }
+    @keyframes fabPulse {
+      0%, 100% { box-shadow: 0 8px 28px rgba(253, 164, 175, 0.25); }
+      50% { box-shadow: 0 8px 36px rgba(125, 211, 252, 0.35); }
+    }
+
+    /* —— Hero —— */
+    .hero {
+      position: relative;
+      min-height: 92dvh;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 2rem 1.25rem calc(3rem + var(--safe-b));
+    }
+    .hero-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      overflow: hidden;
+      background-color: transparent;
+    }
+
+    /* 暮色罩层 + 一道掠过的波光（底层由全页 .page-sea 视频承担） */
+    .hero-bg-sheen {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(105deg, transparent 0%, transparent 38%, rgba(255, 255, 255, 0.06) 50%, transparent 62%, transparent 100%),
+        linear-gradient(180deg, rgba(15, 10, 26, 0.45) 0%, rgba(15, 10, 26, 0.22) 42%, rgba(15, 10, 26, 0.58) 100%);
+      background-size: 200% 100%, 100% 100%;
+      background-position: -30% 0, 0 0;
+      animation: heroSheenSweep 14s ease-in-out infinite;
+    }
+
+    @keyframes heroSheenSweep {
+      0%, 100% { background-position: -40% 0, 0 0; }
+      50% { background-position: 140% 0, 0 0; }
+    }
+
+    /* 底部多层波浪（SVG 平移循环） */
+    .hero-waves {
+      position: absolute;
       left: 0;
       right: 0;
       bottom: 0;
-      height: 120px;
+      height: min(22vh, 160px);
+      min-height: 72px;
       pointer-events: none;
-      z-index: 0;
-      opacity: 0.35;
+      overflow: hidden;
     }
 
-    .wave-wrap svg {
-      display: block;
-      width: 100%;
+    .hero-waves svg {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 200%;
       height: 100%;
+      display: block;
     }
 
-    .wave {
-      animation: waveMove 8s linear infinite;
+    .hero-waves .wave-back {
+      opacity: 0.55;
+      animation: waveScroll 9s linear infinite;
     }
 
-    @keyframes waveMove {
+    .hero-waves .wave-mid {
+      opacity: 0.42;
+      bottom: -4%;
+      height: 108%;
+      animation: waveScroll 6.5s linear infinite reverse;
+    }
+
+    .hero-waves .wave-front {
+      opacity: 0.85;
+      bottom: -2%;
+      animation: waveScroll 4.8s linear infinite;
+    }
+
+    @keyframes waveScroll {
       from { transform: translateX(0); }
       to { transform: translateX(-50%); }
     }
-
-    footer {
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      max-width: 26rem;
+      margin: 0 auto;
       text-align: center;
+    }
+    .hero-kicker {
       font-size: 0.72rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: var(--gold);
+      opacity: 0.95;
+      margin-bottom: 0.75rem;
+      animation: fadeUp 1s ease both;
+    }
+    .hero h1 {
+      font-family: var(--serif);
+      font-weight: 600;
+      font-size: clamp(1.65rem, 5.5vw, 2rem);
+      line-height: 1.35;
+      margin: 0 0 1rem;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      animation: fadeUp 1s ease 0.12s both;
+    }
+    .hero-lead {
+      font-size: 0.92rem;
       color: var(--muted);
-      padding-top: 0.5rem;
+      margin: 0 0 1.5rem;
+      animation: fadeUp 1s ease 0.22s both;
+    }
+    .chars {
+      display: flex;
+      justify-content: center;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      animation: fadeUp 1s ease 0.32s both;
+    }
+    .char {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--stroke);
+      font-size: 0.8rem;
+    }
+    .char-av {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-size: 1rem;
+    }
+    .char-av.y { background: linear-gradient(135deg, #38bdf8, #6366f1); }
+    .char-av.x { background: linear-gradient(135deg, #f472b6, #fb7185); }
+    .scroll-hint {
+      margin-top: 2rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.2em;
+      animation: floatY 2.8s ease-in-out infinite;
+    }
+    @keyframes floatY {
+      0%, 100% { transform: translateY(0); opacity: 0.6; }
+      50% { transform: translateY(6px); opacity: 1; }
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* —— 章节 —— */
+    .story {
+      max-width: 26rem;
+      margin: 0 auto;
+      padding: 0 1.1rem 4rem;
+    }
+    .chapter {
+      margin-bottom: 2.75rem;
+      opacity: 0;
+      transform: translateY(22px);
+      transition: opacity 0.7s ease, transform 0.7s ease;
+    }
+    .chapter.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .chapter-visual {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+      aspect-ratio: 16/10;
+      border: 1px solid rgba(251, 113, 133, 0.28);
+      box-shadow:
+        0 20px 50px rgba(0, 0, 0, 0.38),
+        0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+        0 0 48px rgba(244, 114, 182, 0.14);
+    }
+    .chapter-visual img,
+    .chapter-visual__sea {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+    }
+
+    .chapter-visual__sea {
+      background: #042f3e;
+    }
+    .chapter-visual figcaption {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.65rem;
+      color: rgba(255, 241, 242, 0.92);
+      background: linear-gradient(transparent, rgba(88, 28, 135, 0.75));
+      letter-spacing: 0.06em;
+    }
+
+    .ch-label {
+      font-size: 0.68rem;
+      letter-spacing: 0.28em;
+      color: var(--rose);
+      margin-bottom: 0.35rem;
+    }
+    .chapter h2 {
+      font-family: var(--serif);
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem;
+      color: var(--gold);
+    }
+    .prose {
+      font-size: 0.88rem;
+      color: var(--text);
+    }
+    .prose p { margin: 0 0 0.85rem; }
+    .dialogue {
+      font-style: italic;
+      color: var(--sky);
+      border-left: 2px solid rgba(125, 211, 252, 0.45);
+      padding-left: 0.85rem;
+      margin: 0.85rem 0;
+    }
+    .tip-box {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      background: var(--card);
+      border: 1px solid var(--stroke);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .tip-box strong { color: var(--gold); font-weight: 600; }
+    .tip-box ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+    .tip-box li + li { margin-top: 0.25rem; }
+
+    .joy-box {
+      margin-top: 1rem;
+      padding: 1rem 1.05rem;
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(253, 164, 175, 0.14), rgba(125, 211, 252, 0.08));
+      border: 1px solid rgba(253, 164, 175, 0.38);
+      font-size: 0.78rem;
+      color: var(--text);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+    }
+    .joy-box .joy-kicker {
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--rose);
+      margin-bottom: 0.5rem;
+    }
+    .joy-box h3 {
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--gold);
+      margin: 0 0 0.65rem;
+    }
+    .joy-box p { margin: 0 0 0.65rem; color: var(--text); }
+    .joy-box ul { margin: 0; padding-left: 1.1rem; color: var(--muted); }
+    .joy-box li + li { margin-top: 0.35rem; }
+    .joy-box strong { color: var(--gold); font-weight: 600; }
+
+    .timeline {
+      margin-top: 0.85rem;
+      padding-left: 0;
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .timeline li {
+      padding: 0.35rem 0 0.35rem 1.1rem;
+      border-left: 2px solid rgba(253, 164, 175, 0.35);
+      margin-left: 0.35rem;
+    }
+    .timeline strong { color: var(--text); }
+
+    footer.page-ft {
+      text-align: center;
+      padding: 2rem 1.25rem calc(2.5rem + var(--safe-b));
+      font-size: 0.68rem;
+      color: rgba(196, 181, 212, 0.75);
+      line-height: 1.6;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    footer.page-ft a { color: var(--sky); }
+    footer.page-ft .dedication {
+      display: block;
+      margin-top: 1.15rem;
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      color: rgba(253, 164, 175, 0.45);
     }
   </style>
 </head>
 <body>
-  <div class="wave-wrap" aria-hidden="true">
-    <svg viewBox="0 0 1200 120" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.5" />
-          <stop offset="100%" stop-color="#0c4a6e" stop-opacity="0" />
-        </linearGradient>
-      </defs>
-      <g class="wave">
-        <path fill="url(#g)" d="M0,60 C150,100 350,20 600,60 C850,100 1050,20 1200,60 L1200,120 L0,120 Z" />
-        <path fill="url(#g)" transform="translate(1200,0)" d="M0,60 C150,100 350,20 600,60 C850,100 1050,20 1200,60 L1200,120 L0,120 Z" />
-      </g>
-    </svg>
+  <!-- 全页：晴暖海浪；各章：同批明亮海景不同片段，配情绪字幕。外链均为 Pexels sd；本地 .mp4 优先 -->
+  <div class="page-sea" aria-hidden="true">
+    <video
+      id="pageSeaVideo"
+      class="page-sea__media"
+      muted
+      loop
+      playsinline
+      autoplay
+      preload="metadata"
+      poster="beihai-sea/hero-sea.jpg"
+    >
+      <source src="beihai-sea/hero-sea.mp4" type="video/mp4" />
+      <source src="https://videos.pexels.com/video-files/855633/855633-sd_640_360_25fps.mp4" type="video/mp4" />
+    </video>
   </div>
 
-  <div class="shell">
-    <header>
-      <h1>2026 清明 · 昆明⇄北海<span class="dot"></span></h1>
-      <p class="sub">高铁优先 · 手机阅读版 · 轻动画</p>
-    </header>
+  <audio id="bgm" loop preload="metadata" playsinline>
+    <!-- Kevin MacLeod — Continue Life · CC BY 3.0 · incompetech.com -->
+    <source src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Continue%20Life.mp3" type="audio/mpeg" />
+  </audio>
+  <button type="button" class="music-fab" id="musicBtn" aria-pressed="false" title="点击播放/暂停配乐">♪</button>
 
-    <section class="card">
-      <h2><span class="icon">📅</span>日期</h2>
-      <p>放假 <strong>4.4（六）～4.6（一）</strong>。行程目标：<strong>4.3 周五晚</strong> 或 <strong>4.4 周六早</strong> 出发，<strong>最迟 4.5 周日晚</strong> 回昆明。</p>
-    </section>
-
-    <section class="card">
-      <h2><span class="icon">🌤️</span>天气</h2>
-      <p>出发前约 <strong>7～15 天</strong> 再看逐日预报。4 月初北海大致：白天暖、海风大、可能阵雨，带 <strong>薄外套+伞+防晒</strong>。</p>
-    </section>
-
-    <section class="card">
-      <h2><span class="icon">🚄</span>高铁</h2>
-      <p>12306：<strong>昆明/昆明南 → 北海</strong> 优先直达；无票则 <strong>昆明南→南宁东→北海</strong>，换乘留 <strong>40～50 分钟</strong>。返程同样优先直达。</p>
-    </section>
-
-    <section class="card">
-      <h2><span class="icon">🅰️</span>方案 A · 周五出发</h2>
-      <p class="muted">19:00 才往车站赶，往往赶不上末班车 → 建议 <strong>18:00 前到昆明南</strong> 去南宁，住东站附近，周六早进北海。</p>
-      <ul>
-        <li>周六：午饭后银滩 → 日落 → 侨港夜宵</li>
-        <li>周日：老街外沙 → 下午返程</li>
-      </ul>
-    </section>
-
-    <section class="card">
-      <h2><span class="icon">🅱️</span>方案 B · 周六早出发</h2>
-      <ul>
-        <li>周六下午到：银滩日落 + 侨港</li>
-        <li>周日：晨走或老街 → 尽早去北海站回程</li>
-      </ul>
-    </section>
-
-    <section class="card">
-      <h2><span class="icon">🏨</span>住宿</h2>
-      <p>
-        <span class="tag">银滩</span>
-        <span class="tag">侨港</span>
-        <span class="tag">老城</span>
+  <header class="hero">
+    <div class="hero-bg" aria-hidden="true">
+      <div class="hero-bg-sheen"></div>
+      <div class="hero-waves">
+        <svg class="wave-back" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 200" preserveAspectRatio="none" aria-hidden="true">
+          <path fill="rgba(8, 72, 88, 0.78)" d="M0 120 C 200 80, 400 150, 600 120 S 1000 90, 1200 120 S 1600 150, 1800 120 S 2200 85, 2400 120 L 2400 200 L 0 200 Z" />
+          <path fill="rgba(8, 72, 88, 0.78)" transform="translate(2400 0)" d="M0 120 C 200 80, 400 150, 600 120 S 1000 90, 1200 120 S 1600 150, 1800 120 S 2200 85, 2400 120 L 2400 200 L 0 200 Z" />
+        </svg>
+        <svg class="wave-mid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 200" preserveAspectRatio="none" aria-hidden="true">
+          <path fill="rgba(12, 90, 110, 0.55)" d="M0 108 C 240 145, 480 72, 720 108 S 1200 140, 1440 108 S 1920 75, 2160 108 S 2280 125, 2400 108 L 2400 200 L 0 200 Z" />
+          <path fill="rgba(12, 90, 110, 0.55)" transform="translate(2400 0)" d="M0 108 C 240 145, 480 72, 720 108 S 1200 140, 1440 108 S 1920 75, 2160 108 S 2280 125, 2400 108 L 2400 200 L 0 200 Z" />
+        </svg>
+        <svg class="wave-front" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2400 200" preserveAspectRatio="none" aria-hidden="true">
+          <path fill="rgba(6, 58, 72, 0.62)" d="M0 132 C 300 95, 500 158, 800 132 S 1300 105, 1600 132 S 2000 160, 2400 132 L 2400 200 L 0 200 Z" />
+          <path fill="rgba(6, 58, 72, 0.62)" transform="translate(2400 0)" d="M0 132 C 300 95, 500 158, 800 132 S 1300 105, 1600 132 S 2000 160, 2400 132 L 2400 200 L 0 200 Z" />
+        </svg>
+      </div>
+    </div>
+    <div class="hero-inner">
+      <p class="hero-kicker">2026 · 清明 · 昆明 ⇄ 北海</p>
+      <h1>把三天假期，写成<br />一封去海边寄出的信</h1>
+      <p class="hero-lead">
+        这不是冷冰冰的待办清单，而是两个人的小小叙事：风、铁轨、白沙、糖水，和周日傍晚前一定要回到昆明的那张车票。很多国际旅行书与幸福感研究都会提到——<strong>期待出发</strong>和<strong>路上被好好对待</strong>，往往和「到了景点」一样让人记很久。
       </p>
-      <p class="muted" style="margin-top:0.35rem">玩海住银滩/侨港；拍骑楼住老城（去银滩略远）。</p>
+      <div class="chars">
+        <div class="char">
+          <span class="char-av y" aria-hidden="true">🌿</span>
+          <div>
+            <strong>阿文</strong><br />
+            <span style="font-size:0.72rem;color:var(--muted)">做攻略、扛行李、假装镇定</span>
+          </div>
+        </div>
+        <div class="char">
+          <span class="char-av x" aria-hidden="true">✨</span>
+          <div>
+            <strong>小敏</strong><br />
+            <span style="font-size:0.72rem;color:var(--muted)">爱笑、怕晒、甜食党</span>
+          </div>
+        </div>
+      </div>
+      <p class="scroll-hint">向下滑 · 开始故事</p>
+    </div>
+  </header>
+
+  <article class="story">
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch1-ocean.jpg"
+          aria-label="序章：远方海平线亮起，像期待被轻轻点亮"
+        >
+          <source src="beihai-sea/ch1-ocean.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855621/855621-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>像远处亮起的一点岸光——你们正把日子折向海</figcaption>
+      </figure>
+      <p class="ch-label">序章</p>
+      <h2>国务院的日历，与你们的日历叠在一起</h2>
+      <div class="prose">
+        <p>
+          官方放假是 <strong>4 月 4 日（周六）至 6 日（周一）</strong>，共三天（国务院办公厅 2026 年节假日安排）。清明节气多在四月五日前后——你们把「私人假期」压在 <strong>周五晚或周六一早出发</strong>，<strong>最迟周日晚上回到昆明</strong>，像把一枚邮票小心贴在信封封口。
+        </p>
+        <div class="dialogue">
+          小敏问：「会不会太赶？」<br />
+          阿文笑：「赶的是车次，不是我们说话的速度。」
+        </div>
+      </div>
+      <div class="tip-box">
+        <strong>实用核对</strong>
+        <ul>
+          <li>出发前 7～15 天再锁死北海逐日预报（风力、阵雨比气温更要紧）。</li>
+          <li>高铁票在 <strong>12306</strong> 抢往返；<strong>昆明/昆明南 → 北海</strong>优先直达，无票则 <strong>昆明南 → 南宁东 → 北海</strong>，换乘留 <strong>40～50 分钟</strong>。</li>
+          <li>一起改备忘录、收藏糖水店、对车次表——攻略常说「规划本身就是旅行的一部分」，多巴胺从这时就开始分泌了。</li>
+        </ul>
+      </div>
     </section>
 
-    <section class="card">
-      <h2><span class="icon">🎒</span>必备</h2>
-      <ul>
-        <li>身份证、充电宝、常用药（肠胃/晕车）</li>
-        <li>拖鞋、防水手机袋、帽子墨镜</li>
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch2-beach-wind.jpg"
+          aria-label="风与行囊：白沙与浪花在脚边写同一行温柔"
+        >
+          <source src="beihai-sea/ch2-beach-wind.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855622/855622-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>浪来浪去，像在重复一句：一起走的路，风大也不慌</figcaption>
+      </figure>
+      <p class="ch-label">第一章 · 风与行囊</p>
+      <h2>四月初的北海，像一封没写完的信</h2>
+      <div class="prose">
+        <p>
+          综合历年气候：四月白天常常二十多度，但<strong>海风大、紫外线强</strong>，阵雨说来就来。阿文帮小敏多带一件<strong>薄外套</strong>——不是唠叨，是「我知道你会冷」的那种温柔。
+        </p>
+        <p>
+          网上攻略常提：<strong>银滩</strong>沙白水清、免费开放；<strong>老街骑楼</strong>像旧电影；<strong>侨港</strong>是归侨烟火与糖水铺的深夜电台。你们把这些名字从屏幕里抠出来，变成脚印。
+        </p>
+      </div>
+      <div class="tip-box">
+        <strong>行囊（诗意版）</strong>
+        <ul>
+          <li>身份证、充电宝、肠胃药/晕车药、防晒霜、折叠伞、拖鞋、防水手机袋。</li>
+          <li>想拍骑楼与日落：帽子、墨镜、多一条橡皮筋（海风会捣乱）。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch3-travel.jpg"
+          aria-label="轨道与奔赴：动身之前，心已先靠岸"
+        >
+          <source src="beihai-sea/ch3-travel.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855625/855625-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>铁轨换成浪尖前的最后一程——票根在手，像握着一小片海</figcaption>
+      </figure>
+      <p class="ch-label">第二章 · 轨道</p>
+      <h2>周五七点，还是周六晨光？</h2>
+      <div class="prose">
+        <p>
+          <strong>现实的一行小字</strong>：若周五 <strong>19:00</strong> 才从市区往昆明南站赶，往往已错过开往南宁方向的末班动车，当晚很难「纯铁路」住进北海。攻略里常见的走法是：<strong>18:00 前到昆明南</strong>，深夜到南宁东，在<strong>东站附近</strong>睡踏实，周六一早再乘动车约一小时到北海。
+        </p>
+        <div class="dialogue">
+          「多了一夜南宁，」小敏眨眼，「算不算私奔多赚了一站？」<br />
+          「算。」阿文把两个人的车次截图设成聊天背景。
+        </div>
+        <p>若周六早上才从昆明出发，动车直达数小时，下午抵达——就把「第一次见面北海的阳光」留给银滩傍晚。</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch4-sunset-sea.jpg"
+          aria-label="银滩日落：光软下来，适合并肩不说话"
+        >
+          <source src="beihai-sea/ch4-sunset-sea.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855626/855626-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>日落前一小时，沙是温的——沉默和笑都刚刚好</figcaption>
+      </figure>
+      <p class="ch-label">第三章 · 白沙</p>
+      <h2>银滩：把鞋脱了，才算真正抵达</h2>
+      <div class="prose">
+        <p>
+          <strong>北海银滩</strong>素有「天下第一滩」之称：沙质细腻、岸线长，适合慢慢走。攻略建议<strong>避开正午暴晒</strong>，把高光时刻留给<strong>日落前一小时</strong>——那时光线柔软，适合拍小敏笑起来的侧脸，也适合你们什么都不拍，只看浪来浪去。北欧式慢旅行、不少海岛度假村也会写：<strong>留十几分钟不看手机</strong>，并肩听浪——这种「无聊」常常是事后最想念的片段。
+        </p>
+        <p>
+          春季水温仍偏凉，以踏浪、踩沙为主；听从现场安全提示，风大浪急时不硬下水。
+        </p>
+      </div>
+      <ul class="timeline">
+        <li><strong>周六午后</strong> 入住酒店（银滩/侨港一带打车方便），小憩避开烈日。</li>
+        <li><strong>16:30～19:00</strong> 银滩：踏浪、等日落、冲脚擦干。</li>
+        <li><strong>19:30 后</strong> 侨港见（下一章）。</li>
       </ul>
     </section>
 
-    <section class="card">
-      <h2><span class="icon">⚠️</span>注意</h2>
-      <ul>
-        <li>往返票一起抢；到站提前 <strong>1.5～2h</strong></li>
-        <li>海鲜称斤、问清加工费；海边看警示</li>
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch5-waterfront.jpg"
+          aria-label="侨港之夜：水边的暖色像给夜色加糖"
+        >
+          <source src="beihai-sea/ch5-waterfront.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855629/855629-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>人间灯火映在水上，一勺糖水的甜也有了形状</figcaption>
+      </figure>
+      <p class="ch-label">第四章 · 糖水与人间</p>
+      <h2>侨港：把甜字写进夜里</h2>
+      <div class="prose">
+        <p>
+          <strong>侨港风情街</strong>一带汇聚越南风味与海鲜小吃：网上常点名<strong>蟹仔粉、越南卷粉</strong>，糖水铺如<strong>「有间冰室」「24 栋糖水」</strong>，虾饼类如<strong>信记虾饼</strong>等（价格与排队随季节变化，以到店为准）。
+        </p>
+        <div class="dialogue">
+          小敏舀一勺糖水：「比告白还甜怎么办？」<br />
+          阿文：「那下次换我说。」
+        </div>
+        <p>
+          国际美食游记里常写「分享桌」——<strong>轮流向对方推荐一小口</strong>，比各点各的更容易笑场；若排队久，阿文可以先买杯饮料让小敏坐着等，小事里藏着「你被优先考虑」的信号。
+        </p>
+      </div>
+      <div class="tip-box">
+        <strong>温柔避坑（综合多篇游记提醒）</strong>
+        <ul>
+          <li>银滩周边个别海鲜排挡易有宰客风险，点餐前问清<strong>时价、斤两、加工费</strong>，保留小票。</li>
+          <li>更稳妥：到<strong>侨港市场</strong>自选海鲜再找店加工，或选评价透明、排队稳定的店。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch6-coastal.jpg"
+          aria-label="骑楼与外沙：海港的风里，回头仍有人在身侧"
+        >
+          <source src="beihai-sea/ch6-coastal.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855630/855630-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>旧街与海港连成一卷胶片，风大时有人替你挡一挡</figcaption>
+      </figure>
+      <p class="ch-label">第五章 · 骑楼</p>
+      <h2>老街：躲一场阵雨，也像躲进旧电影</h2>
+      <div class="prose">
+        <p>
+          <strong>北海老街（珠海路）</strong>中西合璧骑楼连绵，适合上午人少一些时慢慢逛。攻略里常提<strong>虾饼</strong>（如「李姨虾饼」曾上《舌尖上的中国》，是否营业以当日为准）、各类粉面与小咖啡馆。
+        </p>
+        <p>可顺路走到<strong>外沙</strong>一带看海港与栈道——风大，阿文替小敏挡一挡，比拍照更重要。</p>
+      </div>
+      <ul class="timeline">
+        <li><strong>周日上午</strong> 老街 + 外沙；若周六已暴走，可改成海边散步。</li>
+        <li><strong>中午</strong> 简餐，超市买点鱿鱼丝、海鸭蛋作手信（标价清晰）。</li>
+        <li><strong>下午</strong> 提前 <strong>1.5～2 小时</strong> 到北海站（节假日安检排队久）。</li>
       </ul>
     </section>
 
-    <footer>本地文件或 dev 服务器打开 · 系统「减少动态效果」会自动减弱动画</footer>
-  </div>
+    <section class="chapter" data-reveal>
+      <figure class="chapter-visual">
+        <video
+          class="chapter-visual__sea"
+          data-sea-chapter
+          muted
+          loop
+          playsinline
+          preload="none"
+          poster="beihai-sea/ch7-sea-return.jpg"
+          aria-label="归途：暮色里海还在动，像一句温柔的下次见"
+        >
+          <source src="beihai-sea/ch7-sea-return.mp4" type="video/mp4" />
+          <source src="https://videos.pexels.com/video-files/855631/855631-sd_640_360_25fps.mp4" type="video/mp4" />
+        </video>
+        <figcaption>车要开了，浪还在——折进票根里的，是糖水和没说完的约</figcaption>
+      </figure>
+      <p class="ch-label">终章</p>
+      <h2>周日傍晚前，把海折叠进车厢</h2>
+      <div class="prose">
+        <p>
+          你们选 <strong>北海 → 昆明(南)</strong> 的车次时，倒推离开银滩的时间——别让最后一程跑得狼狈。动车穿过夜色，城市灯光接回昆明，像故事翻到最后一页，但折角还留着糖水的黏。
+        </p>
+        <div class="dialogue">
+          「下次还来吗？」小敏问。<br />
+          「来啊，」阿文看着窗外，「下次把冠头岭的晚霞也写上。」
+        </div>
+        <p class="tip-box" style="border-style:dashed;margin-top:1rem;">
+          <strong>可选加餐</strong>：时间充裕可安排<strong>冠头岭</strong>「海枯石烂」礁石日落（注意潮汐与返程打车）；本次短途若不上<strong>涠洲岛</strong>，把岛留给「下一封信」也很浪漫。
+        </p>
+      </div>
+    </section>
+
+    <section class="chapter" data-reveal>
+      <p class="ch-label">番外</p>
+      <h2>攻略里也会写的「开心加码」</h2>
+      <div class="joy-box">
+        <p class="joy-kicker">慢旅行 · 体验型回忆 · 关系里的小照顾</p>
+        <h3>让 TA 更松弛、更被看见</h3>
+        <p>
+          Lonely Planet、Rough Guides 一类书常提醒：<strong>别把日程排成军训</strong>——留白才有偶遇：一场阵雨、一家没搜过的小店。积极心理学里「感恩」也不必写日记，<strong>睡前问一句「今天你最喜欢哪一秒」</strong>，往往比普通晚安更暖。
+        </p>
+        <ul>
+          <li><strong>留一项全权听 TA</strong>：比如「今晚糖水你定」「明天上午左转右转你说了算」——自主感是被爱的另一种说法。</li>
+          <li><strong>身体先于情话</strong>：补涂防晒、背包里塞 TA 爱吃的零食、多带一件外套——具体动作比抽象承诺好记。</li>
+          <li><strong>拍照尊重节奏</strong>：若对方不爱怼脸拍，就多拍风景里的背影、或干脆把画面存在眼里；开心比出片重要。</li>
+          <li><strong>回家的小信物</strong>：捡一枚干净的贝壳、留一个杯套或车票——体验型回忆配一件<strong>看得见的锚</strong>，快乐会拖得更长（很多消费心理学都写过：体验 + 小纪念，比纯买东西更耐回味）。</li>
+        </ul>
+        <p style="margin-bottom:0;font-size:0.72rem;color:var(--muted);">
+          以上不是教条。李文与丁敏可以只留这一套<strong>专属梗</strong>：<strong>他叫她「A1」、她叫他「压轴」</strong>（演唱会第一排与最后一首的温柔双关）；人多时一句<strong>「包换到里侧」</strong>，他自然站到<strong>斜挎包朝外</strong>那一边当人形护栏；累了就说<strong>「申请软着陆」</strong>，对方接<strong>「廊桥好了，你慢慢落」</strong>；睡前<strong>「听完这首再睡」</strong>——张学友的歌单里，随便哪首都能当你们的休止符。
+        </p>
+      </div>
+    </section>
+  </article>
+
+  <footer class="page-ft">
+    背景为<strong>晴暖海风浪循环视频</strong>（全页偏积极向上；各章为同系列不同片段，配情绪文案）。优先 <code style="color:#7dd3fc">beihai-sea/*.mp4</code>，否则 Pexels；<code style="color:#7dd3fc">poster</code> 为静帧备选。使用须遵守 <a href="https://www.pexels.com/license/" rel="noopener noreferrer" target="_blank">Pexels License</a>。<br />
+    若要用<strong>北海实拍</strong>：把视频放到 <code style="color:#7dd3fc">public/beihai-sea/</code> 与各章同名的 <code style="color:#7dd3fc">.mp4</code>（及可选 <code style="color:#7dd3fc">hero-sea.mp4</code>）即可优先于外链播放。<br />
+    配乐：Kevin MacLeod「Continue Life」— <a href="https://incompetech.com" rel="noopener noreferrer" target="_blank">incompetech.com</a>（CC BY 3.0）。<br />
+    放假日期以中国政府网公布的 2026 年节假日安排为准；车次与票价以 12306 为准。
+    <span class="dedication" lang="zh-CN">致李文、丁敏</span>
+  </footer>
+
+  <script>
+    (function () {
+      var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      var pageSea = document.getElementById("pageSeaVideo");
+      if (pageSea) {
+        if (reduceMotion) {
+          pageSea.pause();
+          pageSea.removeAttribute("autoplay");
+        } else {
+          pageSea.play().catch(function () {});
+        }
+      }
+
+      var seaChapters = document.querySelectorAll("video[data-sea-chapter]");
+      if (!reduceMotion && "IntersectionObserver" in window) {
+        var vio = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (ent) {
+              var v = ent.target;
+              if (!(v instanceof HTMLVideoElement)) return;
+              if (ent.isIntersecting) {
+                v.preload = "auto";
+                if (v.readyState < 2) {
+                  try {
+                    v.load();
+                  } catch (e) {}
+                }
+                v.play().catch(function () {});
+              } else {
+                v.pause();
+              }
+            });
+          },
+          { rootMargin: "56px 0px", threshold: 0.2 }
+        );
+        seaChapters.forEach(function (v) {
+          vio.observe(v);
+        });
+      } else if (!reduceMotion) {
+        seaChapters.forEach(function (v) {
+          v.preload = "auto";
+          try {
+            v.load();
+          } catch (e) {}
+          v.play().catch(function () {});
+        });
+      }
+
+      var btn = document.getElementById("musicBtn");
+      var audio = document.getElementById("bgm");
+      if (!btn || !audio) return;
+
+      btn.addEventListener("click", function () {
+        if (audio.paused) {
+          audio.volume = 0.35;
+          audio.play().then(function () {
+            btn.classList.add("playing");
+            btn.setAttribute("aria-pressed", "true");
+            btn.textContent = "♫";
+          }).catch(function () {
+            btn.textContent = "!";
+          });
+        } else {
+          audio.pause();
+          btn.classList.remove("playing");
+          btn.setAttribute("aria-pressed", "false");
+          btn.textContent = "♪";
+        }
+      });
+
+      var nodes = document.querySelectorAll("[data-reveal]");
+      if (!("IntersectionObserver" in window)) {
+        nodes.forEach(function (el) { el.classList.add("visible"); });
+        return;
+      }
+      var io = new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (e) {
+            if (e.isIntersecting) {
+              e.target.classList.add("visible");
+              io.unobserve(e.target);
+            }
+          });
+        },
+        { rootMargin: "0px 0px -12% 0px", threshold: 0.08 }
+      );
+      nodes.forEach(function (el) { io.observe(el); });
+    })();
+  </script>
 </body>
 </html>

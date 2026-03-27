@@ -1,0 +1,17 @@
+{
+  "folders": [
+    {
+      "name": "agent-hub",
+      "path": "."
+    },
+    {
+      "name": "foreign-trade",
+      "path": "../foreign-trade"
+    },
+    {
+      "name": "study-tracker",
+      "path": "../study-tracker"
+    }
+  ],
+  "settings": {}
+}
