@@ -1,8 +1,16 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { isEnterpriseBuild } from '@/services/enterpriseApi'
+import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      meta: { public: true },
+      component: () => import('@/views/Login.vue'),
+    },
     {
       path: '/',
       name: 'dashboard',
@@ -24,6 +32,18 @@ const router = createRouter({
       component: () => import('@/views/ModelLab.vue'),
     },
   ],
+})
+
+router.beforeEach(async (to) => {
+  if (!isEnterpriseBuild) return true
+  const auth = useAuthStore()
+  if (!auth.initialized) await auth.hydrate()
+  if (to.meta.public) {
+    if (to.name === 'login' && auth.isLoggedIn) return { path: '/' }
+    return true
+  }
+  if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
+  return true
 })
 
 export default router

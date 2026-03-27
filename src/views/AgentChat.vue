@@ -272,13 +272,17 @@ function scrollToBottom() {
   })
 }
 
-function startNewChat() {
+async function startNewChat() {
   if (!agent.value) return
-  chatStore.createConversation(agent.value.id)
+  try {
+    await chatStore.createConversation(agent.value.id)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '创建会话失败')
+  }
 }
 
-function handleDelete(id: string) {
-  chatStore.deleteConversation(id)
+async function handleDelete(id: string) {
+  await chatStore.deleteConversation(id)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -506,7 +510,12 @@ async function sendMessage() {
   const currentAgent = agent.value
   let conv = activeConv.value
   if (!conv) {
-    conv = chatStore.createConversation(currentAgent.id)
+    try {
+      conv = await chatStore.createConversation(currentAgent.id)
+    } catch (e) {
+      ElMessage.error(e instanceof Error ? e.message : '创建会话失败')
+      return
+    }
   }
 
   if (chatStore.isGeneratingFor(conv.id)) return

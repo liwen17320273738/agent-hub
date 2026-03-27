@@ -6,6 +6,7 @@
     </header>
 
     <el-alert
+      v-if="!isEnterpriseBuild"
       class="settings-security-alert"
       type="warning"
       show-icon
@@ -19,7 +20,42 @@
       </p>
     </el-alert>
 
-    <el-card class="settings-card">
+    <el-alert
+      v-else
+      class="settings-security-alert"
+      type="success"
+      show-icon
+      :closable="false"
+      title="企业模式"
+    >
+      <p>
+        当前为构建时启用的企业部署：会话保存在服务端数据库，同组织成员共享；模型 API Key 仅存在于服务器环境变量，浏览器不保存密钥。
+      </p>
+    </el-alert>
+
+    <el-card v-if="isEnterpriseBuild" class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <el-icon><Connection /></el-icon>
+          <span>组织与模型网关（只读）</span>
+        </div>
+      </template>
+      <el-descriptions :column="1" border size="small">
+        <el-descriptions-item label="组织">{{ authStore.user?.orgName ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="上游 Host">{{ authStore.publicLlm?.host || '未配置' }}</el-descriptions-item>
+        <el-descriptions-item label="默认模型">{{ authStore.publicLlm?.model || '—' }}</el-descriptions-item>
+        <el-descriptions-item label="网关状态">
+          <el-tag :type="authStore.llmConfigured ? 'success' : 'danger'" size="small">
+            {{ authStore.llmConfigured ? '已配置' : '未配置 LLM 环境变量' }}
+          </el-tag>
+        </el-descriptions-item>
+      </el-descriptions>
+      <p class="form-tip" style="margin-top: 12px">
+        下方「模型」可覆盖默认 model id（须与当前上游兼容）；留空则使用服务端 LLM_MODEL。
+      </p>
+    </el-card>
+
+    <el-card v-if="!isEnterpriseBuild" class="settings-card">
       <template #header>
         <div class="card-header">
           <el-icon><Connection /></el-icon>
@@ -90,6 +126,52 @@
       </el-form>
     </el-card>
 
+    <el-card v-else class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <el-icon><Connection /></el-icon>
+          <span>模型与参数</span>
+        </div>
+      </template>
+      <el-form :model="form" label-width="120px" label-position="left">
+        <el-form-item label="模型">
+          <el-select
+            v-if="catalogMatches.length"
+            :model-value="catalogSelectValue"
+            placeholder="从推荐中选择（可选）"
+            clearable
+            filterable
+            class="model-preset-select"
+            @change="onCatalogModelChange"
+          >
+            <el-option
+              v-for="m in catalogMatches"
+              :key="m.id"
+              :label="`${m.label} (${m.id})`"
+              :value="m.id"
+            />
+          </el-select>
+          <el-input v-model="form.model" class="model-id-input" placeholder="留空则用服务端默认 model" />
+        </el-form-item>
+        <el-form-item label="Temperature">
+          <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" show-input :show-input-controls="false" />
+        </el-form-item>
+        <el-form-item label="最大 Token">
+          <el-input-number v-model="form.maxTokens" :min="256" :max="16384" :step="256" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSave">
+            <el-icon><Check /></el-icon>
+            保存个人偏好
+          </el-button>
+          <el-button v-if="settingsStore.isConfigured()" @click="handleTest" :loading="testing">
+            <el-icon><Connection /></el-icon>
+            测试连接
+          </el-button>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card class="settings-card">
       <template #header>
         <div class="card-header">
@@ -121,7 +203,31 @@
       </el-form>
     </el-card>
 
-    <el-card class="settings-card">
+    <el-card v-if="isEnterpriseBuild && authStore.user?.role === 'admin'" class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <el-icon><User /></el-icon>
+          <span>添加组织成员</span>
+        </div>
+      </template>
+      <el-form :model="newUser" label-width="100px" label-position="left" class="admin-user-form">
+        <el-form-item label="邮箱">
+          <el-input v-model="newUser.email" type="email" autocomplete="off" placeholder="member@company.com" />
+        </el-form-item>
+        <el-form-item label="初始密码">
+          <el-input v-model="newUser.password" type="password" show-password autocomplete="new-password" />
+        </el-form-item>
+        <el-form-item label="显示名">
+          <el-input v-model="newUser.displayName" placeholder="可选" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="creatingUser" @click="submitNewUser">创建账号</el-button>
+        </el-form-item>
+      </el-form>
+      <p class="form-tip">新成员与当前账号同属一组织，共享全部会话；密码至少 8 位。</p>
+    </el-card>
+
+    <el-card v-if="!isEnterpriseBuild" class="settings-card">
       <template #header>
         <div class="card-header">
           <el-icon><InfoFilled /></el-icon>
@@ -155,22 +261,51 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
+import { apiUrl, isEnterpriseBuild } from '@/services/enterpriseApi'
 import { chatCompletion } from '@/services/llm'
 import {
   catalogMatchingApiUrl,
   PROVIDER_DEFAULT_API,
+  inferDefaultApiFromLlmHost,
   type ModelProvider,
 } from '@/services/modelCatalog'
 
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 const testing = ref(false)
+const creatingUser = ref(false)
 
 const form = reactive({ ...settingsStore.settings })
 
-const catalogMatches = computed(() => catalogMatchingApiUrl(form.apiUrl))
+const newUser = reactive({
+  email: '',
+  password: '',
+  displayName: '',
+})
+
+const catalogSourceUrl = computed(() => {
+  const u = form.apiUrl?.trim()
+  if (u) return u
+  if (isEnterpriseBuild && authStore.publicLlm?.host) {
+    return inferDefaultApiFromLlmHost(authStore.publicLlm.host)
+  }
+  return ''
+})
+
+const catalogMatches = computed(() => catalogMatchingApiUrl(catalogSourceUrl.value))
+
+watch(
+  () => authStore.publicLlm?.model,
+  (m) => {
+    if (!isEnterpriseBuild || !m || form.model?.trim()) return
+    form.model = m
+  },
+  { immediate: true },
+)
 
 const catalogSelectValue = computed(() => {
   const hit = catalogMatches.value.find((m) => m.id === form.model)
@@ -191,8 +326,12 @@ function handleSave() {
 }
 
 async function handleTest() {
-  if (!form.apiKey) {
+  if (!isEnterpriseBuild && !form.apiKey) {
     ElMessage.warning('请先填写 API Key')
+    return
+  }
+  if (isEnterpriseBuild && !settingsStore.isConfigured()) {
+    ElMessage.warning('服务端未配置模型网关')
     return
   }
   testing.value = true
@@ -202,10 +341,45 @@ async function handleTest() {
       { ...form },
     )
     ElMessage.success(`连接成功！回复: ${reply.slice(0, 60)}`)
-  } catch (e: any) {
-    ElMessage.error(`连接失败: ${e.message}`)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    ElMessage.error(`连接失败: ${msg}`)
   } finally {
     testing.value = false
+  }
+}
+
+async function submitNewUser() {
+  const email = newUser.email.trim().toLowerCase()
+  if (!email || !newUser.password || newUser.password.length < 8) {
+    ElMessage.warning('请填写邮箱与至少 8 位密码')
+    return
+  }
+  creatingUser.value = true
+  try {
+    const r = await fetch(apiUrl('/admin/users'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email,
+        password: newUser.password,
+        displayName: newUser.displayName.trim() || undefined,
+        role: 'member',
+      }),
+    })
+    const data = await r.json().catch(() => ({}))
+    if (!r.ok) {
+      throw new Error(typeof data.error === 'string' ? data.error : '创建失败')
+    }
+    ElMessage.success(`已创建 ${email}`)
+    newUser.email = ''
+    newUser.password = ''
+    newUser.displayName = ''
+  } catch (e: unknown) {
+    ElMessage.error(e instanceof Error ? e.message : '创建失败')
+  } finally {
+    creatingUser.value = false
   }
 }
 </script>

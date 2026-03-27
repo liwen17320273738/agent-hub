@@ -1,27 +1,95 @@
 import { defineStore } from 'pinia'
 import { ref, computed, reactive } from 'vue'
+import { ElMessage } from 'element-plus'
 import type { ChatMessage, Conversation, ConversationSearchHit } from '@/agents/types'
+import { apiUrl, isEnterpriseBuild } from '@/services/enterpriseApi'
+import { useAuthStore } from '@/stores/auth'
 
 const STORAGE_KEY = 'agent-hub-conversations'
 
+function loadLocalConversations(): Conversation[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch {
+    /* ignore */
+  }
+  return []
+}
+
 export const useChatStore = defineStore('chat', () => {
-  const conversations = ref<Conversation[]>(loadConversations())
+  const conversations = ref<Conversation[]>(isEnterpriseBuild ? [] : loadLocalConversations())
   const activeConversationId = ref<string | null>(null)
 
-  /** 按会话隔离流式状态，避免多对话并发时互相覆盖 */
   const generatingFlags = reactive<Record<string, boolean>>({})
   const streamingByConversation = reactive<Record<string, string>>({})
 
-  function loadConversations(): Conversation[] {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch { /* ignore */ }
-    return []
+  /** 企业模式下按会话串行 PATCH，避免乱序覆盖 */
+  const remoteSyncTail = new Map<string, Promise<void>>()
+
+  function isRemoteMode(): boolean {
+    return isEnterpriseBuild && useAuthStore().isLoggedIn
   }
 
-  function persist() {
+  function persistLocal() {
+    if (isRemoteMode()) return
     localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.value))
+  }
+
+  async function pushConversationToServer(conversationId: string): Promise<void> {
+    const conv = conversations.value.find((c) => c.id === conversationId)
+    if (!conv) return
+    const expectedRevision = typeof conv.revision === 'number' && Number.isInteger(conv.revision) ? conv.revision : 0
+    const r = await fetch(apiUrl(`/conversations/${conversationId}`), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: conv.title,
+        summary: conv.summary ?? null,
+        messages: conv.messages,
+        updatedAt: conv.updatedAt,
+        expectedRevision,
+      }),
+    })
+    if (r.status === 409) {
+      remoteSyncTail.delete(conversationId)
+      await loadRemoteConversations()
+      ElMessage.warning('会话已被其他成员更新，已同步为服务器最新版本')
+      return
+    }
+    if (!r.ok) {
+      const t = await r.text()
+      throw new Error(t || `HTTP ${r.status}`)
+    }
+    const data = (await r.json()) as Conversation
+    const idx = conversations.value.findIndex((c) => c.id === conversationId)
+    if (idx >= 0) {
+      conversations.value[idx].revision = data.revision
+      conversations.value[idx].updatedAt = data.updatedAt
+    }
+  }
+
+  function chainRemoteSync(conversationId: string) {
+    if (!isRemoteMode()) return
+    const tail = remoteSyncTail.get(conversationId) ?? Promise.resolve()
+    const next = tail
+      .then(() => pushConversationToServer(conversationId))
+      .catch((e) => console.error('[agent-hub] 会话同步失败', e))
+    remoteSyncTail.set(conversationId, next)
+  }
+
+  async function loadRemoteConversations(): Promise<void> {
+    if (!isEnterpriseBuild || !useAuthStore().isLoggedIn) return
+    const r = await fetch(apiUrl('/conversations'), { credentials: 'include' })
+    if (!r.ok) return
+    conversations.value = (await r.json()) as Conversation[]
+  }
+
+  function resetConversationsForEnterpriseLogout(): void {
+    remoteSyncTail.clear()
+    conversations.value = []
+    activeConversationId.value = null
   }
 
   const activeConversation = computed(() =>
@@ -34,7 +102,24 @@ export const useChatStore = defineStore('chat', () => {
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
-  function createConversation(agentId: string, title?: string): Conversation {
+  async function createConversation(agentId: string, title?: string): Promise<Conversation> {
+    if (isRemoteMode()) {
+      const r = await fetch(apiUrl('/conversations'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, title: title || '新对话' }),
+      })
+      if (!r.ok) {
+        const err = await r.text()
+        throw new Error(err || '创建会话失败')
+      }
+      const conv = (await r.json()) as Conversation
+      conversations.value.unshift(conv)
+      activeConversationId.value = conv.id
+      return conv
+    }
+
     const conv: Conversation = {
       id: crypto.randomUUID(),
       agentId,
@@ -42,10 +127,11 @@ export const useChatStore = defineStore('chat', () => {
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      revision: 0,
     }
     conversations.value.unshift(conv)
     activeConversationId.value = conv.id
-    persist()
+    persistLocal()
     return conv
   }
 
@@ -67,7 +153,8 @@ export const useChatStore = defineStore('chat', () => {
       conv.title = content.slice(0, 30) + (content.length > 30 ? '...' : '')
     }
 
-    persist()
+    persistLocal()
+    chainRemoteSync(conversationId)
     return msg
   }
 
@@ -78,7 +165,8 @@ export const useChatStore = defineStore('chat', () => {
     if (last.role !== 'assistant') return false
     conv.messages.pop()
     conv.updatedAt = Date.now()
-    persist()
+    persistLocal()
+    chainRemoteSync(conversationId)
     return true
   }
 
@@ -87,10 +175,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!conv) return
     conv.summary = summary.trim() || undefined
     conv.updatedAt = Date.now()
-    persist()
+    persistLocal()
+    chainRemoteSync(conversationId)
   }
 
-  /** 修改某条用户消息，并删除其后的所有消息（用于编辑后重发） */
   function editUserMessageAndTruncate(conversationId: string, messageId: string, newContent: string): boolean {
     const conv = conversations.value.find((c) => c.id === conversationId)
     if (!conv) return false
@@ -105,7 +193,8 @@ export const useChatStore = defineStore('chat', () => {
     if (idx === 0) {
       conv.title = newContent.slice(0, 30) + (newContent.length > 30 ? '...' : '')
     }
-    persist()
+    persistLocal()
+    chainRemoteSync(conversationId)
     return true
   }
 
@@ -146,18 +235,32 @@ export const useChatStore = defineStore('chat', () => {
     return hits
   }
 
-  function deleteConversation(id: string) {
+  async function deleteConversation(id: string): Promise<void> {
+    if (isRemoteMode()) {
+      try {
+        const r = await fetch(apiUrl(`/conversations/${id}`), {
+          method: 'DELETE',
+          credentials: 'include',
+        })
+        if (!r.ok) console.error('[agent-hub] 删除会话失败', await r.text())
+      } catch (e) {
+        console.error('[agent-hub] 删除会话失败', e)
+      }
+    }
+    remoteSyncTail.delete(id)
     conversations.value = conversations.value.filter((c) => c.id !== id)
     if (activeConversationId.value === id) {
       activeConversationId.value = null
     }
-    persist()
+    persistLocal()
   }
 
-  function clearAgentConversations(agentId: string) {
-    conversations.value = conversations.value.filter((c) => c.agentId !== agentId)
+  async function clearAgentConversations(agentId: string): Promise<void> {
+    const toRemove = conversations.value.filter((c) => c.agentId === agentId)
+    for (const c of toRemove) {
+      await deleteConversation(c.id)
+    }
     activeConversationId.value = null
-    persist()
   }
 
   function isGeneratingFor(conversationId: string) {
@@ -178,11 +281,14 @@ export const useChatStore = defineStore('chat', () => {
     delete streamingByConversation[conversationId]
   }
 
+  function persist() {
+    persistLocal()
+  }
+
   return {
     conversations,
     activeConversationId,
     activeConversation,
-    /** 供模板/计算属性订阅流式片段（按会话 id） */
     streamingByConversation,
     isGeneratingFor,
     startGeneration,
@@ -198,5 +304,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteConversation,
     clearAgentConversations,
     persist,
+    loadRemoteConversations,
+    resetConversationsForEnterpriseLogout,
   }
 })

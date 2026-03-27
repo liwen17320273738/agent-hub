@@ -27,6 +27,8 @@ export interface Conversation {
   updatedAt: number
   /** 用户触发生成的早前对话摘要，会并入系统侧上下文 */
   summary?: string
+  /** 企业模式：服务端乐观锁版本，PATCH 需携带 expectedRevision */
+  revision?: number
 }
 
 export interface ConversationSearchHit {

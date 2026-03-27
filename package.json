@@ -2,16 +2,27 @@
   "name": "agent-hub",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "packageManager": "pnpm@10.12.1",
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "vue-demi"]
   },
   "scripts": {
     "dev": "vite",
+    "dev:enterprise": "concurrently -k \"pnpm dev:server\" \"vite\"",
+    "dev:server": "node --disable-warning=ExperimentalWarning server/index.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.mjs"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie-session": "^2.1.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
     "vue": "^3.4.21",
     "vue-router": "^4.3.0",
     "pinia": "^2.1.7",
@@ -22,6 +33,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",
+    "concurrently": "^9.1.2",
     "vite": "^5.2.8",
     "typescript": "^5.4.0",
     "@types/markdown-it": "^14.1.2"

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0c4a6e" />
+  <title>2026清明 · 昆明⇄北海</title>
+  <style>
+    :root {
+      --bg0: #0c1929;
+      --bg1: #0f2847;
+      --card: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #e8f4fc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent2: #a5f3fc;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      font-family: ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: linear-gradient(165deg, var(--bg0) 0%, var(--bg1) 45%, #0a1628 100%);
+      background-size: 200% 200%;
+      animation: bgShift 18s ease-in-out infinite;
+      padding: 1rem 1rem calc(1.5rem + var(--safe-bottom));
+      overflow-x: hidden;
+    }
+
+    @keyframes bgShift {
+      0%, 100% { background-position: 0% 40%; }
+      50% { background-position: 100% 60%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      body { animation: none; background-size: 100% 100%; }
+      .wave-wrap, .card, h1 .dot { animation: none !important; }
+      .card { opacity: 1; transform: none; }
+    }
+
+    .shell {
+      max-width: 28rem;
+      margin: 0 auto;
+      position: relative;
+      z-index: 1;
+    }
+
+    header {
+      text-align: center;
+      padding: 1.25rem 0 1rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.35;
+    }
+
+    h1 .dot {
+      display: inline-block;
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: var(--accent2);
+      margin-left: 0.35rem;
+      vertical-align: middle;
+      animation: pulse 2.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.15); }
+    }
+
+    .sub {
+      margin: 0.5rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      animation: fadeIn 0.8s ease both;
+      animation-delay: 0.15s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.95rem 1rem;
+      margin-bottom: 0.75rem;
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      opacity: 0;
+      transform: translateY(14px);
+      animation: rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes rise {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .card:nth-child(1) { animation-delay: 0.05s; }
+    .card:nth-child(2) { animation-delay: 0.12s; }
+    .card:nth-child(3) { animation-delay: 0.19s; }
+    .card:nth-child(4) { animation-delay: 0.26s; }
+    .card:nth-child(5) { animation-delay: 0.33s; }
+    .card:nth-child(6) { animation-delay: 0.4s; }
+    .card:nth-child(7) { animation-delay: 0.47s; }
+    .card:nth-child(8) { animation-delay: 0.54s; }
+
+    .card h2 {
+      margin: 0 0 0.5rem;
+      font-size: 0.95rem;
+      color: var(--accent);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .card h2 span.icon {
+      font-size: 1rem;
+      filter: grayscale(0.2);
+    }
+
+    .card p,
+    .card li {
+      margin: 0;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      color: var(--text);
+    }
+
+    .card ul {
+      margin: 0.35rem 0 0;
+      padding-left: 1.1rem;
+    }
+
+    .card li + li {
+      margin-top: 0.25rem;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.68rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent2);
+      margin-right: 0.35rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .wave-wrap {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 120px;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.35;
+    }
+
+    .wave-wrap svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .wave {
+      animation: waveMove 8s linear infinite;
+    }
+
+    @keyframes waveMove {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
+    }
+
+    footer {
+      text-align: center;
+      font-size: 0.72rem;
+      color: var(--muted);
+      padding-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wave-wrap" aria-hidden="true">
+    <svg viewBox="0 0 1200 120" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.5" />
+          <stop offset="100%" stop-color="#0c4a6e" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <g class="wave">
+        <path fill="url(#g)" d="M0,60 C150,100 350,20 600,60 C850,100 1050,20 1200,60 L1200,120 L0,120 Z" />
+        <path fill="url(#g)" transform="translate(1200,0)" d="M0,60 C150,100 350,20 600,60 C850,100 1050,20 1200,60 L1200,120 L0,120 Z" />
+      </g>
+    </svg>
+  </div>
+
+  <div class="shell">
+    <header>
+      <h1>2026 清明 · 昆明⇄北海<span class="dot"></span></h1>
+      <p class="sub">高铁优先 · 手机阅读版 · 轻动画</p>
+    </header>
+
+    <section class="card">
+      <h2><span class="icon">📅</span>日期</h2>
+      <p>放假 <strong>4.4（六）～4.6（一）</strong>。行程目标：<strong>4.3 周五晚</strong> 或 <strong>4.4 周六早</strong> 出发，<strong>最迟 4.5 周日晚</strong> 回昆明。</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🌤️</span>天气</h2>
+      <p>出发前约 <strong>7～15 天</strong> 再看逐日预报。4 月初北海大致：白天暖、海风大、可能阵雨，带 <strong>薄外套+伞+防晒</strong>。</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🚄</span>高铁</h2>
+      <p>12306：<strong>昆明/昆明南 → 北海</strong> 优先直达；无票则 <strong>昆明南→南宁东→北海</strong>，换乘留 <strong>40～50 分钟</strong>。返程同样优先直达。</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🅰️</span>方案 A · 周五出发</h2>
+      <p class="muted">19:00 才往车站赶，往往赶不上末班车 → 建议 <strong>18:00 前到昆明南</strong> 去南宁，住东站附近，周六早进北海。</p>
+      <ul>
+        <li>周六：午饭后银滩 → 日落 → 侨港夜宵</li>
+        <li>周日：老街外沙 → 下午返程</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🅱️</span>方案 B · 周六早出发</h2>
+      <ul>
+        <li>周六下午到：银滩日落 + 侨港</li>
+        <li>周日：晨走或老街 → 尽早去北海站回程</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🏨</span>住宿</h2>
+      <p>
+        <span class="tag">银滩</span>
+        <span class="tag">侨港</span>
+        <span class="tag">老城</span>
+      </p>
+      <p class="muted" style="margin-top:0.35rem">玩海住银滩/侨港；拍骑楼住老城（去银滩略远）。</p>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">🎒</span>必备</h2>
+      <ul>
+        <li>身份证、充电宝、常用药（肠胃/晕车）</li>
+        <li>拖鞋、防水手机袋、帽子墨镜</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2><span class="icon">⚠️</span>注意</h2>
+      <ul>
+        <li>往返票一起抢；到站提前 <strong>1.5～2h</strong></li>
+        <li>海鲜称斤、问清加工费；海边看警示</li>
+      </ul>
+    </section>
+
+    <footer>本地文件或 dev 服务器打开 · 系统「减少动态效果」会自动减弱动画</footer>
+  </div>
+</body>
+</html>

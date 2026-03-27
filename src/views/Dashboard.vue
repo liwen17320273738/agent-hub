@@ -6,9 +6,14 @@
       <div class="status-bar" v-if="!settingsStore.isConfigured()">
         <el-alert type="warning" :closable="false" show-icon>
           <template #title>
-            尚未配置 API Key，请先前往
-            <router-link to="/settings" style="color: var(--accent)">设置页面</router-link>
-            配置 LLM 服务
+            <template v-if="isEnterpriseBuild">
+              服务端尚未配置模型网关（LLM_API_URL / LLM_API_KEY），请联系管理员部署环境变量后重启服务。
+            </template>
+            <template v-else>
+              尚未配置 API Key，请先前往
+              <router-link to="/settings" style="color: var(--accent)">设置页面</router-link>
+              配置 LLM 服务
+            </template>
           </template>
         </el-alert>
       </div>
@@ -59,6 +64,7 @@
 import { computed } from 'vue'
 import { agents } from '@/agents/registry'
 import { useSettingsStore } from '@/stores/settings'
+import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useChatStore } from '@/stores/chat'
 import AgentCard from '@/components/AgentCard.vue'
 

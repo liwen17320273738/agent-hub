@@ -2,7 +2,9 @@
   <div class="model-lab-page">
     <header class="page-header">
       <h1>模型实验室</h1>
-      <p class="subtitle">参考评分 + 同一提示词下的延迟与输出对比（使用当前设置中的 API 与 Key）</p>
+      <p class="subtitle">
+        参考评分 + 同一提示词下的延迟与输出对比（个人模式使用本地 API Key；企业模式经服务端统一网关）
+      </p>
     </header>
 
     <el-alert type="info" show-icon :closable="false" class="lab-alert">
@@ -36,7 +38,10 @@
       <template #header>
         <span>对比实测</span>
       </template>
-      <p v-if="!settingsStore.isConfigured()" class="warn-text">请先在「设置」中配置 API Key 后再运行。</p>
+      <p v-if="!settingsStore.isConfigured()" class="warn-text">
+        <template v-if="isEnterpriseBuild">请等待管理员配置服务端 LLM 环境变量后再运行。</template>
+        <template v-else>请先在「设置」中配置 API Key 后再运行。</template>
+      </p>
       <template v-else>
         <p class="hint-text">
           将使用设置里的 API 地址与 Key，仅替换 <code>model</code> 字段。请选择与当前 API
@@ -119,11 +124,15 @@ import {
   SCORE_LABELS,
   PROVIDER_LABEL,
   catalogMatchingApiUrl,
+  inferDefaultApiFromLlmHost,
 } from '@/services/modelCatalog'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
+import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { chatCompletionOnce } from '@/services/llm'
 
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 
 const benchPrompt = ref(
   '请用约 200 字以内中文，说明「一人公司」使用 AI 的三条务实建议，每条一句话举例。',
@@ -141,7 +150,16 @@ const benchResults = ref<
   }>
 >([])
 
-const matchingCatalog = computed(() => catalogMatchingApiUrl(settingsStore.settings.apiUrl))
+const catalogSourceUrl = computed(() => {
+  const u = settingsStore.settings.apiUrl?.trim()
+  if (u) return u
+  if (isEnterpriseBuild && authStore.publicLlm?.host) {
+    return inferDefaultApiFromLlmHost(authStore.publicLlm.host)
+  }
+  return ''
+})
+
+const matchingCatalog = computed(() => catalogMatchingApiUrl(catalogSourceUrl.value))
 
 watch(
   matchingCatalog,

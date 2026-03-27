@@ -1,0 +1,40 @@
+# 用法: docker compose up --build -d（镜像内会执行 pnpm build）
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agenthub
+      POSTGRES_PASSWORD: agenthub
+      POSTGRES_DB: agenthub
+    volumes:
+      - agenthub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U agenthub -d agenthub']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: /
+        VITE_ENTERPRISE: 'true'
+    ports:
+      - '8787:8787'
+    environment:
+      PORT: '8787'
+      DATABASE_URL: postgresql://agenthub:agenthub@db:5432/agenthub
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
+      LLM_API_URL: ${LLM_API_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  agenthub_pg:

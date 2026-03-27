@@ -7,9 +7,12 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router'
 import './styles/main.css'
+import { isEnterpriseBuild } from './services/enterpriseApi'
+import { useAuthStore } from './stores/auth'
 
 const app = createApp(App)
-app.use(createPinia())
+const pinia = createPinia()
+app.use(pinia)
 app.use(router)
 app.use(ElementPlus)
 
@@ -17,4 +20,9 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-app.mount('#app')
+;(async () => {
+  if (isEnterpriseBuild) {
+    await useAuthStore().hydrate()
+  }
+  app.mount('#app')
+})()

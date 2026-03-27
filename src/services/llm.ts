@@ -1,4 +1,7 @@
 import type { ToolCall } from './tools'
+import { apiUrl, isEnterpriseBuild } from './enterpriseApi'
+import { useAuthStore } from '@/stores/auth'
+import { useSettingsStore } from '@/stores/settings'
 
 export interface LLMSettings {
   apiUrl: string
@@ -59,6 +62,14 @@ function resolveApiUrl(apiUrl: string): string {
   return apiUrl
 }
 
+function useServerLlm(): boolean {
+  try {
+    return isEnterpriseBuild && useAuthStore().isLoggedIn
+  } catch {
+    return false
+  }
+}
+
 export interface ChatCompletionOptions {
   signal?: AbortSignal
 }
@@ -73,9 +84,8 @@ export async function chatCompletionApiMessage(
   settings: LLMSettings,
   options?: ChatCompletionApiOptions,
 ): Promise<{ content: string | null; tool_calls?: ToolCall[] }> {
-  const url = resolveApiUrl(settings.apiUrl)
   const body: Record<string, unknown> = {
-    model: settings.model,
+    model: useServerLlm() ? useSettingsStore().effectiveModel() : settings.model,
     messages,
     temperature: settings.temperature,
     max_tokens: Math.min(settings.maxTokens, 16384),
@@ -86,15 +96,23 @@ export async function chatCompletionApiMessage(
     body.tool_choice = 'auto'
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal: options?.signal,
-  })
+  const response = useServerLlm()
+    ? await fetch(apiUrl('/llm/chat-api'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      })
+    : await fetch(resolveApiUrl(settings.apiUrl), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      })
 
   if (!response.ok) {
     const err = await response.text()
@@ -117,22 +135,31 @@ export async function chatCompletion(
   onChunk?: (text: string) => void,
   options?: ChatCompletionOptions,
 ): Promise<string> {
-  const url = resolveApiUrl(settings.apiUrl)
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${settings.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: settings.model,
-      messages,
-      temperature: settings.temperature,
-      max_tokens: Math.min(settings.maxTokens, 16384),
-      stream: !!onChunk,
-    }),
-    signal: options?.signal,
-  })
+  const payload = {
+    model: useServerLlm() ? useSettingsStore().effectiveModel() : settings.model,
+    messages,
+    temperature: settings.temperature,
+    max_tokens: Math.min(settings.maxTokens, 16384),
+    stream: !!onChunk,
+  }
+
+  const response = useServerLlm()
+    ? await fetch(apiUrl('/llm/chat'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: options?.signal,
+      })
+    : await fetch(resolveApiUrl(settings.apiUrl), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify(payload),
+        signal: options?.signal,
+      })
 
   if (!response.ok) {
     const err = await response.text()
@@ -167,27 +194,62 @@ export async function chatCompletionOnce(
   options?: ChatCompletionOptions & { model?: string },
 ): Promise<CompletionOnceResult> {
   const started = performance.now()
-  const url = resolveApiUrl(settings.apiUrl)
-  const model = options?.model ?? settings.model
+  const model = useServerLlm()
+    ? (options?.model ?? useSettingsStore().effectiveModel())
+    : (options?.model ?? settings.model)
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${settings.apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: settings.temperature,
-        max_tokens: Math.min(settings.maxTokens, 16384),
-        stream: false,
-      }),
-      signal: options?.signal,
-    })
+    const body = {
+      model,
+      messages,
+      temperature: settings.temperature,
+      max_tokens: Math.min(settings.maxTokens, 16384),
+      stream: false,
+    }
+
+    const response = useServerLlm()
+      ? await fetch(apiUrl('/llm/chat-once'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: options?.signal,
+        })
+      : await fetch(resolveApiUrl(settings.apiUrl), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify(body),
+          signal: options?.signal,
+        })
 
     const latencyMs = Math.round(performance.now() - started)
+
+    if (useServerLlm()) {
+      const data = (await response.json()) as {
+        content?: string
+        latencyMs?: number
+        usage?: CompletionUsage
+        error?: string
+      }
+      if (!response.ok) {
+        return {
+          content: '',
+          latencyMs: data.latencyMs ?? latencyMs,
+          error: data.error || `HTTP ${response.status}`,
+        }
+      }
+      if (data.error) {
+        return { content: '', latencyMs: data.latencyMs ?? latencyMs, error: data.error }
+      }
+      return {
+        content: data.content ?? '',
+        latencyMs: data.latencyMs ?? latencyMs,
+        usage: data.usage,
+      }
+    }
 
     if (!response.ok) {
       const err = await response.text()

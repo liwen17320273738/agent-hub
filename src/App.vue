@@ -1,6 +1,6 @@
 <template>
-  <div class="app-container dark">
-    <aside class="app-sidebar">
+  <div class="app-container dark" :class="{ 'is-login-route': isLoginRoute }">
+    <aside v-if="!isLoginRoute" class="app-sidebar">
       <div class="sidebar-header" @click="$router.push('/')">
         <el-icon :size="28"><Monitor /></el-icon>
         <span class="sidebar-title">Agent Hub</span>
@@ -44,6 +44,16 @@
           <span>模型实验室</span>
         </router-link>
 
+        <a
+          class="nav-item"
+          :href="beihaiTripStandaloneUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <el-icon><Tickets /></el-icon>
+          <span>北海行程</span>
+        </a>
+
         <div class="nav-group-label">核心智能体</div>
         <router-link
           v-for="agent in coreAgents"
@@ -74,6 +84,14 @@
       </nav>
 
       <div class="sidebar-footer">
+        <div v-if="isEnterpriseBuild && authStore.user" class="sidebar-user">
+          <span class="user-org" :title="authStore.user.orgName">{{ authStore.user.orgName }}</span>
+          <span class="user-email" :title="authStore.user.email">{{ authStore.user.displayName || authStore.user.email }}</span>
+          <el-button text type="danger" size="small" class="logout-btn" @click="handleLogout">
+            <el-icon><SwitchButton /></el-icon>
+            退出
+          </el-button>
+        </div>
         <router-link to="/settings" class="nav-item" active-class="active">
           <el-icon><Setting /></el-icon>
           <span>设置</span>
@@ -81,7 +99,7 @@
       </div>
     </aside>
 
-    <main class="app-main">
+    <main class="app-main" :class="{ 'app-main--full': isLoginRoute }">
       <router-view />
     </main>
   </div>
@@ -89,14 +107,27 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { SwitchButton, Tickets } from '@element-plus/icons-vue'
 import { agents } from '@/agents/registry'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useChatStore } from '@/stores/chat'
+import { useAuthStore } from '@/stores/auth'
+import { isEnterpriseBuild } from '@/services/enterpriseApi'
 
+const route = useRoute()
 const router = useRouter()
 const chatStore = useChatStore()
+const authStore = useAuthStore()
 const searchQuery = ref('')
+
+const isLoginRoute = computed(() => route.name === 'login')
+
+const beihaiTripStandaloneUrl = (() => {
+  const base = import.meta.env.BASE_URL || '/'
+  const path = 'beihai-trip-animated.html'
+  return base.endsWith('/') ? `${base}${path}` : `${base}/${path}`
+})()
 
 const coreAgents = computed(() => agents.filter((a) => a.category === 'core'))
 const supportAgents = computed(() => agents.filter((a) => a.category === 'support'))
@@ -114,6 +145,11 @@ function openSearchHit(h: ConversationSearchHit) {
     params: { id: h.agentId },
     query: { c: h.conversationId },
   })
+}
+
+async function handleLogout() {
+  await authStore.logout()
+  router.push({ name: 'login' })
 }
 </script>
 
@@ -177,5 +213,44 @@ function openSearchHit(h: ConversationSearchHit) {
   color: var(--text-muted);
   margin-top: 8px;
   padding: 0 4px;
+}
+
+.sidebar-user {
+  padding: 10px 12px 12px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.user-org {
+  display: block;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-email {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  margin-top: 8px;
+  padding: 0 !important;
+}
+
+.app-main--full {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.is-login-route .app-main--full {
+  max-width: none;
 }
 </style>

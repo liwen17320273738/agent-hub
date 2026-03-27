@@ -142,6 +142,15 @@ export function detectProviderFromApiUrl(apiUrl: string): ModelProvider | null {
   return null
 }
 
+/** 企业模式仅暴露上游 host 时，用于模型实验室的厂商匹配 */
+export function inferDefaultApiFromLlmHost(host: string): string {
+  const h = host.toLowerCase()
+  if (h.includes('deepseek')) return PROVIDER_DEFAULT_API.deepseek
+  if (h.includes('openai')) return PROVIDER_DEFAULT_API.openai
+  if (h.includes('dashscope') || h.includes('aliyuncs')) return PROVIDER_DEFAULT_API.qwen
+  return ''
+}
+
 export function catalogByProvider(provider: ModelProvider): ModelCatalogEntry[] {
   return MODEL_CATALOG.filter((m) => m.provider === provider)
 }
