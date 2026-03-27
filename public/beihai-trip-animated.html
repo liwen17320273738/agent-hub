@@ -439,11 +439,9 @@
     </video>
   </div>
 
-  <audio id="bgm" loop preload="metadata" playsinline>
-    <!-- Kevin MacLeod — Continue Life · CC BY 3.0 · incompetech.com -->
-    <source src="https://incompetech.com/music/royalty-free/mp3-royaltyfree/Continue%20Life.mp3" type="audio/mpeg" />
-  </audio>
-  <button type="button" class="music-fab" id="musicBtn" aria-pressed="false" title="点击播放/暂停配乐">♪</button>
+  <!-- BGM：与 jacky-cheung-previews.html 同源 — iTunes HK 官方试听约 30s×3 自动轮播循环；失败则回退 beihai-sea/bgm-yue.mp3 并 loop -->
+  <audio id="bgm" preload="auto" playsinline autoplay></audio>
+  <button type="button" class="music-fab" id="musicBtn" aria-pressed="false" title="打开页面后若没声：轻触屏幕任意处，或点 ♪">♪</button>
 
   <header class="hero">
     <div class="hero-bg" aria-hidden="true">
@@ -750,7 +748,7 @@
           <li><strong>回家的小信物</strong>：捡一枚干净的贝壳、留一个杯套或车票——体验型回忆配一件<strong>看得见的锚</strong>，快乐会拖得更长（很多消费心理学都写过：体验 + 小纪念，比纯买东西更耐回味）。</li>
         </ul>
         <p style="margin-bottom:0;font-size:0.72rem;color:var(--muted);">
-          以上不是教条。李文与丁敏可以只留这一套<strong>专属梗</strong>：<strong>他叫她「A1」、她叫他「压轴」</strong>（演唱会第一排与最后一首的温柔双关）；人多时一句<strong>「包换到里侧」</strong>，他自然站到<strong>斜挎包朝外</strong>那一边当人形护栏；累了就说<strong>「申请软着陆」</strong>，对方接<strong>「廊桥好了，你慢慢落」</strong>；睡前<strong>「听完这首再睡」</strong>——张学友的歌单里，随便哪首都能当你们的休止符。
+          以上不是教条。李文与丁敏可以只留这一套<strong>专属梗</strong>：<strong>他叫她「A1」、她叫他「压轴」</strong>（演唱会第一排与最后一首的温柔双关）；人多时一句<strong>「包换到里侧」</strong>，他自然站到<strong>斜挎包朝外</strong>那一边当人形护栏；累了就说<strong>「申请软着陆」</strong>，对方接<strong>「廊桥好了，你慢慢落」</strong>。她听歌的私心也很小：张学友<strong>《离开以后》《讲你知》《应该不应该》</strong>这三首，是她<strong>最喜欢</strong>的——《离开以后》像余温，《讲你知》像把话说明白，《应该不应该》像那些犹豫也由你接得住；睡前一句<strong>「听完这首再睡」</strong>，三首里任挑一首单曲循环，就是你们的休止符。
         </p>
       </div>
     </section>
@@ -759,7 +757,7 @@
   <footer class="page-ft">
     背景为<strong>晴暖海风浪循环视频</strong>（全页偏积极向上；各章为同系列不同片段，配情绪文案）。优先 <code style="color:#7dd3fc">beihai-sea/*.mp4</code>，否则 Pexels；<code style="color:#7dd3fc">poster</code> 为静帧备选。使用须遵守 <a href="https://www.pexels.com/license/" rel="noopener noreferrer" target="_blank">Pexels License</a>。<br />
     若要用<strong>北海实拍</strong>：把视频放到 <code style="color:#7dd3fc">public/beihai-sea/</code> 与各章同名的 <code style="color:#7dd3fc">.mp4</code>（及可选 <code style="color:#7dd3fc">hero-sea.mp4</code>）即可优先于外链播放。<br />
-    配乐：Kevin MacLeod「Continue Life」— <a href="https://incompetech.com" rel="noopener noreferrer" target="_blank">incompetech.com</a>（CC BY 3.0）。<br />
+    背景音乐为张学友三首的 <strong>Apple iTunes 官方试听</strong>（与 <a href="jacky-cheung-previews.html">jacky-cheung-previews.html</a> 相同接口，每段约 30 秒，三首循环轮播）。若无法拉取试听则回退 <code style="color:#7dd3fc">beihai-sea/bgm-yue.mp3</code>（<a href="https://creativecommons.org/licenses/by/3.0/" rel="noopener noreferrer" target="_blank">CC BY 3.0</a> · <a href="https://ccmixter.org/files/moonofmagick/60472" rel="noopener noreferrer" target="_blank">ccMixter</a>）。完整版请在音乐平台购买。<br />
     放假日期以中国政府网公布的 2026 年节假日安排为准；车次与票价以 12306 为准。
     <span class="dedication" lang="zh-CN">致李文、丁敏</span>
   </footer>
@@ -816,17 +814,210 @@
       var audio = document.getElementById("bgm");
       if (!btn || !audio) return;
 
+      var ITUNES = "https://itunes.apple.com/search";
+      var COUNTRY = "hk";
+      var FALLBACK_MP3 = "beihai-sea/bgm-yue.mp3";
+      var jackyUrls = [];
+      var jackyIndex = 0;
+      var jackyLoadState = "loading";
+      var pendingPlay = false;
+
+      var QUERIES = [
+        { label: "应该不应该（库内多作「該不該」）", term: "張學友 該不該", pick: pickFirst },
+        { label: "离开以后", term: "張學友 離開以後", pick: pickStudioLeave },
+        { label: "讲你知", term: "張學友 講妳知", pick: pickFirst }
+      ];
+
+      function pickFirst(results) {
+        return results[0] || null;
+      }
+
+      function pickStudioLeave(results) {
+        for (var i = 0; i < results.length; i++) {
+          var t = results[i].trackName || "";
+          if (t === "離開以後" && t.indexOf("Live") === -1) return results[i];
+        }
+        for (var j = 0; j < results.length; j++) {
+          if ((results[j].trackName || "").indexOf("離開以後") === 0 && (results[j].trackName || "").indexOf("Live") === -1) {
+            return results[j];
+          }
+        }
+        return results[0] || null;
+      }
+
+      function jsonp(url, cb) {
+        var name = "_itunes_cb_" + Math.random().toString(36).slice(2, 11);
+        window[name] = function (data) {
+          try {
+            cb(null, data);
+          } finally {
+            delete window[name];
+            if (s.parentNode) s.parentNode.removeChild(s);
+          }
+        };
+        var s = document.createElement("script");
+        s.onerror = function () {
+          delete window[name];
+          if (s.parentNode) s.parentNode.removeChild(s);
+          cb(new Error("iTunes JSONP 失败"));
+        };
+        s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + encodeURIComponent(name);
+        document.head.appendChild(s);
+      }
+
+      function search(term, done) {
+        var q =
+          ITUNES +
+          "?country=" +
+          encodeURIComponent(COUNTRY) +
+          "&media=music&entity=song&limit=8&term=" +
+          encodeURIComponent(term);
+        jsonp(q, done);
+      }
+
+      function applyFallbackBgm() {
+        jackyUrls = [];
+        jackyLoadState = "fallback";
+        audio.loop = true;
+        audio.src = FALLBACK_MP3;
+        btn.setAttribute("title", "播放/暂停背景音乐（试听不可用，已用本地回退）");
+      }
+
+      function onJackyEnded() {
+        if (jackyUrls.length === 0) return;
+        jackyIndex = (jackyIndex + 1) % jackyUrls.length;
+        audio.src = jackyUrls[jackyIndex];
+        audio.play().catch(function () {});
+      }
+
+      var bgmGestureUnlockInstalled = false;
+
+      function installBgmGestureUnlock() {
+        if (bgmGestureUnlockInstalled) return;
+        bgmGestureUnlockInstalled = true;
+        document.addEventListener(
+          "pointerdown",
+          function bgmUnlock(ev) {
+            if (btn.contains(ev.target)) return;
+            if (jackyLoadState === "loading") return;
+            if (!audio.paused) {
+              document.removeEventListener("pointerdown", bgmUnlock, true);
+              bgmGestureUnlockInstalled = false;
+              return;
+            }
+            document.removeEventListener("pointerdown", bgmUnlock, true);
+            bgmGestureUnlockInstalled = false;
+            tryStartPlay();
+          },
+          true
+        );
+      }
+
+      function finishJackyLoad(collected) {
+        var urls = [];
+        for (var i = 0; i < collected.length; i++) {
+          if (collected[i]) urls.push(collected[i]);
+        }
+        if (urls.length > 0) {
+          jackyUrls = urls;
+          jackyLoadState = "itunes";
+          audio.loop = false;
+          btn.setAttribute("title", "播放/暂停：张学友三首 iTunes 官方试听（约 30s/段，循环）");
+        } else {
+          applyFallbackBgm();
+        }
+
+        var clickedWhileLoading = pendingPlay;
+        pendingPlay = false;
+        var tryAuto = clickedWhileLoading || !reduceMotion;
+
+        jackyIndex = 0;
+        if (jackyUrls.length > 0) {
+          audio.src = jackyUrls[0];
+        }
+        audio.volume = 0.42;
+
+        function onPlayOk() {
+          btn.classList.add("playing");
+          btn.setAttribute("aria-pressed", "true");
+          btn.textContent = "♫";
+        }
+
+        function onPlayBlocked() {
+          btn.classList.remove("playing");
+          btn.setAttribute("aria-pressed", "false");
+          btn.textContent = "♪";
+          btn.setAttribute(
+            "title",
+            "浏览器拦截了自动播放：请轻触页面空白处一次，或点 ♪"
+          );
+          installBgmGestureUnlock();
+        }
+
+        if (tryAuto) {
+          audio.play().then(onPlayOk).catch(onPlayBlocked);
+        } else {
+          btn.setAttribute("title", "已开启减少动态效果：轻触页面或点 ♪ 播放");
+          installBgmGestureUnlock();
+        }
+      }
+
+      function tryStartPlay() {
+        audio.volume = 0.42;
+        if (jackyLoadState === "loading") {
+          pendingPlay = true;
+          btn.setAttribute("title", "试听链接加载中，请稍候…");
+          return;
+        }
+        if (jackyLoadState === "itunes" && jackyUrls.length > 0) {
+          var cur = audio.src || "";
+          var match = false;
+          for (var k = 0; k < jackyUrls.length; k++) {
+            if (cur.indexOf(jackyUrls[k].split("?")[0]) >= 0) {
+              match = true;
+              break;
+            }
+          }
+          if (!match) {
+            jackyIndex = 0;
+            audio.src = jackyUrls[0];
+          }
+        }
+        audio.play().then(function () {
+          btn.classList.add("playing");
+          btn.setAttribute("aria-pressed", "true");
+          btn.textContent = "♫";
+        }).catch(function () {
+          btn.textContent = "!";
+          btn.setAttribute("title", "无法播放：请检查网络或 Apple 试听是否可访问");
+        });
+      }
+
+      audio.addEventListener("ended", onJackyEnded);
+
+      var remainingQ = QUERIES.length;
+      var collectedUrls = new Array(QUERIES.length);
+
+      QUERIES.forEach(function (cfg, idx) {
+        search(cfg.term, function (err, data) {
+          if (err || !data || !data.results) {
+            collectedUrls[idx] = null;
+          } else {
+            var item = cfg.pick(data.results);
+            collectedUrls[idx] = item && item.previewUrl ? item.previewUrl : null;
+          }
+          remainingQ--;
+          if (remainingQ <= 0) {
+            finishJackyLoad(collectedUrls);
+          }
+        });
+      });
+
       btn.addEventListener("click", function () {
         if (audio.paused) {
-          audio.volume = 0.35;
-          audio.play().then(function () {
-            btn.classList.add("playing");
-            btn.setAttribute("aria-pressed", "true");
-            btn.textContent = "♫";
-          }).catch(function () {
-            btn.textContent = "!";
-          });
+          tryStartPlay();
         } else {
+          pendingPlay = false;
           audio.pause();
           btn.classList.remove("playing");
           btn.setAttribute("aria-pressed", "false");

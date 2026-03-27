@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="张学友三首：Apple Music / iTunes Store 官方试听（约30秒）" />
+  <title>张学友 · 三首试听</title>
+  <style>
+    :root {
+      --bg: #0c1220;
+      --card: rgba(255, 255, 255, 0.06);
+      --border: rgba(125, 211, 252, 0.2);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --font: ui-sans-serif, "PingFang HK", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      color: var(--text);
+      background: radial-gradient(1200px 600px at 20% -10%, #1e3a5f 0%, transparent 55%), var(--bg);
+      line-height: 1.6;
+      padding: 1.25rem clamp(1rem, 4vw, 2rem) 2.5rem;
+    }
+    h1 { font-size: 1.35rem; font-weight: 650; margin: 0 0 0.35rem; letter-spacing: 0.02em; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 1.25rem; max-width: 40rem; }
+    .warn {
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      color: #fde68a;
+      padding: 0.65rem 0.85rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      margin-bottom: 1.25rem;
+      max-width: 40rem;
+    }
+    ul.tracks { list-style: none; padding: 0; margin: 0; display: grid; gap: 1rem; }
+    li.track {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem 1.1rem;
+      max-width: 36rem;
+    }
+    li.track h2 { margin: 0 0 0.2rem; font-size: 1.05rem; font-weight: 600; }
+    li.track .meta { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.65rem; }
+    li.track .err { color: #fca5a5; font-size: 0.85rem; }
+    audio { width: 100%; margin-top: 0.25rem; height: 40px; }
+    .loading { color: var(--muted); font-size: 0.9rem; }
+    a.store { color: var(--accent); font-size: 0.85rem; text-decoration: none; }
+    a.store:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>张学友 · 三首试听</h1>
+  <p class="sub">通过 Apple iTunes Search API 拉取<strong>官方试听</strong>链接（通常约 30 秒），在下方播放器直接播放。完整版请在 Apple Music、QQ 音乐、网易云等平台收听或购买。</p>
+  <p class="warn">说明：此处仅为 iTunes Store 提供的预览片段，不提供整首下载；试听链接由 Apple 托管，可能随地区/版权变化。</p>
+  <p class="loading" id="status">正在从 iTunes（香港区）拉取试听…</p>
+  <ul class="tracks" id="list"></ul>
+
+  <script>
+    (function () {
+      var ITUNES = "https://itunes.apple.com/search";
+      var COUNTRY = "hk";
+
+      var QUERIES = [
+        { label: "应该不应该（库内多作「該不該」）", term: "張學友 該不該", pick: pickFirst },
+        { label: "离开以后", term: "張學友 離開以後", pick: pickStudioLeave },
+        { label: "讲你知", term: "張學友 講妳知", pick: pickFirst }
+      ];
+
+      function pickFirst(results) {
+        return results[0] || null;
+      }
+
+      function pickStudioLeave(results) {
+        for (var i = 0; i < results.length; i++) {
+          var t = results[i].trackName || "";
+          if (t === "離開以後" && t.indexOf("Live") === -1) return results[i];
+        }
+        for (var j = 0; j < results.length; j++) {
+          if ((results[j].trackName || "").indexOf("離開以後") === 0 && (results[j].trackName || "").indexOf("Live") === -1) {
+            return results[j];
+          }
+        }
+        return results[0] || null;
+      }
+
+      function jsonp(url, cb) {
+        var name = "_itunes_cb_" + Math.random().toString(36).slice(2, 11);
+        window[name] = function (data) {
+          try {
+            cb(null, data);
+          } finally {
+            delete window[name];
+            if (s.parentNode) s.parentNode.removeChild(s);
+          }
+        };
+        var s = document.createElement("script");
+        s.onerror = function () {
+          delete window[name];
+          if (s.parentNode) s.parentNode.removeChild(s);
+          cb(new Error("加载 iTunes 接口失败"));
+        };
+        s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + encodeURIComponent(name);
+        document.head.appendChild(s);
+      }
+
+      function search(term, done) {
+        var q =
+          ITUNES +
+          "?country=" +
+          encodeURIComponent(COUNTRY) +
+          "&media=music&entity=song&limit=8&term=" +
+          encodeURIComponent(term);
+        jsonp(q, done);
+      }
+
+      function renderTrack(li, item, userLabel) {
+        var h = document.createElement("h2");
+        h.textContent = userLabel;
+        li.appendChild(h);
+        if (!item) {
+          var e = document.createElement("p");
+          e.className = "err";
+          e.textContent = "未找到匹配曲目或暂无试听。";
+          li.appendChild(e);
+          return;
+        }
+        var meta = document.createElement("div");
+        meta.className = "meta";
+        meta.textContent =
+          (item.trackName || "—") +
+          " · " +
+          (item.collectionName || "—") +
+          (item.releaseDate ? " · " : "") +
+          (item.releaseDate ? String(item.releaseDate).slice(0, 4) : "");
+        li.appendChild(meta);
+        var url = item.previewUrl;
+        if (!url) {
+          var e2 = document.createElement("p");
+          e2.className = "err";
+          e2.textContent = "此条目当前无 previewUrl。";
+          li.appendChild(e2);
+          return;
+        }
+        var a = document.createElement("audio");
+        a.controls = true;
+        a.preload = "none";
+        a.src = url;
+        li.appendChild(a);
+        if (item.trackViewUrl) {
+          var link = document.createElement("a");
+          link.className = "store";
+          link.href = item.trackViewUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = "在 iTunes / Apple Music 中打开";
+          link.style.display = "inline-block";
+          link.style.marginTop = "0.5rem";
+          li.appendChild(link);
+        }
+      }
+
+      var list = document.getElementById("list");
+      var status = document.getElementById("status");
+      var remaining = QUERIES.length;
+
+      function tick() {
+        remaining--;
+        if (remaining <= 0) {
+          status.textContent = "已加载。若无法播放，请检查网络或对 Apple CDN 的访问。";
+        }
+      }
+
+      QUERIES.forEach(function (cfg) {
+        var li = document.createElement("li");
+        li.className = "track";
+        list.appendChild(li);
+        search(cfg.term, function (err, data) {
+          if (err || !data || !data.results) {
+            renderTrack(li, null, cfg.label);
+            tick();
+            return;
+          }
+          var item = cfg.pick(data.results);
+          renderTrack(li, item, cfg.label);
+          tick();
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
