@@ -26,6 +26,20 @@
       。
     </el-alert>
 
+    <el-alert class="wayne-stack-teaser" type="warning" :closable="false" show-icon>
+      <template #title>Wayne Stack 蓝图</template>
+      已加入 Claude Code 终端中枢、多模型分工、命令路由与执行链展示，见
+      <router-link class="teaser-link" to="/wayne-stack">Wayne Stack</router-link>
+      页面。
+    </el-alert>
+
+    <el-alert class="wayne-console-teaser" type="info" :closable="false" show-icon>
+      <template #title>Wayne Console</template>
+      现在可以从
+      <router-link class="teaser-link" to="/wayne-console">Wayne Console</router-link>
+      一键进入 Wayne 总控、产品、开发、QA 的真实工作流入口。
+    </el-alert>
+
     <section class="agent-section">
       <h2 class="section-title">
         <el-icon><Star /></el-icon>
@@ -107,6 +121,16 @@ const supportAgents = computed(() => agents.filter((a) => a.category === 'suppor
 .model-lab-teaser {
   margin-bottom: 28px;
   max-width: 720px;
+}
+
+.wayne-stack-teaser {
+  margin-bottom: 28px;
+  max-width: 840px;
+}
+
+.wayne-console-teaser {
+  margin-bottom: 28px;
+  max-width: 840px;
 }
 
 .teaser-link {

@@ -10,6 +10,13 @@ import { dirname, join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createStore } from './store.mjs'
 import { rowToConversation } from './conversationDto.mjs'
+import {
+  DELIVERY_DOCS,
+  ensureDeliveryTemplates,
+  listDeliveryDocs,
+  readDeliveryDoc,
+  writeDeliveryDoc,
+} from './deliveryDocs.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -51,6 +58,7 @@ async function bootstrapAdmin() {
 }
 
 await bootstrapAdmin()
+await ensureDeliveryTemplates()
 
 const app = express()
 app.set('trust proxy', 1)
@@ -87,6 +95,126 @@ function requireAdmin(req, res, next) {
 
 function llmReady() {
   return !!(LLM_API_URL && LLM_API_KEY)
+}
+
+function inferServerProvider() {
+  const u = LLM_API_URL.toLowerCase()
+  if (u.includes('anthropic.com')) return 'anthropic'
+  if (u.includes('generativelanguage.googleapis.com') || u.includes('gemini')) return 'gemini'
+  return 'openai-compatible'
+}
+
+function extractSystemAndMessages(messages) {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content ?? '')
+    .join('\n\n')
+    .trim()
+  const conversation = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      role: m.role,
+      content: String(m.content ?? ''),
+    }))
+  return { system, conversation }
+}
+
+function anthropicHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    Authorization: undefined,
+    'x-api-key': LLM_API_KEY,
+    'anthropic-version': '2023-06-01',
+  }
+}
+
+function anthropicBody({ model, messages, temperature, max_tokens }) {
+  const { system, conversation } = extractSystemAndMessages(messages)
+  return {
+    model,
+    max_tokens,
+    temperature,
+    ...(system ? { system } : {}),
+    messages: conversation.map((m) => ({
+      role: m.role,
+      content: [{ type: 'text', text: m.content }],
+    })),
+  }
+}
+
+function parseAnthropicResponse(data) {
+  const content = Array.isArray(data?.content)
+    ? data.content
+        .map((item) => (item?.type === 'text' ? item.text : ''))
+        .filter(Boolean)
+        .join('')
+    : ''
+  return {
+    content,
+    usage: data?.usage
+      ? {
+          prompt_tokens: data.usage.input_tokens,
+          completion_tokens: data.usage.output_tokens,
+          total_tokens: (data.usage.input_tokens ?? 0) + (data.usage.output_tokens ?? 0),
+        }
+      : undefined,
+  }
+}
+
+function geminiEndpoint(model) {
+  const base = LLM_API_URL.replace(/\/$/, '')
+  return `${base}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(LLM_API_KEY)}`
+}
+
+function geminiBody({ model, messages, temperature, max_tokens }) {
+  void model
+  const { system, conversation } = extractSystemAndMessages(messages)
+  return {
+    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    contents: conversation.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    })),
+    generationConfig: {
+      temperature,
+      maxOutputTokens: max_tokens,
+    },
+  }
+}
+
+function parseGeminiResponse(data) {
+  const parts = data?.candidates?.[0]?.content?.parts
+  const content = Array.isArray(parts)
+    ? parts
+        .map((part) => part?.text ?? '')
+        .filter(Boolean)
+        .join('')
+    : ''
+  return {
+    content,
+    usage: data?.usageMetadata
+      ? {
+          prompt_tokens: data.usageMetadata.promptTokenCount,
+          completion_tokens: data.usageMetadata.candidatesTokenCount,
+          total_tokens: data.usageMetadata.totalTokenCount,
+        }
+      : undefined,
+  }
+}
+
+function normalizedProviderResponse(content, usage) {
+  return {
+    choices: [{ message: { content } }],
+    usage,
+  }
+}
+
+function writeSyntheticStream(res, content) {
+  res.status(200)
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+  res.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
+  res.write('data: [DONE]\n\n')
+  res.end()
 }
 
 function publicLlmMeta() {
@@ -271,6 +399,52 @@ app.post('/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
   }
 })
 
+app.get('/delivery-docs', requireAuth, async (_req, res, next) => {
+  try {
+    const docs = await listDeliveryDocs()
+    res.json({ docs })
+  } catch (e) {
+    next(e)
+  }
+})
+
+app.post('/delivery-docs/init', requireAuth, async (_req, res, next) => {
+  try {
+    await ensureDeliveryTemplates()
+    const docs = await listDeliveryDocs()
+    res.json({ docs })
+  } catch (e) {
+    next(e)
+  }
+})
+
+app.get('/delivery-docs/:name', requireAuth, async (req, res, next) => {
+  try {
+    const name = String(req.params.name || '')
+    if (!DELIVERY_DOCS.some((doc) => doc.name === name)) {
+      return res.status(404).json({ error: '文档不存在' })
+    }
+    const doc = await readDeliveryDoc(name)
+    res.json(doc)
+  } catch (e) {
+    next(e)
+  }
+})
+
+app.put('/delivery-docs/:name', requireAuth, async (req, res, next) => {
+  try {
+    const name = String(req.params.name || '')
+    if (!DELIVERY_DOCS.some((doc) => doc.name === name)) {
+      return res.status(404).json({ error: '文档不存在' })
+    }
+    const content = String(req.body?.content || '')
+    const doc = await writeDeliveryDoc(name, content)
+    res.json(doc)
+  } catch (e) {
+    next(e)
+  }
+})
+
 const MAX_LLM_MESSAGES = 128
 const MAX_BODY_CHARS = 400_000
 
@@ -311,6 +485,51 @@ app.post('/llm/chat', requireAuth, async (req, res) => {
   }
 
   try {
+    const provider = inferServerProvider()
+    if (provider === 'anthropic') {
+      const response = await fetch(LLM_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': LLM_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(anthropicBody(body)),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(response.status).json({ error: JSON.stringify(data).slice(0, 2000) })
+      }
+      const parsed = parseAnthropicResponse(data)
+      if (stream) {
+        writeSyntheticStream(res, parsed.content)
+      } else {
+        res.json(normalizedProviderResponse(parsed.content, parsed.usage))
+      }
+      return
+    }
+
+    if (provider === 'gemini') {
+      const response = await fetch(geminiEndpoint(model), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(geminiBody(body)),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(response.status).json({ error: JSON.stringify(data).slice(0, 2000) })
+      }
+      const parsed = parseGeminiResponse(data)
+      if (stream) {
+        writeSyntheticStream(res, parsed.content)
+      } else {
+        res.json(normalizedProviderResponse(parsed.content, parsed.usage))
+      }
+      return
+    }
+
     const response = await fetch(LLM_API_URL, {
       method: 'POST',
       headers: {
@@ -364,11 +583,49 @@ app.post('/llm/chat-api', requireAuth, async (req, res) => {
     stream: false,
   }
   if (tools?.length) {
+    if (inferServerProvider() !== 'openai-compatible') {
+      return res.status(400).json({ error: '当前服务端 provider 不支持 OpenAI 风格工具调用' })
+    }
     body.tools = tools
     body.tool_choice = 'auto'
   }
 
   try {
+    const provider = inferServerProvider()
+    if (provider === 'anthropic') {
+      const response = await fetch(LLM_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': LLM_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(anthropicBody(body)),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(response.status).json({ error: JSON.stringify(data).slice(0, 2000) })
+      }
+      const parsed = parseAnthropicResponse(data)
+      return res.json(normalizedProviderResponse(parsed.content, parsed.usage))
+    }
+
+    if (provider === 'gemini') {
+      const response = await fetch(geminiEndpoint(model), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(geminiBody(body)),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(response.status).json({ error: JSON.stringify(data).slice(0, 2000) })
+      }
+      const parsed = parseGeminiResponse(data)
+      return res.json(normalizedProviderResponse(parsed.content, parsed.usage))
+    }
+
     const response = await fetch(LLM_API_URL, {
       method: 'POST',
       headers: {
@@ -404,6 +661,59 @@ app.post('/llm/chat-once', requireAuth, async (req, res) => {
   )
   const started = Date.now()
   try {
+    const provider = inferServerProvider()
+    if (provider === 'anthropic') {
+      const response = await fetch(LLM_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': LLM_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify(anthropicBody({ model, messages, temperature, max_tokens })),
+      })
+      const latencyMs = Date.now() - started
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(502).json({
+          content: '',
+          latencyMs,
+          error: `HTTP ${response.status}: ${JSON.stringify(data).slice(0, 500)}`,
+        })
+      }
+      const parsed = parseAnthropicResponse(data)
+      return res.json({
+        content: parsed.content,
+        latencyMs,
+        usage: parsed.usage,
+      })
+    }
+
+    if (provider === 'gemini') {
+      const response = await fetch(geminiEndpoint(model), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(geminiBody({ model, messages, temperature, max_tokens })),
+      })
+      const latencyMs = Date.now() - started
+      const data = await response.json()
+      if (!response.ok) {
+        return res.status(502).json({
+          content: '',
+          latencyMs,
+          error: `HTTP ${response.status}: ${JSON.stringify(data).slice(0, 500)}`,
+        })
+      }
+      const parsed = parseGeminiResponse(data)
+      return res.json({
+        content: parsed.content,
+        latencyMs,
+        usage: parsed.usage,
+      })
+    }
+
     const response = await fetch(LLM_API_URL, {
       method: 'POST',
       headers: {

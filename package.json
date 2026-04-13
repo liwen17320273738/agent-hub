@@ -15,7 +15,8 @@
     "dev:server": "node --disable-warning=ExperimentalWarning server/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.mjs"
+    "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.mjs",
+    "verify:feishu": "node scripts/verify-feishu-bot.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

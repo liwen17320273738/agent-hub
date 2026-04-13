@@ -44,6 +44,16 @@
           <span>模型实验室</span>
         </router-link>
 
+        <router-link to="/wayne-stack" class="nav-item" active-class="active">
+          <el-icon><Connection /></el-icon>
+          <span>Wayne Stack</span>
+        </router-link>
+
+        <router-link to="/wayne-console" class="nav-item" active-class="active">
+          <el-icon><Operation /></el-icon>
+          <span>Wayne Console</span>
+        </router-link>
+
         <a
           class="nav-item"
           :href="beihaiTripStandaloneUrl"
@@ -108,7 +118,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SwitchButton, Tickets } from '@element-plus/icons-vue'
+import { Connection, Operation, SwitchButton, Tickets } from '@element-plus/icons-vue'
 import { agents } from '@/agents/registry'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useChatStore } from '@/stores/chat'

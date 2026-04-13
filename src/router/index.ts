@@ -31,6 +31,16 @@ const router = createRouter({
       name: 'model-lab',
       component: () => import('@/views/ModelLab.vue'),
     },
+    {
+      path: '/wayne-console',
+      name: 'wayne-console',
+      component: () => import('@/views/WayneConsole.vue'),
+    },
+    {
+      path: '/wayne-stack',
+      name: 'wayne-stack',
+      component: () => import('@/views/WayneStack.vue'),
+    },
   ],
 })
 

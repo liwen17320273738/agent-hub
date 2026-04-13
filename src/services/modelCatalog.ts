@@ -16,13 +16,17 @@ export interface ModelScores {
   instruction: number
 }
 
-export type ModelProvider = 'deepseek' | 'openai' | 'qwen'
+export type ModelProvider = 'deepseek' | 'openai' | 'qwen' | 'anthropic' | 'google' | 'zhipu'
 
 export interface ModelCatalogEntry {
   /** 调用 API 时的 model 字段 */
   id: string
   provider: ModelProvider
   label: string
+  /** Wayne Stack 中最推荐承担的角色 */
+  recommendedRole?: string
+  /** 是否属于 Wayne Stack 核心模型 */
+  isCore?: boolean
   /** 一句话适用场景 */
   blurb: string
   scores: ModelScores
@@ -45,20 +49,82 @@ export const PROVIDER_DEFAULT_API: Record<ModelProvider, string> = {
   deepseek: 'https://api.deepseek.com/v1/chat/completions',
   openai: 'https://api.openai.com/v1/chat/completions',
   qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+  anthropic: 'https://api.anthropic.com/v1/messages',
+  google: 'https://generativelanguage.googleapis.com/v1beta/models',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
 }
 
 export const PROVIDER_LABEL: Record<ModelProvider, string> = {
   deepseek: 'DeepSeek',
   openai: 'OpenAI',
   qwen: '通义千问（DashScope）',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  zhipu: '智谱',
 }
 
 /** 与当前项目默认集成的常见模型（按厂商） */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
   {
+    id: 'claude-opus-4.6',
+    provider: 'anthropic',
+    label: 'Opus 4.6',
+    recommendedRole: 'Wayne Stack 总控 / 架构裁决',
+    isCore: true,
+    blurb: '负责高价值判断、架构收口、复杂取舍和发布前 go/no-go。',
+    scores: S({ cost: 1, speed: 2, reasoning: 5, chinese: 4, coding: 5, instruction: 5 }),
+    contextK: 200,
+    caution: '当前界面更适合通过兼容网关或服务端统一代理接入后再实测。',
+  },
+  {
+    id: 'claude-sonnet-4.6',
+    provider: 'anthropic',
+    label: 'Sonnet 4.6',
+    recommendedRole: 'Wayne 开发工程师',
+    isCore: true,
+    blurb: 'Wayne Stack 主力施工模型，适合连续编码、修复和仓库级执行。',
+    scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 5, instruction: 5 }),
+    contextK: 200,
+    caution: '推荐作为 build 主力；实测建议通过兼容网关或服务端统一路由接入。',
+  },
+  {
+    id: 'gpt-4.5',
+    provider: 'openai',
+    label: 'GPT-4.5',
+    recommendedRole: 'Wayne 产品经理',
+    isCore: true,
+    blurb: '适合 PRD、结构化输出、文档归纳和面向人的高质量表达。',
+    scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 4, coding: 4, instruction: 5 }),
+    contextK: 128,
+    caution: '价格通常高于 mini 档，建议聚焦在 PRD、总结和评审等高价值环节。',
+  },
+  {
+    id: 'gemini-4',
+    provider: 'google',
+    label: 'Gemini 4',
+    recommendedRole: 'Wayne QA / 研究挑战者',
+    isCore: true,
+    blurb: '适合长上下文研究、方案对比、风险挑战和 QA 补充视角。',
+    scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 4, instruction: 4 }),
+    contextK: 256,
+    caution: '若要在当前界面直接实测，建议经兼容层统一到 OpenAI 风格接口。',
+  },
+  {
+    id: 'glm-4.5',
+    provider: 'zhipu',
+    label: '智谱 GLM-4.5',
+    recommendedRole: 'Wayne 中文策略 / 本土化',
+    isCore: true,
+    blurb: '适合中文表达、本土化内容、市场语境适配和中文业务沟通。',
+    scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 3, instruction: 4 }),
+    contextK: 128,
+    caution: '当前模型实验室对智谱更适合做静态参考；实测建议通过兼容代理接入。',
+  },
+  {
     id: 'deepseek-chat',
     provider: 'deepseek',
     label: 'DeepSeek Chat',
+    recommendedRole: '日常默认主力 / 成本敏感任务',
     blurb: '日常对话、营销文案、中文场景性价比高，适合作为默认主力。',
     scores: S({ cost: 5, speed: 4, reasoning: 3, chinese: 5, coding: 4, instruction: 4 }),
     contextK: 64,
@@ -67,6 +133,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'deepseek-reasoner',
     provider: 'deepseek',
     label: 'DeepSeek Reasoner',
+    recommendedRole: '低成本推理备选',
     blurb: '推理向任务（数学题、链式分析）；更慢、更贵，不适合高频短问答。',
     scores: S({ cost: 3, speed: 2, reasoning: 5, chinese: 5, coding: 4, instruction: 4 }),
     contextK: 64,
@@ -76,6 +143,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'gpt-4o-mini',
     provider: 'openai',
     label: 'GPT-4o mini',
+    recommendedRole: '轻量任务 / 低成本英文与工具流',
     blurb: '低成本英文/简单任务、接口稳定；中文略弱于国产一线。',
     scores: S({ cost: 4, speed: 5, reasoning: 3, chinese: 3, coding: 4, instruction: 4 }),
     contextK: 128,
@@ -84,6 +152,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'gpt-4o',
     provider: 'openai',
     label: 'GPT-4o',
+    recommendedRole: '综合交付 / 多模态',
     blurb: '多模态与综合能力强，适合高质量交付与复杂指令；成本较高。',
     scores: S({ cost: 2, speed: 4, reasoning: 4, chinese: 4, coding: 5, instruction: 5 }),
     contextK: 128,
@@ -92,6 +161,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'gpt-4.1-mini',
     provider: 'openai',
     label: 'GPT-4.1 mini',
+    recommendedRole: '4o mini 同级备选',
     blurb: '若账号已开通新系列，可作 4o-mini 同级备选（以控制台为准）。',
     scores: S({ cost: 4, speed: 5, reasoning: 3, chinese: 3, coding: 4, instruction: 4 }),
     contextK: 128,
@@ -101,6 +171,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'qwen-turbo',
     provider: 'qwen',
     label: 'Qwen Turbo',
+    recommendedRole: '海量轻量中文生成',
     blurb: '阿里云兼容接口下最便宜档位，适合大批量轻量生成。',
     scores: S({ cost: 5, speed: 5, reasoning: 2, chinese: 5, coding: 3, instruction: 3 }),
     contextK: 8,
@@ -110,6 +181,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'qwen-plus',
     provider: 'qwen',
     label: 'Qwen Plus',
+    recommendedRole: '国内业务平衡档',
     blurb: '平衡成本与效果，适合日常业务文案与国内合规场景。',
     scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 4, instruction: 4 }),
     contextK: 32,
@@ -118,12 +190,15 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'qwen-max',
     provider: 'qwen',
     label: 'Qwen Max',
+    recommendedRole: '千问高阶复杂任务',
     blurb: '千问系列顶配之一，复杂任务与长上下文（以官方为准）。',
     scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 5, coding: 4, instruction: 5 }),
     contextK: 32,
     caution: '单价高，建议配合摘要与窗口限制使用。',
   },
 ]
+
+export const WAYNE_CORE_MODELS = MODEL_CATALOG.filter((m) => m.isCore)
 
 export const SCORE_LABELS: { key: keyof ModelScores; label: string }[] = [
   { key: 'cost', label: '性价比' },
@@ -139,6 +214,9 @@ export function detectProviderFromApiUrl(apiUrl: string): ModelProvider | null {
   if (u.includes('deepseek')) return 'deepseek'
   if (u.includes('openai.com')) return 'openai'
   if (u.includes('dashscope') || u.includes('aliyuncs')) return 'qwen'
+  if (u.includes('anthropic.com')) return 'anthropic'
+  if (u.includes('generativelanguage.googleapis.com') || u.includes('gemini')) return 'google'
+  if (u.includes('bigmodel.cn') || u.includes('open.bigmodel.cn')) return 'zhipu'
   return null
 }
 
@@ -148,6 +226,9 @@ export function inferDefaultApiFromLlmHost(host: string): string {
   if (h.includes('deepseek')) return PROVIDER_DEFAULT_API.deepseek
   if (h.includes('openai')) return PROVIDER_DEFAULT_API.openai
   if (h.includes('dashscope') || h.includes('aliyuncs')) return PROVIDER_DEFAULT_API.qwen
+  if (h.includes('anthropic')) return PROVIDER_DEFAULT_API.anthropic
+  if (h.includes('generativelanguage.googleapis.com') || h.includes('gemini')) return PROVIDER_DEFAULT_API.google
+  if (h.includes('bigmodel.cn')) return PROVIDER_DEFAULT_API.zhipu
   return ''
 }
 

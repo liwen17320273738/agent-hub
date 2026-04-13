@@ -2,8 +2,12 @@ import type { ToolCall } from './tools'
 import { apiUrl, isEnterpriseBuild } from './enterpriseApi'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
+import { detectProviderFromApiUrl, type ModelProvider } from './modelCatalog'
+import type { WayneCostMode } from './wayneRouting'
 
 export interface LLMSettings {
+  provider?: ModelProvider
+  wayneCostMode?: WayneCostMode
   apiUrl: string
   apiKey: string
   model: string
@@ -21,6 +25,8 @@ export interface LLMSettings {
 }
 
 export const defaultSettings: LLMSettings = {
+  provider: 'deepseek',
+  wayneCostMode: 'balanced',
   apiUrl: 'https://api.deepseek.com/v1/chat/completions',
   apiKey: '',
   model: 'deepseek-chat',
@@ -35,6 +41,8 @@ export interface LLMMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
+
+type ProviderMode = 'openai-compatible' | 'anthropic' | 'gemini'
 
 /** 发往 API 的消息（含 tool 角色与 assistant 的 tool_calls） */
 export type ApiChatMessage =
@@ -59,6 +67,12 @@ function resolveApiUrl(apiUrl: string): string {
     return apiUrl.replace('https://api.deepseek.com/v1', '/api/proxy/deepseek')
   if (apiUrl.includes('api.openai.com'))
     return apiUrl.replace('https://api.openai.com/v1', '/api/proxy/openai')
+  if (apiUrl.includes('api.anthropic.com'))
+    return apiUrl.replace('https://api.anthropic.com', '/api/proxy/anthropic')
+  if (apiUrl.includes('generativelanguage.googleapis.com'))
+    return apiUrl.replace('https://generativelanguage.googleapis.com', '/api/proxy/gemini')
+  if (apiUrl.includes('open.bigmodel.cn'))
+    return apiUrl.replace('https://open.bigmodel.cn/api/paas/v4', '/api/proxy/zhipu')
   return apiUrl
 }
 
@@ -68,6 +82,135 @@ function useServerLlm(): boolean {
   } catch {
     return false
   }
+}
+
+function inferProviderMode(rawApiUrl: string): ProviderMode {
+  const detected = detectProviderFromApiUrl(rawApiUrl)
+  if (detected === 'anthropic') return 'anthropic'
+  if (detected === 'google') return 'gemini'
+  return 'openai-compatible'
+}
+
+function providerModeForSettings(settings: LLMSettings): ProviderMode {
+  if (useServerLlm()) {
+    const host = useAuthStore().publicLlm?.host
+    return inferProviderMode(host ? `https://${host}` : '')
+  }
+  const explicitProvider = settings.provider
+  if (explicitProvider === 'anthropic') return 'anthropic'
+  if (explicitProvider === 'google') return 'gemini'
+  return inferProviderMode(settings.apiUrl)
+}
+
+function effectiveModel(settings: LLMSettings, override?: string): string {
+  if (useServerLlm()) {
+    return override ?? useSettingsStore().effectiveModel()
+  }
+  return override ?? settings.model
+}
+
+function extractSystemAndMessages(messages: Array<{ role: string; content?: string | null }>) {
+  const system = messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content ?? '')
+    .join('\n\n')
+    .trim()
+
+  const conversation = messages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: String(m.content ?? ''),
+    }))
+
+  return { system, conversation }
+}
+
+function anthropicHeaders(apiKey: string) {
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+  }
+}
+
+function anthropicBody(
+  model: string,
+  messages: Array<{ role: string; content?: string | null }>,
+  settings: LLMSettings,
+) {
+  const { system, conversation } = extractSystemAndMessages(messages)
+  return {
+    model,
+    max_tokens: Math.min(settings.maxTokens, 16384),
+    temperature: settings.temperature,
+    ...(system ? { system } : {}),
+    messages: conversation.map((m) => ({
+      role: m.role,
+      content: [{ type: 'text', text: m.content }],
+    })),
+  }
+}
+
+function parseAnthropicResponse(data: any) {
+  const content = Array.isArray(data?.content)
+    ? data.content
+        .map((item: any) => (item?.type === 'text' ? item.text : ''))
+        .filter(Boolean)
+        .join('')
+    : ''
+  const usage = data?.usage
+    ? {
+        prompt_tokens: data.usage.input_tokens,
+        completion_tokens: data.usage.output_tokens,
+        total_tokens:
+          (data.usage.input_tokens ?? 0) + (data.usage.output_tokens ?? 0),
+      }
+    : undefined
+  return { content, usage }
+}
+
+function geminiEndpoint(baseApiUrl: string, model: string, apiKey: string) {
+  const base = resolveApiUrl(baseApiUrl).replace(/\/$/, '')
+  return `${base}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
+}
+
+function geminiBody(
+  model: string,
+  messages: Array<{ role: string; content?: string | null }>,
+  settings: LLMSettings,
+) {
+  void model
+  const { system, conversation } = extractSystemAndMessages(messages)
+  return {
+    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    contents: conversation.map((m) => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
+    })),
+    generationConfig: {
+      temperature: settings.temperature,
+      maxOutputTokens: Math.min(settings.maxTokens, 16384),
+    },
+  }
+}
+
+function parseGeminiResponse(data: any) {
+  const parts = data?.candidates?.[0]?.content?.parts
+  const content = Array.isArray(parts)
+    ? parts
+        .map((part: any) => part?.text ?? '')
+        .filter(Boolean)
+        .join('')
+    : ''
+  const usage = data?.usageMetadata
+    ? {
+        prompt_tokens: data.usageMetadata.promptTokenCount,
+        completion_tokens: data.usageMetadata.candidatesTokenCount,
+        total_tokens: data.usageMetadata.totalTokenCount,
+      }
+    : undefined
+  return { content, usage }
 }
 
 export interface ChatCompletionOptions {
@@ -84,8 +227,27 @@ export async function chatCompletionApiMessage(
   settings: LLMSettings,
   options?: ChatCompletionApiOptions,
 ): Promise<{ content: string | null; tool_calls?: ToolCall[] }> {
+  const providerMode = providerModeForSettings(settings)
+  if (providerMode !== 'openai-compatible') {
+    if (options?.tools?.length) {
+      throw new Error('当前 provider 不支持 OpenAI 风格工具调用，请关闭工具调用后重试')
+    }
+    const content = await chatCompletion(
+      messages
+        .filter((m) => m.role === 'system' || m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          role: m.role as 'system' | 'user' | 'assistant',
+          content: String(m.content ?? ''),
+        })),
+      settings,
+      undefined,
+      options,
+    )
+    return { content }
+  }
+
   const body: Record<string, unknown> = {
-    model: useServerLlm() ? useSettingsStore().effectiveModel() : settings.model,
+    model: effectiveModel(settings),
     messages,
     temperature: settings.temperature,
     max_tokens: Math.min(settings.maxTokens, 16384),
@@ -135,8 +297,43 @@ export async function chatCompletion(
   onChunk?: (text: string) => void,
   options?: ChatCompletionOptions,
 ): Promise<string> {
+  const providerMode = providerModeForSettings(settings)
+  if (!useServerLlm() && providerMode === 'anthropic') {
+    const response = await fetch(resolveApiUrl(settings.apiUrl), {
+      method: 'POST',
+      headers: anthropicHeaders(settings.apiKey),
+      body: JSON.stringify(anthropicBody(effectiveModel(settings), messages, settings)),
+      signal: options?.signal,
+    })
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(`API 请求失败 (${response.status}): ${err}`)
+    }
+    const parsed = parseAnthropicResponse(await response.json())
+    if (onChunk) onChunk(parsed.content)
+    return parsed.content
+  }
+
+  if (!useServerLlm() && providerMode === 'gemini') {
+    const response = await fetch(geminiEndpoint(settings.apiUrl, effectiveModel(settings), settings.apiKey), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(geminiBody(effectiveModel(settings), messages, settings)),
+      signal: options?.signal,
+    })
+    if (!response.ok) {
+      const err = await response.text()
+      throw new Error(`API 请求失败 (${response.status}): ${err}`)
+    }
+    const parsed = parseGeminiResponse(await response.json())
+    if (onChunk) onChunk(parsed.content)
+    return parsed.content
+  }
+
   const payload = {
-    model: useServerLlm() ? useSettingsStore().effectiveModel() : settings.model,
+    model: effectiveModel(settings),
     messages,
     temperature: settings.temperature,
     max_tokens: Math.min(settings.maxTokens, 16384),
@@ -194,11 +391,60 @@ export async function chatCompletionOnce(
   options?: ChatCompletionOptions & { model?: string },
 ): Promise<CompletionOnceResult> {
   const started = performance.now()
-  const model = useServerLlm()
-    ? (options?.model ?? useSettingsStore().effectiveModel())
-    : (options?.model ?? settings.model)
+  const model = effectiveModel(settings, options?.model)
+  const providerMode = providerModeForSettings(settings)
 
   try {
+    if (!useServerLlm() && providerMode === 'anthropic') {
+      const response = await fetch(resolveApiUrl(settings.apiUrl), {
+        method: 'POST',
+        headers: anthropicHeaders(settings.apiKey),
+        body: JSON.stringify(anthropicBody(model, messages, settings)),
+        signal: options?.signal,
+      })
+      const latencyMs = Math.round(performance.now() - started)
+      if (!response.ok) {
+        const err = await response.text()
+        return {
+          content: '',
+          latencyMs,
+          error: `HTTP ${response.status}: ${err.slice(0, 500)}`,
+        }
+      }
+      const parsed = parseAnthropicResponse(await response.json())
+      return {
+        content: parsed.content,
+        latencyMs,
+        usage: parsed.usage,
+      }
+    }
+
+    if (!useServerLlm() && providerMode === 'gemini') {
+      const response = await fetch(geminiEndpoint(settings.apiUrl, model, settings.apiKey), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(geminiBody(model, messages, settings)),
+        signal: options?.signal,
+      })
+      const latencyMs = Math.round(performance.now() - started)
+      if (!response.ok) {
+        const err = await response.text()
+        return {
+          content: '',
+          latencyMs,
+          error: `HTTP ${response.status}: ${err.slice(0, 500)}`,
+        }
+      }
+      const parsed = parseGeminiResponse(await response.json())
+      return {
+        content: parsed.content,
+        latencyMs,
+        usage: parsed.usage,
+      }
+    }
+
     const body = {
       model,
       messages,

@@ -7,6 +7,31 @@
       </p>
     </header>
 
+    <el-card class="lab-card core-card">
+      <template #header>
+        <div class="core-header">
+          <span>Wayne 核心模型与角色</span>
+          <el-tag type="warning" effect="dark">核心优先</el-tag>
+        </div>
+      </template>
+      <div class="core-grid">
+        <div v-for="model in WAYNE_CORE_MODELS" :key="model.id" class="core-model-card">
+          <div class="core-model-top">
+            <div>
+              <div class="core-model-name">{{ model.label }}</div>
+              <div class="core-model-provider">{{ PROVIDER_LABEL[model.provider] }}</div>
+            </div>
+            <el-tag size="small" type="info" effect="plain">核心</el-tag>
+          </div>
+          <div class="core-model-role">{{ model.recommendedRole }}</div>
+          <p class="core-model-blurb">{{ model.blurb }}</p>
+        </div>
+      </div>
+      <p class="core-note">
+        说明：`GPT-4.5 / Opus 4.6 / Sonnet 4.6 / Gemini 4 / 智谱 GLM-4.5` 已纳入 Wayne Stack 核心映射。部分模型在当前界面更适合作为静态选型参考，实测建议通过兼容网关或统一服务端路由接入。
+      </p>
+    </el-card>
+
     <el-alert type="info" show-icon :closable="false" class="lab-alert">
       <template #title>关于「维度评分」</template>
       下表 1–5 分为静态参考（性价比、速度、推理、中文、代码、指令），便于选型；不同厂商定价会变，请以账单为准。真实体感请用下方「对比实测」。
@@ -17,7 +42,14 @@
         <span>模型目录与维度</span>
       </template>
       <el-table :data="MODEL_CATALOG" stripe size="small" class="catalog-table">
+        <el-table-column label="核心" width="72" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.isCore" size="small" type="warning" effect="plain">核心</el-tag>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="label" label="名称" width="140" />
+        <el-table-column prop="recommendedRole" label="Wayne 角色" width="180" show-overflow-tooltip />
         <el-table-column prop="id" label="model id" min-width="130" />
         <el-table-column label="厂商" width="100">
           <template #default="{ row }">
@@ -123,6 +155,7 @@ import {
   MODEL_CATALOG,
   SCORE_LABELS,
   PROVIDER_LABEL,
+  WAYNE_CORE_MODELS,
   catalogMatchingApiUrl,
   inferDefaultApiFromLlmHost,
 } from '@/services/modelCatalog'
@@ -247,6 +280,70 @@ async function runBenchmark() {
   margin-bottom: 20px;
   background: var(--bg-card);
   border-color: var(--border-color);
+}
+
+.core-card {
+  margin-bottom: 20px;
+}
+
+.core-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.core-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.core-model-card {
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  padding: 14px;
+}
+
+.core-model-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.core-model-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.core-model-provider {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.core-model-role {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.core-model-blurb {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.core-note {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
 }
 
 .hint-text {
