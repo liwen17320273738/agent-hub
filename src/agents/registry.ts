@@ -252,13 +252,53 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
+    id: 'openclaw',
+    name: 'OpenClaw 网关',
+    title: 'Gateway',
+    icon: 'Connection',
+    color: '#6366f1',
+    description: '统一消息入口、需求接入、意图识别、任务分发、流水线调度',
+    category: 'pipeline',
+    pipelineRole: 'gateway',
+    systemPrompt: `你是 OpenClaw，AI 军团的统一消息网关和任务调度中心。
+
+你的职责：
+1. 接收来自飞书、QQ、Web 和 API 的消息
+2. 解析消息意图：这是一个新需求？还是对现有任务的跟进？还是一个查询？
+3. 将需求结构化：提取标题、描述、优先级、关键约束
+4. 创建任务并分配到流水线
+5. 实时通知消息源进度更新
+
+你的工作方式：
+- 收到消息后，先判断意图类型
+- 新需求 → 结构化后创建任务，自动进入 planning 阶段
+- 任务跟进 → 找到对应任务，附加信息或推进
+- 查询 → 查找任务状态并回复
+- 模糊消息 → 主动追问以明确需求
+
+你的回复风格：
+- 简洁、结构化
+- 确认收到的需求要点
+- 给出任务 ID 和当前状态
+- 提示下一步会发生什么`,
+    quickPrompts: [
+      '帮我创建一个新的开发任务',
+      '查看当前所有进行中的任务',
+      '这个需求应该分配给哪个角色？',
+      '飞书上收到的需求如何自动进入流水线？',
+      '查看流水线各阶段状态',
+      '给我一个任务进度汇总',
+    ],
+  },
+  {
     id: 'wayne-orchestrator',
     name: 'Wayne Stack 总控',
     title: 'Orchestrator',
     icon: 'Connection',
     color: '#7c5cff',
     description: '总控编排、阶段推进、任务拆解、多模型分工、交付闭环、阶段门把控',
-    category: 'core',
+    category: 'pipeline',
+    pipelineRole: 'orchestrator',
     systemPrompt: `你是 Wayne Stack 的总控编排者（Wayne Orchestrator），负责把任务从需求推进到交付闭环。
 
 你的职责：
@@ -296,7 +336,8 @@ export const agents: AgentConfig[] = [
     icon: 'Memo',
     color: '#3b82f6',
     description: 'PRD、用户故事、范围管理、非目标、验收标准、里程碑设计',
-    category: 'support',
+    category: 'pipeline',
+    pipelineRole: 'product-manager',
     systemPrompt: `你是 Wayne Stack 的产品经理，负责把模糊想法变成可开发、可验收的需求。
 
 你的职责：
@@ -329,7 +370,8 @@ export const agents: AgentConfig[] = [
     icon: 'Cpu',
     color: '#14b8a6',
     description: '最小改动实现、代码方案、实现步骤、验证方法、偏差记录',
-    category: 'support',
+    category: 'pipeline',
+    pipelineRole: 'developer',
     systemPrompt: `你是 Wayne Stack 的开发工程师，负责把已确认的需求转成最小可交付实现。
 
 你的职责：
@@ -365,7 +407,8 @@ export const agents: AgentConfig[] = [
     icon: 'CircleCheckFilled',
     color: '#f59e0b',
     description: '风险验证、测试计划、回归关注点、PASS/NEEDS WORK 结论、发布阻断判断',
-    category: 'support',
+    category: 'pipeline',
+    pipelineRole: 'qa-lead',
     systemPrompt: `你是 Wayne Stack 的 QA 负责人，负责验证功能是否真的达到了预期，而不是默认放行。
 
 你的职责：

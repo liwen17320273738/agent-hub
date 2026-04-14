@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { defaultSettings, type LLMSettings } from '@/services/llm'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useAuthStore } from '@/stores/auth'
-import { detectProviderFromApiUrl } from '@/services/modelCatalog'
+import { coerceModelForProvider, detectProviderFromApiUrl } from '@/services/modelCatalog'
 
 const STORAGE_KEY = 'agent-hub-settings'
 
@@ -29,6 +29,11 @@ function stripApiKeyForEnterprise(s: LLMSettings): LLMSettings {
 function normalizeSettings(input: LLMSettings): LLMSettings {
   const next = stripApiKeyForEnterprise({ ...input })
   if (!next.provider) next.provider = detectProviderFromApiUrl(next.apiUrl) ?? defaultSettings.provider
+  if (next.model?.trim()) {
+    next.model = coerceModelForProvider(next.model, next.provider)
+  } else if (!isEnterpriseBuild) {
+    next.model = coerceModelForProvider('', next.provider)
+  }
   if (!next.wayneCostMode) next.wayneCostMode = defaultSettings.wayneCostMode
   if (next.maxTokens > 16384) next.maxTokens = 16384
   next.contextMaxMessages = Math.min(128, Math.max(4, Math.round(next.contextMaxMessages)))

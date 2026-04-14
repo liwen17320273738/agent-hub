@@ -42,6 +42,13 @@
 
     <!-- Chat area -->
     <div class="chat-area">
+      <div v-if="pipelineTask" class="pipeline-context-banner">
+        <el-icon><Connection /></el-icon>
+        <span>流水线任务: <strong>{{ pipelineTask.title }}</strong> ({{ pipelineTask.currentStageId }})</span>
+        <router-link :to="`/pipeline/task/${pipelineTask.id}`" class="pipeline-link">
+          查看任务
+        </router-link>
+      </div>
       <div v-if="activeConv" class="chat-toolbar">
         <el-tag
           v-if="recommendedModelLabel"
@@ -239,7 +246,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Promotion, Loading } from '@element-plus/icons-vue'
+import { Connection, Promotion, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getAgent } from '@/agents/registry'
 import { useChatStore } from '@/stores/chat'
@@ -248,7 +255,8 @@ import { useWayneWorkflowStore } from '@/stores/wayneWorkflow'
 import { chatCompletion } from '@/services/llm'
 import { completionWithToolLoop } from '@/services/chatWithTools'
 import { buildLLMMessages } from '@/services/messageContext'
-import type { ChatMessage as ChatMessageType } from '@/agents/types'
+import { fetchTask } from '@/services/pipelineApi'
+import type { ChatMessage as ChatMessageType, PipelineTask } from '@/agents/types'
 import ChatMessage from '@/components/ChatMessage.vue'
 import { listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc, type DeliveryDocMeta } from '@/services/deliveryDocs'
 import {
@@ -284,6 +292,7 @@ const wayneRoutingTask = ref('')
 const wayneSuggestions = ref<WayneRouteSuggestion[]>(getWayneDefaultRoutes())
 const deliveryDocOptions = ref<DeliveryDocMeta[]>([])
 const deliveryTargetDoc = ref('01-prd.md')
+const pipelineTask = ref<PipelineTask | null>(null)
 
 const agent = computed(() => getAgent(route.params.id as string))
 
@@ -395,6 +404,22 @@ watch(
       deliveryTargetDoc.value = currentWorkflowDoc.value
     } catch {
       deliveryDocOptions.value = []
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.query.pipelineTask as string | undefined,
+  async (taskId) => {
+    if (!taskId) {
+      pipelineTask.value = null
+      return
+    }
+    try {
+      pipelineTask.value = await fetchTask(taskId)
+    } catch {
+      pipelineTask.value = null
     }
   },
   { immediate: true },
@@ -679,6 +704,7 @@ async function invokeModelCompletion(convId: string) {
       maxMessages: s.contextMaxMessages,
       maxContextChars: s.contextMaxChars,
       memorySummary: conv.summary,
+      pipelineTask: pipelineTask.value ?? undefined,
     })
 
     let finalContent: string
@@ -764,6 +790,32 @@ async function sendMessage() {
 </script>
 
 <style scoped>
+.pipeline-context-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(99, 102, 241, 0.1);
+  border-bottom: 1px solid rgba(99, 102, 241, 0.2);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.pipeline-context-banner strong {
+  color: var(--text-primary);
+}
+
+.pipeline-link {
+  margin-left: auto;
+  color: #6366f1;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.pipeline-link:hover {
+  text-decoration: underline;
+}
+
 .chat-page {
   display: flex;
   height: 100vh;

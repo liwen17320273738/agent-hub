@@ -17,6 +17,13 @@ import {
   readDeliveryDoc,
   writeDeliveryDoc,
 } from './deliveryDocs.mjs'
+import pipelineRouter from './pipeline/pipelineRouter.mjs'
+import { initTaskStore } from './pipeline/taskStore.mjs'
+import openclawRouter from './gateway/openclawRouter.mjs'
+import feishuWebhook from './gateway/feishuWebhook.mjs'
+import qqWebhook from './gateway/qqWebhook.mjs'
+import executorRouter from './executor/executorRouter.mjs'
+import { addSSEClient, getSSEClientCount } from './events.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -59,6 +66,7 @@ async function bootstrapAdmin() {
 
 await bootstrapAdmin()
 await ensureDeliveryTemplates()
+initTaskStore(store)
 
 const app = express()
 app.set('trust proxy', 1)
@@ -91,6 +99,17 @@ async function requireAuth(req, res, next) {
 function requireAdmin(req, res, next) {
   if (req.user.role !== 'admin') return res.status(403).json({ error: '需要管理员权限' })
   next()
+}
+
+/** 流水线 API：已登录会话，或 `Authorization: Bearer <PIPELINE_API_KEY>`（便于脚本/自动化） */
+function requirePipelineAuth(req, res, next) {
+  const key = process.env.PIPELINE_API_KEY?.trim()
+  if (key) {
+    const auth = req.headers.authorization || ''
+    const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : ''
+    if (token === key) return next()
+  }
+  return requireAuth(req, res, next)
 }
 
 function llmReady() {
@@ -753,6 +772,30 @@ app.post('/llm/chat-once', requireAuth, async (req, res) => {
     })
   }
 })
+
+// --- AI 军团流水线 ---
+
+app.get('/pipeline/health', (_req, res) => {
+  res.json({
+    pipeline: 'online',
+    sseClients: getSSEClientCount(),
+    feishu: !!(process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET),
+    qq: !!process.env.QQ_BOT_ENDPOINT,
+    executor: true,
+  })
+})
+
+app.get('/pipeline/events', requirePipelineAuth, (req, res) => {
+  addSSEClient(res)
+})
+
+app.use('/pipeline', requirePipelineAuth, pipelineRouter)
+app.use('/gateway/openclaw', openclawRouter)
+app.use('/gateway/feishu/webhook', feishuWebhook)
+app.use('/gateway/qq/webhook', qqWebhook)
+app.use('/executor', requireAuth, executorRouter)
+
+// --- 错误处理 ---
 
 app.use((err, _req, res, _next) => {
   console.error('[agent-hub]', err)

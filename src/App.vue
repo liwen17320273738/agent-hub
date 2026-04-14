@@ -54,15 +54,26 @@
           <span>Wayne Console</span>
         </router-link>
 
-        <a
+        <router-link to="/pipeline" class="nav-item" active-class="active">
+          <el-icon><Aim /></el-icon>
+          <span>AI 军团流水线</span>
+        </router-link>
+
+        <router-link to="/skills" class="nav-item" active-class="active">
+          <el-icon><SetUp /></el-icon>
+          <span>技能中心</span>
+        </router-link>
+
+      
+        <!-- <a
           class="nav-item"
           :href="beihaiTripStandaloneUrl"
           target="_blank"
           rel="noopener noreferrer"
-        >
+        > 
           <el-icon><Tickets /></el-icon>
           <span>北海行程</span>
-        </a>
+        </a> -->
 
         <div class="nav-group-label">核心智能体</div>
         <router-link
@@ -118,7 +129,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Operation, SwitchButton, Tickets } from '@element-plus/icons-vue'
+import { Connection, Operation, SetUp, SwitchButton, Tickets } from '@element-plus/icons-vue'
 import { agents } from '@/agents/registry'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useChatStore } from '@/stores/chat'

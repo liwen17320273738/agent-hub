@@ -98,6 +98,76 @@ function createSqliteStore(db) {
       ).run(id, orgId, email, passwordHash, displayName, role, now)
       return Promise.resolve()
     },
+
+    // --- Pipeline Tasks ---
+
+    listPipelineTasks({ status, stage, source } = {}) {
+      let sql = 'SELECT * FROM pipeline_tasks'
+      const conditions = []
+      const params = []
+      if (status) { conditions.push('status = ?'); params.push(status) }
+      if (stage) { conditions.push('current_stage_id = ?'); params.push(stage) }
+      if (source) { conditions.push('source = ?'); params.push(source) }
+      if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ')
+      sql += ' ORDER BY updated_at DESC'
+      const rows = db.prepare(sql).all(...params)
+      return Promise.resolve(rows.map(rowToPipelineTask))
+    },
+
+    getPipelineTask(id) {
+      const row = db.prepare('SELECT * FROM pipeline_tasks WHERE id = ?').get(id)
+      return Promise.resolve(row ? rowToPipelineTask(row) : null)
+    },
+
+    insertPipelineTask(task) {
+      db.prepare(
+        `INSERT INTO pipeline_tasks (id, title, description, source, source_message_id, source_user_id, status, current_stage_id, stages_json, artifacts_json, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        task.id, task.title, task.description, task.source,
+        task.sourceMessageId || null, task.sourceUserId || null,
+        task.status, task.currentStageId,
+        JSON.stringify(task.stages), JSON.stringify(task.artifacts),
+        task.createdBy, task.createdAt, task.updatedAt,
+      )
+      return Promise.resolve(task)
+    },
+
+    updatePipelineTask(task) {
+      db.prepare(
+        `UPDATE pipeline_tasks SET title = ?, description = ?, status = ?, current_stage_id = ?,
+         stages_json = ?, artifacts_json = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(
+        task.title, task.description, task.status, task.currentStageId,
+        JSON.stringify(task.stages), JSON.stringify(task.artifacts),
+        task.updatedAt, task.id,
+      )
+      return Promise.resolve(task)
+    },
+
+    deletePipelineTask(id) {
+      const r = db.prepare('DELETE FROM pipeline_tasks WHERE id = ?').run(id)
+      return Promise.resolve(r.changes > 0)
+    },
+  }
+}
+
+function rowToPipelineTask(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    source: row.source,
+    sourceMessageId: row.source_message_id,
+    sourceUserId: row.source_user_id,
+    status: row.status,
+    currentStageId: row.current_stage_id,
+    stages: typeof row.stages_json === 'string' ? JSON.parse(row.stages_json) : (row.stages_json || []),
+    artifacts: typeof row.artifacts_json === 'string' ? JSON.parse(row.artifacts_json) : (row.artifacts_json || []),
+    createdBy: row.created_by,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
   }
 }
 
@@ -130,6 +200,24 @@ async function ensurePgTables(pool) {
       revision INT NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_conv_org ON conversations(org_id);
+
+    CREATE TABLE IF NOT EXISTS pipeline_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'web',
+      source_message_id TEXT,
+      source_user_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_stage_id TEXT NOT NULL DEFAULT 'intake',
+      stages_json TEXT NOT NULL DEFAULT '[]',
+      artifacts_json TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT NOT NULL DEFAULT 'system',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pt_status ON pipeline_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_pt_stage ON pipeline_tasks(current_stage_id);
   `)
   try {
     await pool.query('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS revision INT NOT NULL DEFAULT 0')
@@ -226,6 +314,61 @@ async function createPgStore(databaseUrl) {
         'INSERT INTO users (id, org_id, email, password_hash, display_name, role, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
         [id, orgId, email, passwordHash, displayName, role, now],
       )
+    },
+
+    // --- Pipeline Tasks ---
+
+    async listPipelineTasks({ status, stage, source } = {}) {
+      let sql = 'SELECT * FROM pipeline_tasks'
+      const conditions = []
+      const params = []
+      let idx = 1
+      if (status) { conditions.push(`status = $${idx++}`); params.push(status) }
+      if (stage) { conditions.push(`current_stage_id = $${idx++}`); params.push(stage) }
+      if (source) { conditions.push(`source = $${idx++}`); params.push(source) }
+      if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ')
+      sql += ' ORDER BY updated_at DESC'
+      const r = await pool.query(sql, params)
+      return r.rows.map(rowToPipelineTask)
+    },
+
+    async getPipelineTask(id) {
+      const r = await pool.query('SELECT * FROM pipeline_tasks WHERE id = $1', [id])
+      return r.rows[0] ? rowToPipelineTask(r.rows[0]) : null
+    },
+
+    async insertPipelineTask(task) {
+      await pool.query(
+        `INSERT INTO pipeline_tasks (id, title, description, source, source_message_id, source_user_id, status, current_stage_id, stages_json, artifacts_json, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          task.id, task.title, task.description, task.source,
+          task.sourceMessageId || null, task.sourceUserId || null,
+          task.status, task.currentStageId,
+          JSON.stringify(task.stages), JSON.stringify(task.artifacts),
+          task.createdBy, task.createdAt, task.updatedAt,
+        ],
+      )
+      return task
+    },
+
+    async updatePipelineTask(task) {
+      await pool.query(
+        `UPDATE pipeline_tasks SET title = $1, description = $2, status = $3, current_stage_id = $4,
+         stages_json = $5, artifacts_json = $6, updated_at = $7
+         WHERE id = $8`,
+        [
+          task.title, task.description, task.status, task.currentStageId,
+          JSON.stringify(task.stages), JSON.stringify(task.artifacts),
+          task.updatedAt, task.id,
+        ],
+      )
+      return task
+    },
+
+    async deletePipelineTask(id) {
+      const r = await pool.query('DELETE FROM pipeline_tasks WHERE id = $1', [id])
+      return (r.rowCount ?? 0) > 0
     },
   }
 }

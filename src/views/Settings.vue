@@ -356,7 +356,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, watch } from 'vue'
+import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
@@ -365,6 +365,7 @@ import { chatCompletion } from '@/services/llm'
 import {
   catalogByProvider,
   catalogMatchingApiUrl,
+  coerceModelForProvider,
   PROVIDER_DEFAULT_API,
   PROVIDER_LABEL,
   inferDefaultApiFromLlmHost,
@@ -379,6 +380,9 @@ const creatingUser = ref(false)
 const profileName = ref(settingsStore.activeProfile?.name || '')
 
 const form = reactive({ ...settingsStore.settings })
+
+/** 从 store 回填表单时跳过「切换厂商」逻辑，避免覆盖档案里已保存的 API 地址 */
+let syncingFromStore = false
 
 const newUser = reactive({
   email: '',
@@ -437,8 +441,13 @@ const profileSummaries = computed(() =>
 )
 
 function syncFormFromStore() {
-  Object.assign(form, settingsStore.settings)
-  profileName.value = settingsStore.activeProfile?.name || ''
+  syncingFromStore = true
+  try {
+    Object.assign(form, settingsStore.settings)
+    profileName.value = settingsStore.activeProfile?.name || ''
+  } finally {
+    syncingFromStore = false
+  }
 }
 
 function onCatalogModelChange(id: string | undefined) {
@@ -447,14 +456,23 @@ function onCatalogModelChange(id: string | undefined) {
 
 function fillProviderApi(p: ModelProvider) {
   form.provider = p
-  form.apiUrl = PROVIDER_DEFAULT_API[p]
 }
 
 watch(
   () => form.provider,
   (provider) => {
-    if (!provider) return
+    if (!provider || syncingFromStore) return
     form.apiUrl = PROVIDER_DEFAULT_API[provider]
+    if (!isEnterpriseBuild || form.model?.trim()) {
+      form.model = coerceModelForProvider(form.model || '', provider)
+    }
+    settingsStore.save({ ...form })
+    syncingFromStore = true
+    try {
+      Object.assign(form, settingsStore.settings)
+    } finally {
+      syncingFromStore = false
+    }
   },
 )
 
@@ -464,6 +482,10 @@ watch(
     syncFormFromStore()
   },
 )
+
+onMounted(() => {
+  syncFormFromStore()
+})
 
 function activateProfile(id: string) {
   settingsStore.activateProfile(id)

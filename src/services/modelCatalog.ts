@@ -245,3 +245,16 @@ export function catalogMatchingApiUrl(apiUrl: string): ModelCatalogEntry[] {
 export function findCatalogEntry(modelId: string): ModelCatalogEntry | undefined {
   return MODEL_CATALOG.find((m) => m.id === modelId)
 }
+
+/**
+ * 若 model 在目录中有记录且与当前厂商不一致，则换成本厂商目录中的首个推荐 ID；
+ * 未知/自定义 model id（不在目录中）则保留，便于接入新模型名。
+ */
+export function coerceModelForProvider(model: string, provider: ModelProvider): string {
+  const trimmed = model.trim()
+  const fallback = catalogByProvider(provider)[0]?.id ?? ''
+  if (!trimmed) return fallback
+  const entry = findCatalogEntry(trimmed)
+  if (entry && entry.provider !== provider) return fallback
+  return trimmed
+}

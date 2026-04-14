@@ -3,5 +3,37 @@ dist
 data/
 .DS_Store
 *.local
+
+# Environment
 .env
 .env.*.local
+backend/.env
+
+# Config (local overrides)
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+backend/.pytest_cache/
+backend/htmlcov/
+backend/.coverage
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Skills (custom only)
+skills/custom/*
+!skills/custom/.gitkeep
+
+# Docker
+docker/provisioner/

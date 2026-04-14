@@ -1,0 +1,110 @@
+# Agent Hub — Production Docker Compose
+#
+# Usage: make docker-start (from project root)
+#
+# Services:
+#   - nginx:    Reverse proxy (port 80, configurable via PORT)
+#   - backend:  FastAPI application
+#   - frontend: Vue 3 SPA
+#   - db:       PostgreSQL 16
+#   - redis:    Redis 7 (cache + SSE + working memory)
+#
+# Access: http://localhost:${PORT:-80}
+
+services:
+  # ── Database ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: agent-hub-db
+    environment:
+      POSTGRES_USER: agenthub
+      POSTGRES_PASSWORD: agenthub
+      POSTGRES_DB: agenthub
+    volumes:
+      - agenthub_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agenthub -d agenthub"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: agent-hub-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - agenthub_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Backend: FastAPI ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ../
+      dockerfile: backend/Dockerfile
+    container_name: agent-hub-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agenthub:agenthub@db:5432/agenthub
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      CORS_ORIGINS: '["http://localhost","http://localhost:${PORT:-80}"]'
+    env_file:
+      - ../.env
+    volumes:
+      - ../skills:/app/skills:ro
+      - ../config.yaml:/app/config.yaml:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Frontend: Vue 3 ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: /api
+    container_name: agent-hub-frontend
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Reverse Proxy ───────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: agent-hub-nginx
+    ports:
+      - "${PORT:-80}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+volumes:
+  agenthub_pg:
+  agenthub_redis:
+
+networks:
+  agent-hub:
+    driver: bridge

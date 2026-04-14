@@ -118,25 +118,27 @@ export default defineConfig({
   },
   server: {
     port: 5200,
+    // More specific /api/proxy/* routes MUST come before the catch-all /api → backend
     proxy: {
-      /** 企业模式 API（见 server/index.mjs）；与下方 LLM 反向代理路径互不覆盖 */
-      '/api/hub': {
-        target: 'http://127.0.0.1:8787',
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/api\/hub/, ''),
-      },
       ...apiProxy,
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
   preview: {
     port: 5200,
     proxy: {
-      '/api/hub': {
-        target: 'http://127.0.0.1:8787',
-        changeOrigin: true,
-        rewrite: (path: string) => path.replace(/^\/api\/hub/, ''),
-      },
       ...apiProxy,
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

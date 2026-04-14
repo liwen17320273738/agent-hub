@@ -40,6 +40,13 @@
       一键进入 Wayne 总控、产品、开发、QA 的真实工作流入口。
     </el-alert>
 
+    <el-alert class="pipeline-teaser" :closable="false" show-icon style="--el-alert-bg-color: rgba(99,102,241,0.1); --el-alert-title-color: #6366f1; margin-bottom: 16px;">
+      <template #title>AI 军团流水线</template>
+      飞书/QQ 发需求 → OpenClaw 网关自动接入 → Claude Code 执行 → 全链路自动化。进入
+      <router-link class="teaser-link" to="/pipeline" style="color: #6366f1; font-weight: 600;">流水线看板</router-link>
+      查看和管理任务。
+    </el-alert>
+
     <section class="agent-section">
       <h2 class="section-title">
         <el-icon><Star /></el-icon>
@@ -48,6 +55,22 @@
       <div class="agent-grid">
         <AgentCard
           v-for="agent in coreAgents"
+          :key="agent.id"
+          :agent="agent"
+          :conversation-count="chatStore.getConversationsByAgent(agent.id).length"
+          @click="$router.push(`/agent/${agent.id}`)"
+        />
+      </div>
+    </section>
+
+    <section class="agent-section">
+      <h2 class="section-title">
+        <el-icon><Connection /></el-icon>
+        流水线角色
+      </h2>
+      <div class="agent-grid">
+        <AgentCard
+          v-for="agent in pipelineAgents"
           :key="agent.id"
           :agent="agent"
           :conversation-count="chatStore.getConversationsByAgent(agent.id).length"
@@ -76,6 +99,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Connection } from '@element-plus/icons-vue'
 import { agents } from '@/agents/registry'
 import { useSettingsStore } from '@/stores/settings'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
@@ -86,6 +110,7 @@ const settingsStore = useSettingsStore()
 const chatStore = useChatStore()
 
 const coreAgents = computed(() => agents.filter((a) => a.category === 'core'))
+const pipelineAgents = computed(() => agents.filter((a) => a.category === 'pipeline'))
 const supportAgents = computed(() => agents.filter((a) => a.category === 'support'))
 </script>
 

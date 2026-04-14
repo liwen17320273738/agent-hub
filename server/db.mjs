@@ -45,6 +45,24 @@ export function openDatabase(databasePath) {
       FOREIGN KEY (org_id) REFERENCES orgs(id)
     );
     CREATE INDEX IF NOT EXISTS idx_conv_org ON conversations(org_id);
+
+    CREATE TABLE IF NOT EXISTS pipeline_tasks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT 'web',
+      source_message_id TEXT,
+      source_user_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      current_stage_id TEXT NOT NULL DEFAULT 'intake',
+      stages_json TEXT NOT NULL DEFAULT '[]',
+      artifacts_json TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT NOT NULL DEFAULT 'system',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pt_status ON pipeline_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_pt_stage ON pipeline_tasks(current_stage_id);
   `)
   migrateConversationRevisionSqlite(db)
   return db

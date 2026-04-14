@@ -1,0 +1,133 @@
+# Agent Hub — Application Configuration
+#
+# Guidelines:
+#   - Copy this file to config.yaml and customize for your environment
+#   - Environment variables are supported: api_key: $OPENAI_API_KEY
+#   - The "use" field follows Python import notation: package.module:ClassName
+
+config_version: 1
+
+# ============================================================================
+# Models Configuration
+# ============================================================================
+# Each model entry defines an LLM provider the system can route to.
+
+models:
+  # OpenAI
+  # - name: gpt-4o
+  #   display_name: GPT-4o
+  #   provider: openai
+  #   model: gpt-4o
+  #   api_key: $OPENAI_API_KEY
+  #   max_tokens: 4096
+
+  # Anthropic Claude
+  # - name: claude-sonnet-4
+  #   display_name: Claude Sonnet 4
+  #   provider: anthropic
+  #   model: claude-sonnet-4-20250514
+  #   api_key: $ANTHROPIC_API_KEY
+  #   max_tokens: 8192
+
+  # DeepSeek
+  # - name: deepseek-chat
+  #   display_name: DeepSeek Chat
+  #   provider: openai_compatible
+  #   model: deepseek-chat
+  #   api_key: $DEEPSEEK_API_KEY
+  #   base_url: https://api.deepseek.com/v1
+  #   max_tokens: 4096
+
+  # Google Gemini
+  # - name: gemini-2.5-pro
+  #   display_name: Gemini 2.5 Pro
+  #   provider: gemini
+  #   model: gemini-2.5-pro
+  #   api_key: $GEMINI_API_KEY
+  #   max_tokens: 8192
+
+  # Dashscope (Qwen)
+  # - name: qwen-max
+  #   display_name: Qwen Max
+  #   provider: openai_compatible
+  #   model: qwen-max
+  #   api_key: $DASHSCOPE_API_KEY
+  #   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  #   max_tokens: 4096
+
+  # Zhipu (GLM)
+  # - name: glm-4-plus
+  #   display_name: GLM-4 Plus
+  #   provider: openai_compatible
+  #   model: glm-4-plus
+  #   api_key: $ZHIPU_API_KEY
+  #   base_url: https://open.bigmodel.cn/api/paas/v4
+  #   max_tokens: 4096
+
+# ============================================================================
+# Pipeline Configuration
+# ============================================================================
+
+pipeline:
+  default_stages:
+    - planning
+    - architecture
+    - implementation
+    - testing
+    - review
+    - deployment
+
+  maturation_layers:
+    - planner
+    - memory
+    - tools
+    - llm
+    - self_verify
+    - guardrails
+    - observability
+    - memory_store
+
+# ============================================================================
+# Skills Configuration
+# ============================================================================
+# Skills directory for agent workflows
+
+skills:
+  path: ../skills
+  categories:
+    - public
+    - custom
+
+# ============================================================================
+# Memory Configuration
+# ============================================================================
+
+memory:
+  enabled: true
+  working_memory_ttl: 3600
+  max_long_term_entries: 1000
+  max_injection_tokens: 2000
+  pattern_confidence_threshold: 0.7
+
+# ============================================================================
+# Gateway Channels
+# ============================================================================
+
+# channels:
+#   feishu:
+#     enabled: false
+#     app_id: $FEISHU_APP_ID
+#     app_secret: $FEISHU_APP_SECRET
+#   qq:
+#     enabled: false
+#     app_id: $QQ_APP_ID
+#     token: $QQ_TOKEN
+
+# ============================================================================
+# Executor Configuration
+# ============================================================================
+
+executor:
+  allowed_dirs:
+    - /tmp/agent-hub
+  timeout_seconds: 300

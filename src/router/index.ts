@@ -41,6 +41,21 @@ const router = createRouter({
       name: 'wayne-stack',
       component: () => import('@/views/WayneStack.vue'),
     },
+    {
+      path: '/pipeline',
+      name: 'pipeline',
+      component: () => import('@/views/PipelineDashboard.vue'),
+    },
+    {
+      path: '/pipeline/task/:id',
+      name: 'pipeline-task',
+      component: () => import('@/views/PipelineTaskDetail.vue'),
+    },
+    {
+      path: '/skills',
+      name: 'skills',
+      component: () => import('@/views/SkillsView.vue'),
+    },
   ],
 })
 

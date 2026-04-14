@@ -11,12 +11,10 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:enterprise": "concurrently -k \"pnpm dev:server\" \"vite\"",
-    "dev:server": "node --disable-warning=ExperimentalWarning server/index.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning server/index.mjs",
-    "verify:feishu": "node scripts/verify-feishu-bot.mjs"
+    "backend": "cd backend && uvicorn app.main:app --reload --port 8000",
+    "dev:full": "concurrently -k \"pnpm backend\" \"pnpm dev\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
