@@ -36,6 +36,7 @@ class CreateTaskRequest(BaseModel):
     title: str
     description: str = ""
     source: str = "web"
+    template: Optional[str] = None
 
 
 class AdvanceRequest(BaseModel):
@@ -125,20 +126,33 @@ async def create_task(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    stages_list = _default_stages()
+    if body.template:
+        from ..services.dag_orchestrator import PIPELINE_TEMPLATES
+        tmpl_stages = PIPELINE_TEMPLATES.get(body.template)
+        if tmpl_stages:
+            stages_list = [
+                {"stage_id": s.stage_id, "label": s.label, "owner_role": s.role, "sort_order": i}
+                for i, s in enumerate(tmpl_stages)
+            ]
+
+    first_stage = stages_list[0]["stage_id"] if stages_list else "planning"
+
     task = PipelineTask(
         title=body.title,
         description=body.description,
         source=body.source,
+        template=body.template,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
-        current_stage_id="planning",
+        current_stage_id=first_stage,
     )
     db.add(task)
     await db.flush()
 
-    for stage_data in _default_stages():
+    for stage_data in stages_list:
         stage = PipelineStage(task_id=task.id, **stage_data)
-        if stage_data["stage_id"] == "planning":
+        if stage_data["stage_id"] == first_stage:
             stage.status = "active"
             stage.started_at = datetime.utcnow()
         db.add(stage)
@@ -560,11 +574,15 @@ async def dag_run(
 
 @router.get("/templates")
 async def list_dag_templates():
-    """List available DAG pipeline templates."""
-    from ..services.dag_orchestrator import PIPELINE_TEMPLATES
+    """List available DAG pipeline templates with descriptions."""
+    from ..services.dag_orchestrator import PIPELINE_TEMPLATES, TEMPLATE_DESCRIPTIONS
     templates = {}
     for name, stages in PIPELINE_TEMPLATES.items():
+        desc = TEMPLATE_DESCRIPTIONS.get(name, {})
         templates[name] = {
+            "label": desc.get("label", name),
+            "description": desc.get("description", ""),
+            "icon": desc.get("icon", "📋"),
             "stages": [
                 {"id": s.stage_id, "label": s.label, "role": s.role, "dependsOn": s.depends_on}
                 for s in stages
@@ -817,6 +835,139 @@ async def get_review_config(
             "human_gate": conf.get("human_gate", False),
         }
     return config
+
+
+# ── Quality Gate Endpoints ────────────────────────────────────────
+
+@router.get("/tasks/{task_id}/quality-report")
+async def get_quality_report(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Get a comprehensive quality report for all stages of a task."""
+    task = await _get_task_or_404(db, task_id, user)
+
+    stages_data = []
+    for stage in sorted(task.stages, key=lambda s: s.sort_order):
+        stages_data.append({
+            "stage_id": stage.stage_id,
+            "output": stage.output or "",
+            "gate_status": stage.gate_status,
+            "gate_score": stage.gate_score,
+            "verify_status": stage.verify_status,
+            "quality_score": stage.quality_score,
+            "review_status": stage.review_status,
+        })
+
+    from ..services.quality_gates import generate_quality_report
+    report = await generate_quality_report(
+        stages_data,
+        task_title=task.title,
+        template=task.template,
+    )
+    report["task_id"] = str(task.id)
+    report["overall_quality_score"] = task.overall_quality_score
+    return report
+
+
+class GateOverrideBody(BaseModel):
+    reason: str = ""
+
+
+@router.post("/tasks/{task_id}/stages/{stage_id}/gate-override")
+async def override_quality_gate(
+    task_id: str,
+    stage_id: str,
+    body: GateOverrideBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Human override for a failed quality gate — marks stage as bypassed."""
+    if not user:
+        raise HTTPException(status_code=403, detail="Gate override requires user auth")
+
+    task = await _get_task_or_404(db, task_id, user)
+    target = next((s for s in task.stages if s.stage_id == stage_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Stage not found")
+
+    if target.gate_status not in ("failed", "warning"):
+        raise HTTPException(status_code=400, detail=f"Stage gate is '{target.gate_status}', no override needed")
+
+    reviewer_email = user.email if user else "api"
+    target.gate_status = "bypassed"
+    target.gate_details = {
+        **(target.gate_details or {}),
+        "override": {
+            "by": reviewer_email,
+            "reason": body.reason,
+        },
+    }
+
+    if task.status == "paused":
+        task.status = "active"
+    if target.status == "blocked":
+        target.status = "done"
+        target.completed_at = datetime.utcnow()
+
+    await db.flush()
+
+    from ..services.sse import emit_event
+    await emit_event("stage:gate-overridden", {
+        "taskId": task_id,
+        "stageId": stage_id,
+        "by": reviewer_email,
+        "reason": body.reason,
+    })
+
+    return {
+        "ok": True,
+        "stage_id": stage_id,
+        "gate_status": "bypassed",
+        "overridden_by": reviewer_email,
+    }
+
+
+@router.get("/sdlc-templates")
+async def list_sdlc_templates():
+    """List all SDLC templates with their quality gate configurations."""
+    from ..services.dag_orchestrator import PIPELINE_TEMPLATES, TEMPLATE_DESCRIPTIONS
+    from ..services.quality_gates import DELIVERABLE_REQUIREMENTS, TEMPLATE_GATE_OVERRIDES
+
+    result = {}
+    for name, stages in PIPELINE_TEMPLATES.items():
+        desc = TEMPLATE_DESCRIPTIONS.get(name, {})
+        gate_overrides = TEMPLATE_GATE_OVERRIDES.get(name, {})
+
+        stage_configs = []
+        for s in stages:
+            base_req = DELIVERABLE_REQUIREMENTS.get(s.stage_id, {})
+            overrides = gate_overrides.get(s.stage_id, {})
+            merged = {**base_req, **overrides}
+            stage_configs.append({
+                "id": s.stage_id,
+                "label": s.label,
+                "role": s.role,
+                "dependsOn": s.depends_on,
+                "qualityGate": {
+                    "passThreshold": merged.get("pass_threshold", 0.7),
+                    "failThreshold": merged.get("fail_threshold", 0.4),
+                    "minLength": merged.get("min_length", 300),
+                    "requiredSections": merged.get("required_sections", []),
+                },
+            })
+
+        result[name] = {
+            "label": desc.get("label", name),
+            "description": desc.get("description", ""),
+            "icon": desc.get("icon", "📋"),
+            "stageCount": len(stages),
+            "stages": stage_configs,
+            "hasCustomGates": bool(gate_overrides),
+        }
+
+    return {"templates": result}
 
 
 class ResumeBody(BaseModel):

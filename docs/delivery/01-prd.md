@@ -1,95 +1,75 @@
+# 产品需求文档 (PRD)
+
 ## 需求概述
-简化用户日常任务管理流程，提供直观、高效的任务列表管理服务。
+一句话描述核心价值主张：
+“提供一站式学期管理解决方案，帮助学校、学生和家长高效管理学期课程、作业和成绩。”
 
 ## 目标用户
-- **用户画像**:
-  - 年龄：20-45岁
-  - 职业：学生、职场人士、自由职业者等
-  - 地域：全国范围
-  - 特点：注重时间管理，需要高效处理日常事务
-- **使用场景**:
-  - 在工作或学习过程中记录待办事项
-  - 规划日常日程安排
-  - 随时查看和管理个人任务列表
+### 用户画像
+- 学校管理员：负责课程安排、教师分配、成绩管理等。
+- 教师：负责课程教学、作业布置、成绩录入等。
+- 学生：负责课程学习、作业提交、成绩查询等。
+- 家长：关注孩子的学习进度和成绩，参与家校互动。
+
+### 使用场景
+- 学校管理员在学期开始前进行课程安排和教师分配。
+- 教师在学期内进行教学活动，布置作业，录入成绩。
+- 学生在学期内参与课程学习，提交作业，查询成绩。
+- 家长在学期内查看孩子的学习进度和成绩，与教师沟通。
 
 ## 功能范围
 ### IN-SCOPE（必做）
-- 用户注册与登录
-- 创建、编辑、删除任务
-- 任务分类与标签功能
-- 任务提醒设置
-- 数据同步与备份
+- 课程管理：创建、编辑、删除课程。
+- 教师管理：分配教师到课程，管理教师信息。
+- 学生管理：添加、编辑、删除学生信息。
+- 作业管理：创建、编辑、发布作业，学生提交作业。
+- 成绩管理：录入、编辑、查询学生成绩。
+- 家校互动：教师与学生、家长之间的消息沟通。
 
 ### OUT-OF-SCOPE（不做）
-- 实时任务协作功能
-- 语音输入与语音识别功能
-- 完整的日历视图和日程管理功能
+- 在线支付功能。
+- 课外活动管理。
+- 学生个人档案管理。
 
 ### FUTURE（未来考虑）
-- 移动端适配
-- 个性化推荐功能
-- 第三方应用集成（如邮件、日历等）
+- 移动端应用开发。
+- 个性化学习推荐系统。
+- 跨学校数据共享。
 
 ## 用户故事
-1. **用户故事 1**
-   - **格式**: As a [用户] I want [功能] So that [价值]
-   - **内容**: As a user, I want to create tasks so that I can organize my daily activities.
-     - **验收标准**: Users can successfully create a new task with a title and description.
-   
-2. **用户故事 2**
-   - As a user, I want to edit tasks so that I can update the details of my tasks.
-     - Users can modify the title, description, due date, and priority of an existing task.
-   
-3. **用户故事 3**
-   - As a user, I want to delete tasks so that I can remove tasks that are no longer relevant.
-     - Users can delete tasks individually or in bulk with confirmation prompts.
-   
-4. **用户故事 4**
-   - As a user, I want to categorize tasks so that I can manage different types of tasks efficiently.
-     - Users can create and assign categories to tasks for better organization.
-   
-5. **用户故事 5**
-   - As a user, I want to set reminders for tasks so that I don't miss important deadlines.
-     - Users can set reminders for tasks that trigger notifications at the specified time.
+1. **As a 学校管理员, I want to create and manage courses, so that I can efficiently organize the academic schedule.**
+   - 验收标准：管理员可以创建、编辑和删除课程，课程信息准确无误。
+
+2. **As a teacher, I want to assign myself to courses, so that I can manage my teaching responsibilities.**
+   - 验收标准：教师可以成功分配到自己负责的课程，并能查看课程详细信息。
+
+3. **As a student, I want to submit my homework online, so that I can complete my assignments conveniently.**
+   - 验收标准：学生可以成功提交作业，系统记录作业提交时间。
+
+4. **As a parent, I want to view my child's grades, so that I can monitor their academic performance.**
+   - 验收标准：家长可以登录系统，查看孩子的成绩，成绩信息准确无误。
+
+5. **As a teacher, I want to enter and update student grades, so that I can keep track of student performance.**
+   - 验收标准：教师可以成功录入和更新学生的成绩，成绩信息实时更新。
 
 ## 验收标准
-1. 用户故事 1: Task creation functionality is accessible and user-friendly, allowing users to create tasks with a title and description.
-2. 用户故事 2: Task editing is functional, allowing users to update the title, description, due date, and priority of a task.
-3. 用户故事 3: Task deletion is functional, allowing users to remove tasks with a confirmation prompt.
-4. 用户故事 4: Task categorization is functional, allowing users to create and assign categories to tasks.
-5. 用户故事 5: Task reminder functionality is functional, allowing users to set reminders for tasks and receive notifications.
+- 用户故事1：课程信息在数据库中准确无误，可在管理界面进行操作。
+- 用户故事2：教师分配功能与课程信息同步，教师可以登录系统查看分配情况。
+- 用户故事3：作业提交功能正常，系统记录作业提交时间，教师可以查看作业提交情况。
+- 用户故事4：家长可以登录系统，查看孩子的成绩，成绩信息与学校系统一致。
+- 用户故事5：教师可以登录系统，录入和更新学生的成绩，成绩信息实时反映在学生信息页面。
 
 ## 非功能需求
-- **性能指标**:
-  - 页面加载时间 ≤ 2秒
-  - API响应时间 ≤ 500ms
-- **安全要求**:
-  - 用户数据加密存储
-  - 认证信息安全传输（使用 HTTPS）
-- **兼容性**:
-  - 兼容主流浏览器（Chrome, Firefox, Safari, Edge）
-  - 适配不同屏幕尺寸
-- **可访问性**:
-  - 符合 WCAG 2.1 AA 标准的无障碍设计
+- 性能指标：系统响应时间不超过2秒，用户量达到1000人时系统稳定运行。
+- 安全要求：用户数据加密存储，防止数据泄露。
+- 兼容性：支持主流浏览器和移动设备。
+- 可访问性：界面设计符合无障碍访问标准。
 
 ## 里程碑计划
-1. **P0**
-   - 用户注册与登录功能开发（第1周）
-   - 基础任务创建、编辑、删除功能开发（第2-3周）
-   - 数据库设计及实现（第3周）
-2. **P1**
-   - 任务分类与标签功能开发（第4周）
-   - 任务提醒功能开发（第5周）
-   - 单元测试与代码审查（第6周）
-3. **P2**
-   - 系统集成与部署（第7周）
-   - 用户测试与反馈收集（第8周）
-   - 问题修复与优化（第9周）
+- P0：需求分析、系统设计（1个月）
+- P1：前端开发、后端开发（2个月）
+- P2：系统测试、用户反馈、迭代优化（1个月）
 
 ## 风险评估
-- **潜在技术风险**:
-  - 数据库性能问题
-  - API安全性问题
-- **业务风险**:
-  - 用户增长不及预期
-  - 用户数据泄露风险
+- 潜在技术风险：系统性能瓶颈、数据安全问题。
+- 业务风险：用户接受度低、市场竞争激烈。

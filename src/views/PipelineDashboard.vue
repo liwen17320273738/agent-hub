@@ -198,7 +198,7 @@
       </div>
     </section>
 
-    <el-dialog v-model="showCreateDialog" title="创建新任务" width="520px">
+    <el-dialog v-model="showCreateDialog" title="创建新任务" width="680px">
       <el-form label-position="top">
         <el-form-item label="任务标题">
           <el-input v-model="newTask.title" placeholder="简洁描述需求..." />
@@ -210,6 +210,38 @@
             :rows="4"
             placeholder="详细需求描述..."
           />
+        </el-form-item>
+        <el-form-item label="流程模板 (SDLC)">
+          <div class="template-grid">
+            <div
+              v-for="(tmpl, key) in sdlcTemplates"
+              :key="key"
+              class="template-card"
+              :class="{ active: newTask.template === key }"
+              @click="selectTemplate(String(key))"
+            >
+              <span class="template-icon">{{ tmpl.icon }}</span>
+              <div class="template-info">
+                <span class="template-label">{{ tmpl.label }}</span>
+                <span class="template-desc">{{ tmpl.description }}</span>
+              </div>
+              <div class="template-badges">
+                <el-tag size="small" type="info">{{ tmpl.stageCount }} 阶段</el-tag>
+                <el-tag v-if="tmpl.hasCustomGates" size="small" type="warning">定制门禁</el-tag>
+              </div>
+            </div>
+          </div>
+          <div v-if="selectedTemplateStages.length" class="template-preview">
+            <div class="template-preview-title">阶段 & 质量门禁预览</div>
+            <div class="template-stage-list">
+              <div v-for="(st, idx) in selectedTemplateStages" :key="st.id" class="template-stage-item">
+                <span class="tps-idx">{{ idx + 1 }}</span>
+                <span class="tps-label">{{ st.label }}</span>
+                <span class="tps-role">{{ st.role }}</span>
+                <span class="tps-gate">🚦 {{ (st.qualityGate.passThreshold * 100).toFixed(0) }}%</span>
+              </div>
+            </div>
+          </div>
         </el-form-item>
         <el-form-item label="来源">
           <el-select v-model="newTask.source" style="width: 100%">
@@ -240,7 +272,9 @@ import { ElMessage } from 'element-plus'
 import {
   fetchPipelineHealth, autoRunPipeline, smartRunPipeline,
   fetchTraces, fetchApprovals, resolveApproval as apiResolveApproval, fetchAuditLog,
+  fetchTemplates, fetchSDLCTemplates,
 } from '@/services/pipelineApi'
+import type { SDLCTemplate } from '@/services/pipelineApi'
 import type { PipelineEvent } from '@/agents/types'
 
 const router = useRouter()
@@ -301,10 +335,23 @@ async function handleApproval(id: string, approved: boolean) {
   }
 }
 
+const templates = ref<Record<string, { label: string; description: string; icon: string; stageCount: number; stages: any[] }>>({})
+const sdlcTemplates = ref<Record<string, SDLCTemplate>>({})
+
+const selectedTemplateStages = computed(() => {
+  const tmpl = sdlcTemplates.value[newTask.value.template]
+  return tmpl?.stages ?? []
+})
+
+function selectTemplate(key: string) {
+  newTask.value.template = key
+}
+
 const newTask = ref({
   title: '',
   description: '',
   source: 'web',
+  template: 'full',
   autoRun: true,
 })
 
@@ -390,6 +437,8 @@ function eventLabel(event: string) {
     'executor:started': '执行开始',
     'executor:completed': '执行完成',
     'executor:error': '执行错误',
+    'stage:quality-gate': '🚦 质量门禁',
+    'stage:gate-overridden': '🔓 门禁放行',
     'stage:peer-reviewing': '🔍 审阅中',
     'stage:peer-review-approved': '✅ 审阅通过',
     'stage:peer-review-rejected': '❌ 审阅驳回',
@@ -422,6 +471,7 @@ async function handleCreateTask() {
       title: newTask.value.title,
       description: newTask.value.description,
       source: newTask.value.source,
+      template: newTask.value.template || undefined,
     })
     showCreateDialog.value = false
 
@@ -430,7 +480,7 @@ async function handleCreateTask() {
       router.push(`/pipeline/task/${task.id}`)
     }
 
-    newTask.value = { title: '', description: '', source: 'web', autoRun: true }
+    newTask.value = { title: '', description: '', source: 'web', template: 'full', autoRun: true }
   } catch (e: unknown) {
     ElMessage.error(`创建任务失败: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
@@ -445,6 +495,16 @@ onMounted(async () => {
     healthStatus.value = await fetchPipelineHealth()
   } catch {
     healthStatus.value = { pipeline: 'offline' }
+  }
+  try {
+    templates.value = await fetchTemplates()
+  } catch {
+    /* templates optional */
+  }
+  try {
+    sdlcTemplates.value = await fetchSDLCTemplates()
+  } catch {
+    /* sdlc templates optional */
   }
   loadObsData()
 })
@@ -889,4 +949,111 @@ onUnmounted(() => {
 
 .tier-roles { display: flex; flex-wrap: wrap; gap: 6px; }
 .tier-role-tag { font-family: monospace; }
+
+/* Template selector */
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  width: 100%;
+}
+.template-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color, #e4e7ed);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.template-card:hover {
+  border-color: var(--el-color-primary-light-3, #79bbff);
+  background: var(--bg-tertiary, #f5f7fa);
+}
+.template-card.active {
+  border-color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+.template-icon { font-size: 20px; flex-shrink: 0; }
+.template-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.template-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.template-desc {
+  font-size: 11px;
+  color: var(--text-muted, #909399);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.template-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+/* Template preview */
+.template-preview {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--bg-tertiary, #f0f2f5);
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #e4e7ed);
+}
+.template-preview-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #606266);
+  margin-bottom: 8px;
+}
+.template-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.template-stage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary, #fff);
+  font-size: 12px;
+}
+.tps-idx {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent, #409eff);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.tps-label {
+  font-weight: 600;
+  color: var(--text-primary, #303133);
+  min-width: 80px;
+}
+.tps-role {
+  color: var(--text-muted, #909399);
+  font-family: monospace;
+  font-size: 11px;
+  flex: 1;
+}
+.tps-gate {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f59e0b;
+  flex-shrink: 0;
+}
 </style>

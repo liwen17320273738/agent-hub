@@ -93,6 +93,72 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
         DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
         DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"], skip_condition="approved"),
     ],
+    "web_app": [
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
+        DAGStage("development", "前后端开发", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "端到端测试", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "产品验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"]),
+    ],
+    "api_service": [
+        DAGStage("planning", "API 需求设计", "product-manager"),
+        DAGStage("architecture", "接口 & 数据模型", "architect", depends_on=["planning"]),
+        DAGStage("development", "API 实现", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "接口测试 & 安全审查", "qa-lead", depends_on=["development"]),
+        DAGStage("deployment", "部署 & 文档", "devops", depends_on=["testing"]),
+    ],
+    "data_pipeline": [
+        DAGStage("planning", "数据需求分析", "product-manager"),
+        DAGStage("architecture", "数据架构设计", "architect", depends_on=["planning"]),
+        DAGStage("development", "ETL / 管道开发", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "数据质量验证", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "数据治理审查", "orchestrator", depends_on=["testing"]),
+    ],
+    "bug_fix": [
+        DAGStage("planning", "问题分析 & 定位", "product-manager"),
+        DAGStage("development", "修复实现", "developer", depends_on=["planning"]),
+        DAGStage("testing", "回归测试", "qa-lead", depends_on=["development"]),
+    ],
+    "microservice": [
+        DAGStage("planning", "服务需求 & 边界定义", "product-manager"),
+        DAGStage("architecture", "服务架构 & API 契约", "architect", depends_on=["planning"]),
+        DAGStage("development", "服务实现", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "单元 + 集成 + 契约测试", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "服务验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("deployment", "容器化部署", "devops", depends_on=["reviewing"]),
+    ],
+    "fullstack_saas": [
+        DAGStage("planning", "产品需求 & 商业模式", "product-manager"),
+        DAGStage("architecture", "全栈架构 & 技术选型", "architect", depends_on=["planning"]),
+        DAGStage("development", "前后端实现", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "全链路测试", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "产品验收 & 安全审查", "orchestrator", depends_on=["testing"]),
+        DAGStage("deployment", "云端部署 & CI/CD", "devops", depends_on=["reviewing"]),
+    ],
+    "mobile_app": [
+        DAGStage("planning", "移动端需求分析", "product-manager"),
+        DAGStage("architecture", "移动架构 & UI 规范", "architect", depends_on=["planning"]),
+        DAGStage("development", "移动端开发", "developer", depends_on=["architecture"]),
+        DAGStage("testing", "多设备测试 & 性能", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "App 验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("deployment", "商店发布 & 灰度", "devops", depends_on=["reviewing"]),
+    ],
+}
+
+TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
+    "full": {"label": "完整 SDLC", "description": "规划→架构→开发→测试→验收→部署，适用于中大型项目", "icon": "🏗️"},
+    "web_app": {"label": "Web 应用", "description": "前后端一体化开发，含端到端测试和部署", "icon": "🌐"},
+    "api_service": {"label": "API 服务", "description": "接口设计→实现→安全测试→部署文档", "icon": "🔌"},
+    "data_pipeline": {"label": "数据管道", "description": "数据需求→架构→ETL 开发→质量验证→治理审查", "icon": "📊"},
+    "bug_fix": {"label": "Bug 修复", "description": "问题定位→修复→回归测试，快速迭代", "icon": "🐛"},
+    "simple": {"label": "极简流程", "description": "规划→开发→测试，适用于小需求", "icon": "⚡"},
+    "adaptive": {"label": "自适应", "description": "根据复杂度自动跳过架构/部署阶段", "icon": "🤖"},
+    "parallel_design": {"label": "并行设计", "description": "架构与开发可并行执行，加速交付", "icon": "⚡"},
+    "review_only": {"label": "仅审查", "description": "跳过开发，仅测试+验收", "icon": "🔍"},
+    "microservice": {"label": "微服务", "description": "服务边界→API 契约→实现→契约测试→容器化", "icon": "🔗"},
+    "fullstack_saas": {"label": "全栈 SaaS", "description": "完整 SaaS 产品开发：需求→全栈→测试→安全审查→云部署", "icon": "☁️"},
+    "mobile_app": {"label": "移动应用", "description": "移动端产品：需求→UI 架构→开发→多设备测试→商店发布", "icon": "📱"},
 }
 
 

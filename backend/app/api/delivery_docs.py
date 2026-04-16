@@ -2,14 +2,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, List
+from typing import Annotated, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
+from ..database import get_db
 from ..security import get_current_user
 from ..models.user import User
+from ..models.pipeline import PipelineTask, PipelineStage
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/delivery-docs", tags=["delivery-docs"])
 
@@ -281,5 +290,106 @@ async def write_delivery_doc(
         "title": meta["title"],
         "description": meta["description"],
         "content": body.content,
+        "updatedAt": updated,
+    }
+
+
+STAGE_LABELS = {
+    "planning": "需求规划",
+    "architecture": "架构设计",
+    "development": "开发实现",
+    "testing": "测试验证",
+    "reviewing": "审查验收",
+    "deployment": "部署上线",
+}
+
+VERIFY_EMOJI = {"pass": "✅", "warn": "⚠️", "fail": "❌"}
+
+
+async def compile_deliverables(task_id: str, db: AsyncSession) -> str:
+    """Compile all stage outputs for a task into a single Markdown summary."""
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == task_id)
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise ValueError(f"Task {task_id} not found")
+
+    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
+
+    overall_score = f"{task.overall_quality_score * 100:.0f}%" if task.overall_quality_score is not None else "—"
+
+    lines = [
+        f"# 项目交付汇总：{task.title}",
+        "",
+        f"- **任务 ID**: `{task.id}`",
+        f"- **模板**: {task.template or '默认'}",
+        f"- **状态**: {task.status}",
+        f"- **总质量评分**: {overall_score}",
+        f"- **创建时间**: {task.created_at.strftime('%Y-%m-%d %H:%M') if task.created_at else '-'}",
+        "",
+        "---",
+        "",
+        "## 质量总评",
+        "",
+        "| 阶段 | 状态 | 验证 | 门禁 | 门禁评分 | 质量分 |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+
+    GATE_EMOJI = {"passed": "🟢", "warning": "🟡", "failed": "🔴", "bypassed": "🔓"}
+
+    for s in sorted_stages:
+        label = STAGE_LABELS.get(s.stage_id, s.label or s.stage_id)
+        v = VERIFY_EMOJI.get(s.verify_status or "", "—")
+        g = GATE_EMOJI.get(s.gate_status or "", "—")
+        gate_score = f"{s.gate_score * 100:.0f}%" if s.gate_score is not None else "—"
+        score = f"{s.quality_score:.1f}" if s.quality_score is not None else "—"
+        lines.append(f"| {label} | {s.status} | {v} {(s.verify_status or '—').upper()} | {g} {(s.gate_status or '—').upper()} | {gate_score} | {score} |")
+
+    lines.extend(["", "---", ""])
+
+    for s in sorted_stages:
+        label = STAGE_LABELS.get(s.stage_id, s.label or s.stage_id)
+        lines.append(f"## {label}")
+        lines.append("")
+        if s.output:
+            lines.append(s.output.strip())
+        else:
+            lines.append("*(未产出)*")
+        if s.reviewer_feedback:
+            lines.append("")
+            lines.append(f"> **审阅反馈** ({s.reviewer_agent or '审阅者'}): {s.reviewer_feedback[:500]}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@router.post("/compile/{task_id}")
+async def compile_task_deliverables(
+    task_id: str,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Compile all stage outputs into a single deliverable document."""
+    try:
+        content = await compile_deliverables(task_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+    def _write() -> float:
+        _DELIVERY_DIR.mkdir(parents=True, exist_ok=True)
+        path = _DELIVERY_DIR / "00-project-summary.md"
+        path.write_text(content, encoding="utf-8")
+        return path.stat().st_mtime * 1000
+
+    updated = await asyncio.to_thread(_write)
+    return {
+        "name": "00-project-summary.md",
+        "title": "项目交付汇总",
+        "content": content,
         "updatedAt": updated,
     }

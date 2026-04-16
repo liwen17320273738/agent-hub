@@ -80,8 +80,17 @@ function mapTask(raw: any): PipelineTask {
       reviewerAgent: s.reviewer_agent ?? s.reviewerAgent ?? null,
       reviewAttempts: s.review_attempts ?? s.reviewAttempts ?? 0,
       approvalId: s.approval_id ?? s.approvalId ?? null,
+      verifyStatus: s.verify_status ?? s.verifyStatus ?? null,
+      verifyChecks: s.verify_checks ?? s.verifyChecks ?? null,
+      qualityScore: s.quality_score ?? s.qualityScore ?? null,
+      gateStatus: s.gate_status ?? s.gateStatus ?? null,
+      gateScore: s.gate_score ?? s.gateScore ?? null,
+      gateDetails: s.gate_details ?? s.gateDetails ?? null,
     })),
     artifacts: raw.artifacts ?? [],
+    template: raw.template ?? null,
+    qualityGateConfig: raw.quality_gate_config ?? raw.qualityGateConfig ?? null,
+    overallQualityScore: raw.overall_quality_score ?? raw.overallQualityScore ?? null,
     createdBy: raw.created_by ?? raw.createdBy ?? '',
     createdAt: raw.created_at ?? raw.createdAt,
     updatedAt: raw.updated_at ?? raw.updatedAt,
@@ -118,10 +127,31 @@ export async function fetchTask(id: string): Promise<PipelineTask> {
   return mapTask(data.task)
 }
 
+export async function fetchTemplates(): Promise<Record<string, {
+  label: string
+  description: string
+  icon: string
+  stages: Array<{ id: string; label: string; role: string; dependsOn: string[] }>
+  stageCount: number
+}>> {
+  const data = await apiFetch<{ templates: any }>('/pipeline/templates')
+  return data.templates ?? {}
+}
+
+export async function compileDeliverables(taskId: string): Promise<{
+  name: string
+  title: string
+  content: string
+  updatedAt: number
+}> {
+  return apiFetch(`/delivery-docs/compile/${taskId}`, { method: 'POST' })
+}
+
 export async function createTask(payload: {
   title: string
   description?: string
   source?: string
+  template?: string
 }): Promise<PipelineTask> {
   if (!(await checkServer())) return localCreateTask(payload)
 
@@ -407,6 +437,78 @@ export async function getReviewConfig(): Promise<Record<string, {
   human_gate: boolean
 }>> {
   return apiFetch(`/pipeline/tasks/_/review-config`)
+}
+
+// ===== Quality Gate APIs =====
+
+export interface QualityGateStageReport {
+  stage_id: string
+  label: string
+  gate_status: string
+  gate_score: number | null
+  verify_status: string | null
+  quality_score: number | null
+  review_status: string | null
+  has_output: boolean
+  output_length: number
+  pass_threshold: number
+  fail_threshold: number
+}
+
+export interface QualityReport {
+  task_id: string
+  task_title: string
+  template: string | null
+  overall_quality_score: number | null
+  stages: QualityGateStageReport[]
+  summary: {
+    total_stages: number
+    gates_evaluated: number
+    average_score: number
+    all_passed: boolean
+    any_failed: boolean
+    overall_verdict: string
+  }
+}
+
+export async function fetchQualityReport(taskId: string): Promise<QualityReport> {
+  return apiFetch(`/pipeline/tasks/${taskId}/quality-report`)
+}
+
+export async function overrideQualityGate(
+  taskId: string,
+  stageId: string,
+  reason?: string,
+): Promise<{ ok: boolean; stage_id: string; gate_status: string }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/stages/${stageId}/gate-override`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason || '' }),
+  })
+}
+
+export interface SDLCTemplate {
+  label: string
+  description: string
+  icon: string
+  stageCount: number
+  hasCustomGates: boolean
+  stages: Array<{
+    id: string
+    label: string
+    role: string
+    dependsOn: string[]
+    qualityGate: {
+      passThreshold: number
+      failThreshold: number
+      minLength: number
+      requiredSections: string[]
+    }
+  }>
+}
+
+export async function fetchSDLCTemplates(): Promise<Record<string, SDLCTemplate>> {
+  const data = await apiFetch<{ templates: Record<string, SDLCTemplate> }>('/pipeline/sdlc-templates')
+  return data.templates ?? {}
 }
 
 export async function resumePipeline(

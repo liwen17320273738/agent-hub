@@ -769,9 +769,14 @@ async def execute_full_pipeline(
         content = result.get("content", "")
         outputs[stage_id] = content
 
-        # Persist stage output (mark as pending review, finalized to "done" after review)
+        # Persist stage output + verification data
+        verification = result.get("verification", {})
+        quality_score = 0.8 if verification.get("status") == "pass" else 0.5 if verification.get("status") == "warn" else 0.2
         if stage_id in db_stages:
             db_stages[stage_id].output = content
+            db_stages[stage_id].verify_status = verification.get("status")
+            db_stages[stage_id].verify_checks = verification.get("checks")
+            db_stages[stage_id].quality_score = quality_score
         await db.flush()
 
         # Write to delivery docs on disk
@@ -781,7 +786,71 @@ async def execute_full_pipeline(
         except Exception as doc_err:
             logger.warning(f"[pipeline] Failed to write delivery doc for {stage_id}: {doc_err}")
 
-        verification = result.get("verification", {})
+        # --- Quality Gate Evaluation ---
+        gate_result = None
+        try:
+            from .quality_gates import evaluate_quality_gate, GateStatus
+            from .self_verify import StageVerification, VerifyStatus, VerifyResult
+
+            heuristic = StageVerification(
+                stage_id=stage_id, role="",
+                overall_status=VerifyStatus(verification.get("status", "pass")),
+                checks=[VerifyResult(check_name=c.get("name", ""), status=VerifyStatus(c.get("status", "pass")), message=c.get("message", "")) for c in verification.get("checks", [])],
+                auto_proceed=verification.get("auto_proceed", True),
+            )
+            task_template = db_task.template if db_task else None
+            gate_result = await evaluate_quality_gate(
+                stage_id, content,
+                template=task_template,
+                previous_outputs=outputs,
+                heuristic_result=heuristic,
+                skip_llm=force_continue,
+            )
+
+            if stage_id in db_stages:
+                db_stages[stage_id].gate_status = gate_result.overall_status.value
+                db_stages[stage_id].gate_score = gate_result.overall_score
+                db_stages[stage_id].gate_details = {
+                    "checks": [c.dict() for c in gate_result.checks],
+                    "suggestions": gate_result.suggestions,
+                    "block_reason": gate_result.block_reason,
+                }
+            await db.flush()
+
+            await emit_event("stage:quality-gate", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "gateStatus": gate_result.overall_status.value,
+                "gateScore": gate_result.overall_score,
+                "canProceed": gate_result.can_proceed,
+                "blockReason": gate_result.block_reason,
+            })
+
+            if not gate_result.can_proceed and not force_continue:
+                if db_task:
+                    db_task.status = "paused"
+                if stage_id in db_stages:
+                    db_stages[stage_id].status = "blocked"
+                await db.flush()
+
+                await emit_event("pipeline:auto-paused", {
+                    "taskId": task_id,
+                    "stoppedAt": stage_id,
+                    "reason": f"质量门禁未通过: {gate_result.block_reason or '评分过低'}",
+                    "gateScore": gate_result.overall_score,
+                })
+                return {
+                    "ok": False,
+                    "paused": True,
+                    "stopped_at": stage_id,
+                    "reason": f"Quality gate failed: {gate_result.block_reason}",
+                    "gate_result": gate_result.dict(),
+                    "results": results,
+                    "trace_id": trace.trace_id,
+                }
+        except Exception as gate_err:
+            logger.warning(f"[pipeline] Quality gate evaluation failed for {stage_id}: {gate_err}")
+
         if not verification.get("auto_proceed", True):
             if force_continue:
                 logger.warning(
@@ -966,11 +1035,28 @@ async def execute_full_pipeline(
             prev_stage = stages[stages.index(stage_id) - 1]
             await update_quality_score(db, task_id, prev_stage, 0.8)
 
-    # All stages complete — mark task as done
+    # All stages complete — compute overall quality and mark task as done
     if db_task:
         db_task.status = "done"
         db_task.current_stage_id = "done"
+        gate_scores = [
+            s.gate_score for s in db_task.stages
+            if s.gate_score is not None
+        ]
+        if gate_scores:
+            db_task.overall_quality_score = round(
+                sum(gate_scores) / len(gate_scores), 3
+            )
     await db.flush()
+
+    # Auto-compile deliverables
+    try:
+        from ..api.delivery_docs import compile_deliverables
+        deliverable_md = await compile_deliverables(task_id, db)
+        logger.info(f"[pipeline] Compiled deliverables for task {task_id} ({len(deliverable_md)} chars)")
+    except Exception as e:
+        logger.warning(f"[pipeline] Failed to compile deliverables: {e}")
+        deliverable_md = None
 
     await complete_trace(trace.trace_id, status="completed")
 
@@ -987,6 +1073,7 @@ async def execute_full_pipeline(
         "totalTokens": summary["total_tokens"],
         "totalCostUsd": summary["total_cost_usd"],
         "traceId": trace.trace_id,
+        "hasDeliverable": deliverable_md is not None,
     })
 
     return {

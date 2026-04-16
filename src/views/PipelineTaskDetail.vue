@@ -17,7 +17,24 @@
         </div>
       </div>
       <p v-if="task.description" class="task-description">{{ task.description }}</p>
+      <div v-if="task.template" class="task-meta-row">
+        <el-tag size="small" type="info">模板: {{ task.template }}</el-tag>
+      </div>
     </header>
+
+    <section v-if="qualitySummary.total > 0" class="quality-summary">
+      <div class="quality-bar">
+        <span class="quality-label">质量门禁</span>
+        <div class="quality-pills">
+          <span class="quality-pill pass" v-if="qualitySummary.pass">✅ {{ qualitySummary.pass }}</span>
+          <span class="quality-pill warn" v-if="qualitySummary.warn">⚠️ {{ qualitySummary.warn }}</span>
+          <span class="quality-pill fail" v-if="qualitySummary.fail">❌ {{ qualitySummary.fail }}</span>
+        </div>
+        <span class="quality-avg" v-if="qualitySummary.avgScore > 0">
+          平均评分: ⭐ {{ qualitySummary.avgScore.toFixed(1) }}
+        </span>
+      </div>
+    </section>
 
     <section class="stage-progress">
       <h2 class="section-title">阶段进度</h2>
@@ -60,6 +77,19 @@
               <el-tag v-if="stage.status === 'awaiting_approval'" size="small" type="danger">
                 等待审批
               </el-tag>
+              <span v-if="stage.verifyStatus" class="verify-badge" :class="stage.verifyStatus">
+                {{ stage.verifyStatus === 'pass' ? '✅' : stage.verifyStatus === 'warn' ? '⚠️' : '❌' }}
+                {{ stage.verifyStatus.toUpperCase() }}
+              </span>
+              <span v-if="stage.gateStatus" class="gate-badge" :class="'gate-' + stage.gateStatus">
+                {{ gateIcon(stage.gateStatus) }} {{ gateLabel(stage.gateStatus) }}
+              </span>
+              <span v-if="stage.gateScore != null" class="gate-score">
+                {{ (stage.gateScore * 100).toFixed(0) }}%
+              </span>
+              <span v-if="stage.qualityScore != null" class="quality-score">
+                ⭐ {{ stage.qualityScore.toFixed(1) }}
+              </span>
             </div>
             <div class="stage-role">
               {{ stage.ownerRole }}
@@ -92,6 +122,44 @@
               <div v-if="expandedFeedback.has(stage.id)" class="feedback-body">
                 <div class="output-content-md" v-html="renderMarkdown(stage.reviewerFeedback)"></div>
               </div>
+            </div>
+
+            <!-- Quality gate details -->
+            <div v-if="stage.gateDetails && (stage.gateStatus === 'failed' || stage.gateStatus === 'warning')" class="gate-detail-panel">
+              <div class="gate-detail-header" @click="toggleGateDetail(stage.id)">
+                <el-icon><Warning /></el-icon>
+                <span>质量门禁详情</span>
+                <el-icon class="toggle-icon" :class="{ expanded: expandedGateDetails.has(stage.id) }">
+                  <ArrowDown />
+                </el-icon>
+              </div>
+              <div v-if="expandedGateDetails.has(stage.id)" class="gate-detail-body">
+                <div v-if="stage.gateDetails.block_reason" class="gate-block-reason">
+                  <strong>阻断原因:</strong> {{ stage.gateDetails.block_reason }}
+                </div>
+                <div v-if="stage.gateDetails.checks?.length" class="gate-checks">
+                  <div v-for="check in stage.gateDetails.checks" :key="check.name" class="gate-check-item">
+                    <span class="gate-check-icon">{{ gateIcon(check.status) }}</span>
+                    <span class="gate-check-name">{{ check.name }}</span>
+                    <span class="gate-check-score">{{ (check.score * 100).toFixed(0) }}%</span>
+                    <span class="gate-check-msg">{{ check.message }}</span>
+                  </div>
+                </div>
+                <div v-if="stage.gateDetails.suggestions?.length" class="gate-suggestions">
+                  <p v-for="(s, i) in stage.gateDetails.suggestions" :key="i" class="gate-suggestion">{{ s }}</p>
+                </div>
+                <div v-if="stage.gateStatus === 'failed'" class="gate-override-action">
+                  <el-button type="warning" size="small" @click="handleGateOverride(stage.id)" :loading="overridingGate === stage.id">
+                    <el-icon><Unlock /></el-icon> 人工放行
+                  </el-button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="stage.gateDetails?.override" class="gate-override-info">
+              <span class="override-badge">🔓 已人工放行</span>
+              <span class="override-by">{{ stage.gateDetails.override.by }}</span>
+              <span v-if="stage.gateDetails.override.reason" class="override-reason">: {{ stage.gateDetails.override.reason }}</span>
             </div>
 
             <!-- Human approval buttons -->
@@ -238,6 +306,70 @@
       </div>
     </section>
 
+    <!-- Quality Report Section -->
+    <section v-if="qualityReport" class="quality-report-section">
+      <h2 class="section-title">
+        质量门禁报告
+        <el-tag
+          :type="qualityReport.summary.overall_verdict === 'PASSED' ? 'success' : qualityReport.summary.overall_verdict === 'FAILED' ? 'danger' : 'warning'"
+          size="small"
+          style="margin-left: 8px"
+        >
+          {{ qualityReport.summary.overall_verdict }}
+        </el-tag>
+      </h2>
+      <div class="qr-summary">
+        <div class="qr-stat">
+          <span class="qr-stat-value">{{ qualityReport.summary.gates_evaluated }}</span>
+          <span class="qr-stat-label">已评估</span>
+        </div>
+        <div class="qr-stat">
+          <span class="qr-stat-value">{{ (qualityReport.summary.average_score * 100).toFixed(0) }}%</span>
+          <span class="qr-stat-label">平均分</span>
+        </div>
+        <div class="qr-stat" v-if="task.overallQualityScore != null">
+          <span class="qr-stat-value">{{ (task.overallQualityScore * 100).toFixed(0) }}%</span>
+          <span class="qr-stat-label">总评分</span>
+        </div>
+      </div>
+      <div class="qr-stages">
+        <div v-for="sr in qualityReport.stages" :key="sr.stage_id" class="qr-stage-row">
+          <span class="qr-stage-label">{{ sr.label }}</span>
+          <span class="qr-gate-icon">{{ gateIcon(sr.gate_status) }}</span>
+          <div class="qr-score-bar">
+            <div
+              class="qr-score-fill"
+              :class="sr.gate_status"
+              :style="{ width: `${(sr.gate_score ?? 0) * 100}%` }"
+            ></div>
+          </div>
+          <span class="qr-score-text">{{ sr.gate_score != null ? `${(sr.gate_score * 100).toFixed(0)}%` : '—' }}</span>
+          <span class="qr-threshold">门禁: {{ (sr.pass_threshold * 100).toFixed(0) }}%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="deliverable-section" v-if="task.status === 'done'">
+      <div class="deliverable-bar">
+        <h2 class="section-title">项目交付汇总</h2>
+        <div class="deliverable-actions">
+          <el-button type="primary" size="small" @click="handleCompile" :loading="compiling">
+            <el-icon><Document /></el-icon>
+            生成交付文档
+          </el-button>
+          <el-button
+            v-if="compiledContent"
+            size="small"
+            @click="handleDownload"
+          >
+            <el-icon><Download /></el-icon>
+            下载 Markdown
+          </el-button>
+        </div>
+      </div>
+      <div v-if="compiledContent" class="compiled-preview" v-html="renderMarkdown(compiledContent)"></div>
+    </section>
+
     <section class="task-artifacts" v-if="task.artifacts?.length">
       <h2 class="section-title">
         交付产物
@@ -316,7 +448,8 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
-  ChatDotSquare, Document, Loading, RefreshRight, Right, VideoPlay, View,
+  ChatDotSquare, Document, Download, Loading, RefreshRight, Right, Unlock,
+  VideoPlay, View, Warning,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { usePipelineStore } from '@/stores/pipeline'
@@ -324,7 +457,9 @@ import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
   smartRunPipeline, subscribePipelineEvents,
   approveStage as apiApproveStage, resumePipeline,
+  compileDeliverables, fetchQualityReport, overrideQualityGate,
 } from '@/services/pipelineApi'
+import type { QualityReport } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
@@ -348,7 +483,12 @@ const expandedOutputs = reactive(new Set<string>())
 const expandedArtifacts = reactive(new Set<string>())
 const expandedFeedback = reactive(new Set<string>())
 const approvingStage = ref<string | null>(null)
+const compiling = ref(false)
+const compiledContent = ref('')
 const logContainer = ref<HTMLElement | null>(null)
+const expandedGateDetails = reactive(new Set<string>())
+const overridingGate = ref<string | null>(null)
+const qualityReport = ref<QualityReport | null>(null)
 
 interface LogEntry {
   event: string
@@ -403,6 +543,44 @@ function artifactTagType(type: string) {
   const map: Record<string, string> = { document: 'primary', code: 'success', test: 'warning' }
   return (map[type] || 'info') as '' | 'success' | 'warning' | 'info' | 'danger'
 }
+
+async function handleCompile() {
+  if (!task.value) return
+  compiling.value = true
+  try {
+    const result = await compileDeliverables(task.value.id)
+    compiledContent.value = result.content
+    ElMessage.success('交付文档已生成')
+  } catch (e: unknown) {
+    ElMessage.error(`生成失败: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    compiling.value = false
+  }
+}
+
+function handleDownload() {
+  if (!compiledContent.value) return
+  const blob = new Blob([compiledContent.value], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `project-summary-${task.value?.id?.slice(0, 8) ?? 'task'}.md`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+const qualitySummary = computed(() => {
+  const stages = task.value?.stages ?? []
+  const withVerify = stages.filter(s => s.verifyStatus)
+  const pass = withVerify.filter(s => s.verifyStatus === 'pass').length
+  const warn = withVerify.filter(s => s.verifyStatus === 'warn').length
+  const fail = withVerify.filter(s => s.verifyStatus === 'fail').length
+  const scores = stages.map(s => s.qualityScore).filter((v): v is number => v != null)
+  const avgScore = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
+  return { total: withVerify.length, pass, warn, fail, avgScore }
+})
 
 const previousStages = computed(() => {
   if (!task.value) return []
@@ -463,6 +641,8 @@ function formatEventName(event: string) {
     'executor:error': '❌ Claude Code 错误',
     'executor:timeout': '⏰ Claude Code 超时',
     'executor:killed': '🛑 Claude Code 已终止',
+    'stage:quality-gate': '🚦 质量门禁评估',
+    'stage:gate-overridden': '🔓 门禁人工放行',
     'stage:peer-reviewing': '🔍 Peer Review 审阅中',
     'stage:peer-review-approved': '✅ Peer Review 通过',
     'stage:peer-review-rejected': '❌ Peer Review 驳回',
@@ -474,6 +654,47 @@ function formatEventName(event: string) {
     'pipeline:resumed': '▶️ Pipeline 恢复执行',
   }
   return map[event] || event
+}
+
+function gateIcon(status: string | null | undefined) {
+  const icons: Record<string, string> = {
+    passed: '🟢', warning: '🟡', failed: '🔴', bypassed: '🔓', pending: '⚪',
+  }
+  return icons[status || ''] || '⚪'
+}
+
+function gateLabel(status: string | null | undefined) {
+  const labels: Record<string, string> = {
+    passed: '门禁通过', warning: '门禁警告', failed: '门禁失败', bypassed: '已放行', pending: '待评估',
+  }
+  return labels[status || ''] || ''
+}
+
+function toggleGateDetail(stageId: string) {
+  if (expandedGateDetails.has(stageId)) expandedGateDetails.delete(stageId)
+  else expandedGateDetails.add(stageId)
+}
+
+async function handleGateOverride(stageId: string) {
+  if (!task.value) return
+  overridingGate.value = stageId
+  try {
+    await overrideQualityGate(String(task.value.id), stageId, '人工审查后放行')
+    ElMessage.success('质量门禁已放行')
+    await loadTask()
+    await resumePipeline(String(task.value.id), undefined, false)
+  } catch (e: any) {
+    ElMessage.error(e?.message || '放行失败')
+  } finally {
+    overridingGate.value = null
+  }
+}
+
+async function loadQualityReport() {
+  if (!task.value) return
+  try {
+    qualityReport.value = await fetchQualityReport(task.value.id)
+  } catch { /* optional */ }
 }
 
 function toggleOutput(stageId: string) {
@@ -560,6 +781,12 @@ function setupSSE() {
       processingStage.value = null
       loadTask()
     }
+    if (evt.event === 'stage:quality-gate' || evt.event === 'stage:gate-overridden') {
+      processingStage.value = null
+      loadTask()
+      loadQualityReport()
+    }
+
     if (
       evt.event === 'stage:peer-review-approved' ||
       evt.event === 'stage:peer-review-rejected' ||
@@ -628,6 +855,7 @@ function setupSSE() {
       autoRunning.value = false
       stageRunning.value = false
       ElMessage.success('全自动流水线已完成！')
+      loadQualityReport()
     }
 
     if (evt.event === 'pipeline:smart-completed') {
@@ -771,7 +999,7 @@ async function loadTask() {
 }
 
 onMounted(() => {
-  loadTask()
+  loadTask().then(() => loadQualityReport())
   setupSSE()
 })
 
@@ -1257,4 +1485,272 @@ watch(() => route.params.id, () => {
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* Deliverable section */
+.deliverable-section {
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.deliverable-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.deliverable-actions { display: flex; gap: 8px; }
+.compiled-preview {
+  background: var(--bg-primary, #fff);
+  border-radius: 8px;
+  padding: 16px 20px;
+  max-height: 600px;
+  overflow-y: auto;
+  line-height: 1.7;
+  font-size: 14px;
+}
+.compiled-preview h1 { font-size: 20px; margin-bottom: 12px; }
+.compiled-preview h2 { font-size: 16px; margin-top: 16px; margin-bottom: 8px; }
+.compiled-preview table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.compiled-preview th, .compiled-preview td {
+  border: 1px solid var(--border-color, #e4e7ed);
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 13px;
+}
+.compiled-preview th { background: var(--bg-tertiary, #eef1f6); font-weight: 600; }
+
+/* Quality badge per stage */
+.verify-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.verify-badge.pass { background: #dcfce7; color: #166534; }
+.verify-badge.warn { background: #fef3c7; color: #92400e; }
+.verify-badge.fail { background: #fecaca; color: #991b1b; }
+
+.quality-score {
+  font-size: 11px;
+  color: var(--text-muted, #909399);
+  margin-left: 6px;
+}
+
+/* Quality summary bar */
+.quality-summary {
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+.quality-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.quality-label { font-weight: 600; font-size: 14px; }
+.quality-pills { display: flex; gap: 8px; }
+.quality-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.quality-pill.pass { background: #dcfce7; color: #166534; }
+.quality-pill.warn { background: #fef3c7; color: #92400e; }
+.quality-pill.fail { background: #fecaca; color: #991b1b; }
+.quality-avg { font-size: 13px; color: var(--text-muted, #909399); margin-left: auto; }
+
+.task-meta-row { margin-top: 6px; }
+
+/* Quality Gate badges */
+.gate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.gate-passed { background: #dcfce7; color: #166534; }
+.gate-warning { background: #fef3c7; color: #92400e; }
+.gate-failed { background: #fecaca; color: #991b1b; }
+.gate-bypassed { background: #e0e7ff; color: #3730a3; }
+.gate-pending { background: #f3f4f6; color: #6b7280; }
+
+.gate-score {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-left: 4px;
+}
+
+/* Gate detail panel */
+.gate-detail-panel {
+  margin-top: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.gate-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.06);
+}
+.gate-detail-header:hover { background: rgba(239, 68, 68, 0.12); }
+.gate-detail-body {
+  padding: 12px;
+  font-size: 13px;
+  border-top: 1px solid rgba(239, 68, 68, 0.15);
+}
+.gate-block-reason {
+  color: #991b1b;
+  margin-bottom: 10px;
+  padding: 6px 10px;
+  background: rgba(239, 68, 68, 0.05);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.gate-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.gate-check-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+.gate-check-icon { font-size: 14px; flex-shrink: 0; }
+.gate-check-name { font-weight: 600; color: var(--text-secondary); min-width: 100px; }
+.gate-check-score { font-weight: 600; color: var(--accent); min-width: 40px; }
+.gate-check-msg { color: var(--text-muted); flex: 1; }
+.gate-suggestions {
+  margin-bottom: 10px;
+}
+.gate-suggestion {
+  font-size: 12px;
+  color: #92400e;
+  margin: 2px 0;
+  padding-left: 12px;
+  border-left: 2px solid #f59e0b;
+}
+.gate-override-action {
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Gate override info */
+.gate-override-info {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #3730a3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.override-badge {
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #e0e7ff;
+}
+.override-by { color: var(--text-muted); }
+.override-reason { color: var(--text-secondary); font-style: italic; }
+
+/* Quality Report Section */
+.quality-report-section {
+  background: var(--bg-secondary, #f5f7fa);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+.qr-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+.qr-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.qr-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.qr-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.qr-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.qr-stage-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+}
+.qr-stage-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 100px;
+}
+.qr-gate-icon { font-size: 14px; }
+.qr-score-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border-color, #e4e7ed);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.qr-score-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.qr-score-fill.passed { background: #22c55e; }
+.qr-score-fill.warning { background: #f59e0b; }
+.qr-score-fill.failed { background: #ef4444; }
+.qr-score-fill.bypassed { background: #6366f1; }
+.qr-score-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 40px;
+  text-align: right;
+}
+.qr-threshold {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 70px;
+}
 </style>

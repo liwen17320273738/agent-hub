@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, ForeignKey
+from sqlalchemy import String, Text, Integer, Float, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -23,9 +23,13 @@ class PipelineTask(Base):
 
     status: Mapped[str] = mapped_column(String(20), default="active")
     current_stage_id: Mapped[str] = mapped_column(String(50), default="planning")
+    template: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     created_by: Mapped[str] = mapped_column(String(200), default="system")
     org_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), ForeignKey("orgs.id"), nullable=True)
+
+    quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
+    overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
@@ -55,6 +59,14 @@ class PipelineStage(Base):
     reviewer_agent: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     review_attempts: Mapped[int] = mapped_column(Integer, default=0)
     approval_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    verify_status: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    verify_checks: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
+    quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)
+
+    gate_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    gate_score: Mapped[Optional[float]] = mapped_column(nullable=True)
+    gate_details: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
 
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)

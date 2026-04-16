@@ -45,8 +45,11 @@ export interface PipelineTask {
   sourceUserId?: string
   status: 'active' | 'paused' | 'done' | 'cancelled'
   currentStageId: string
+  template?: string | null
   stages: PipelineStageState[]
   artifacts: TaskArtifact[]
+  qualityGateConfig?: Record<string, unknown> | null
+  overallQualityScore?: number | null
   createdBy: string
   createdAt: number
   updatedAt: number
@@ -65,6 +68,17 @@ export interface PipelineStageState {
   reviewerAgent?: string | null
   reviewAttempts?: number
   approvalId?: string | null
+  verifyStatus?: 'pass' | 'warn' | 'fail' | null
+  verifyChecks?: Array<{ name: string; status: string; message?: string }> | null
+  qualityScore?: number | null
+  gateStatus?: 'passed' | 'warning' | 'failed' | 'bypassed' | 'pending' | null
+  gateScore?: number | null
+  gateDetails?: {
+    checks?: Array<{ name: string; category: string; status: string; score: number; message: string }>
+    suggestions?: string[]
+    block_reason?: string | null
+    override?: { by: string; reason: string }
+  } | null
 }
 
 export interface TaskArtifact {
@@ -107,6 +121,8 @@ export const PIPELINE_EVENTS = {
   PIPELINE_AUTO_COMPLETED: 'pipeline:auto-completed',
   PIPELINE_AUTO_PAUSED: 'pipeline:auto-paused',
   PIPELINE_AUTO_ERROR: 'pipeline:auto-error',
+  STAGE_QUALITY_GATE: 'stage:quality-gate',
+  STAGE_GATE_OVERRIDDEN: 'stage:gate-overridden',
   PIPELINE_SMART_START: 'pipeline:smart-start',
   PIPELINE_SMART_COMPLETED: 'pipeline:smart-completed',
   PIPELINE_SMART_ERROR: 'pipeline:smart-error',
