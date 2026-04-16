@@ -36,6 +36,11 @@
           <el-icon :size="12"><MagicStick /></el-icon>
           {{ skillCount }} 技能
         </span>
+        <router-link
+          :to="`/agent/${agent.id}/profile`"
+          class="card-profile-link"
+          @click.stop
+        >档案</router-link>
         <span v-if="conversationCount" class="conv-count">
           <el-icon :size="12"><ChatDotRound /></el-icon>
           {{ conversationCount }} 对话
@@ -182,5 +187,19 @@ const skillCount = computed(() => props.agent.skills?.length || 0)
 
 .conv-count.empty {
   color: var(--accent);
+}
+
+.card-profile-link {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  transition: all 0.15s;
+}
+.card-profile-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 </style>

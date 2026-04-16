@@ -54,3 +54,16 @@ seed_agent_skills 在 async session 中触发 lazy load
 架构变化一句话
 之前：前端静态定义、后端 DB、Pipeline 硬编码 — 三套互不相通的 Agent 身份
 之后：后端 DB 是唯一数据源，每个 Agent 携带 capabilities + tools + skills，Pipeline 和 Chat 都通过 AgentRuntime 执行工具调用，前端从 API 动态加载
+
+验证通过的检查项：
+
+Backend 76 tests 全部通过
+/api/agents/ 返回 14 个 Agent，含完整 tools/skills/capabilities
+/api/llm/chat-with-tools 端点正常（LLM key 未配置时返回预期 502）
+/api/skills/ 返回 11 个 Skill，filesystem→DB 同步正常
+AGENT_TOOLS 中所有工具名存在于 TOOL_REGISTRY（21 个工具）
+AgentRuntime 可正常导入和实例化
+Pipeline engine 中 AgentRuntime 集成代码完整
+前端 Dashboard 渲染 14 个 Agent 卡片（Puppeteer 验证）
+前端所有 agentStore 引用都使用了响应式绑定
+Phase 1 无遗留问题，可以推进 Phase 2。

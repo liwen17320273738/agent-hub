@@ -15,6 +15,9 @@
           <component :is="agent.icon" />
         </el-icon>
         <span class="conv-agent-name">{{ agent.name }}</span>
+        <router-link :to="`/agent/${agent.id}/profile`" class="profile-link" title="查看专家档案">
+          <el-icon :size="16"><User /></el-icon>
+        </router-link>
       </div>
 
       <el-button class="new-chat-btn" @click="startNewChat" type="primary" plain>
@@ -107,6 +110,9 @@
         </div>
         <h2>{{ agent.name }} · {{ agent.title }}</h2>
         <p class="welcome-desc">{{ agent.description }}</p>
+        <router-link :to="`/agent/${agent.id}/profile`" class="view-profile-btn">
+          <el-icon :size="14"><User /></el-icon> 查看专家档案
+        </router-link>
 
         <div class="quick-prompts">
           <h3>快速开始</h3>
@@ -850,6 +856,16 @@ async function sendMessage() {
   font-size: 15px;
   border-bottom: 1px solid var(--border-color);
 }
+.profile-link {
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+}
+.profile-link:hover {
+  color: var(--accent);
+}
 
 .new-chat-btn {
   margin: 12px;
@@ -965,9 +981,27 @@ async function sendMessage() {
 .welcome-desc {
   color: var(--text-secondary);
   font-size: 14px;
-  margin-bottom: 32px;
+  margin-bottom: 16px;
   text-align: center;
   max-width: 500px;
+}
+.view-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-decoration: none;
+  margin-bottom: 28px;
+  transition: all 0.2s;
+}
+.view-profile-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-bg, rgba(124, 92, 255, 0.08));
 }
 
 .quick-prompts {

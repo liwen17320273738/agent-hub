@@ -60,11 +60,14 @@ AGENT_SKILL_BINDINGS = {
     "wayne-product": ["prd-writing", "deep-research", "data-analysis"],
     "wayne-developer": ["code-review", "api-design"],
     "wayne-qa": ["test-strategy", "code-review"],
-    "wayne-designer": [],
+    "wayne-designer": ["deep-research"],
     "wayne-devops": ["deploy-checklist", "security-audit"],
     "wayne-security": ["security-audit", "code-review"],
     "wayne-acceptance": ["prd-writing", "test-strategy"],
     "wayne-data": ["data-analysis", "deep-research"],
+    "wayne-marketing": ["deep-research", "data-analysis"],
+    "wayne-finance": ["data-analysis", "token-optimization"],
+    "wayne-legal": ["deep-research"],
 }
 
 
@@ -81,6 +84,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["战略决策", "需求优先级", "资源调度", "验收评审", "风险管控"],
             "seniority": "30年产品战略与企业管理经验",
+            "radar": {"分析": 90, "设计": 60, "编码": 20, "测试": 50, "运维": 40, "沟通": 95},
             "boundary": {
                 "handles": ["需求分析", "阶段审批", "优先级决策", "跨角色协调", "风险评估"],
                 "delegates_to": {
@@ -138,6 +142,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["系统架构", "技术选型", "代码审查", "性能优化", "安全评估"],
             "seniority": "30年系统架构经验，设计过银行核心系统、电商秒杀平台、千万DAU社交应用",
+            "radar": {"分析": 85, "设计": 95, "编码": 85, "测试": 60, "运维": 70, "沟通": 75},
             "boundary": {
                 "handles": ["架构设计", "技术选型", "代码审查", "性能分析", "安全审计"],
                 "delegates_to": {
@@ -194,6 +199,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["产品需求分析", "用户研究", "竞品分析", "需求文档", "里程碑规划"],
             "seniority": "30年产品设计经验，主导过多个千万级用户产品",
+            "radar": {"分析": 95, "设计": 70, "编码": 15, "测试": 40, "运维": 10, "沟通": 90},
             "boundary": {
                 "handles": ["PRD 编写", "用户故事", "验收标准", "需求优先级", "MVP 定义", "竞品分析"],
                 "delegates_to": {
@@ -248,6 +254,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["全栈开发", "Python/FastAPI", "TypeScript/Vue3", "数据库", "API 设计"],
             "seniority": "30年全栈开发经验，精通 Python、TypeScript、Go、Rust",
+            "radar": {"分析": 60, "设计": 75, "编码": 98, "测试": 70, "运维": 55, "沟通": 45},
             "boundary": {
                 "handles": ["代码实现", "技术方案", "Git 工作流", "构建部署", "代码重构"],
                 "delegates_to": {
@@ -304,6 +311,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["测试策略", "自动化测试", "边界分析", "安全测试", "性能测试"],
             "seniority": "30年质量保障经验，在 Google/Microsoft 带过百人 QA 团队",
+            "radar": {"分析": 80, "设计": 40, "编码": 60, "测试": 98, "运维": 45, "沟通": 65},
             "boundary": {
                 "handles": ["测试计划", "测试用例", "自动化测试执行", "边界分析", "安全审查"],
                 "delegates_to": {
@@ -357,6 +365,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["UI 设计", "UX 设计", "交互设计", "设计系统", "响应式设计"],
             "seniority": "30年设计经验，曾任 Apple、Google 资深设计师",
+            "radar": {"分析": 55, "设计": 98, "编码": 40, "测试": 30, "运维": 10, "沟通": 80},
             "boundary": {
                 "handles": ["界面布局", "配色方案", "交互规范", "设计系统", "无障碍设计"],
                 "delegates_to": {
@@ -411,6 +420,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["CI/CD", "容器化", "云基础设施", "监控告警", "安全运维"],
             "seniority": "30年 DevOps 经验，管理过万台服务器集群",
+            "radar": {"分析": 50, "设计": 55, "编码": 65, "测试": 55, "运维": 98, "沟通": 40},
             "boundary": {
                 "handles": ["CI/CD 流水线", "Docker/K8s", "监控告警", "安全加固", "灾备方案"],
                 "delegates_to": {
@@ -460,6 +470,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["安全审计", "漏洞分析", "威胁建模", "合规检查", "渗透测试"],
             "seniority": "30年安全工程经验，曾任知名安全公司首席架构师",
+            "radar": {"分析": 90, "设计": 50, "编码": 60, "测试": 85, "运维": 70, "沟通": 55},
             "boundary": {
                 "handles": ["代码安全审查", "依赖漏洞扫描", "威胁建模", "合规检查", "安全加固方案"],
                 "delegates_to": {
@@ -509,6 +520,7 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["用户验收", "需求对照", "发布决策", "质量评审"],
             "seniority": "30年项目管理与质量保证经验",
+            "radar": {"分析": 85, "设计": 35, "编码": 20, "测试": 80, "运维": 30, "沟通": 90},
             "boundary": {
                 "handles": ["需求对照验收", "发布决策", "质量评审", "上线确认"],
                 "delegates_to": {
@@ -560,11 +572,22 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["数据分析", "指标设计", "用户行为分析", "可视化", "增长分析"],
             "seniority": "30年数据分析经验",
+            "radar": {"分析": 95, "设计": 50, "编码": 55, "测试": 40, "运维": 20, "沟通": 70},
             "boundary": {
                 "handles": ["指标体系", "留存分析", "漏斗分析", "数据可视化", "增长模型"],
                 "delegates_to": {"coding": "数据管道开发交给开发工程师"},
             },
             "deliverables": ["分析报告", "数据看板设计", "指标体系", "增长方案"],
+            "standards": [
+                "结论必须有数据支撑，杜绝拍脑袋",
+                "区分相关性与因果性",
+                "可视化遵循信息降噪原则",
+            ],
+            "collaboration": {
+                "reviews_output_of": [],
+                "output_reviewed_by": ["wayne-ceo", "wayne-product"],
+                "can_escalate_to": ["wayne-cto"],
+            },
         },
         "preferred_model": "deepseek-chat",
         "sort_order": 12,
@@ -590,6 +613,22 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["内容营销", "SEO", "社交媒体", "品牌策略"],
             "seniority": "30年营销经验",
+            "radar": {"分析": 70, "设计": 65, "编码": 10, "测试": 15, "运维": 10, "沟通": 95},
+            "boundary": {
+                "handles": ["内容策划", "SEO 优化", "社媒运营", "品牌定位", "增长策略"],
+                "delegates_to": {"design": "视觉设计交给 UI 设计师", "coding": "落地页开发交给开发工程师"},
+            },
+            "deliverables": ["营销方案", "内容日历", "SEO 报告", "品牌策略文档"],
+            "standards": [
+                "内容必须匹配目标受众画像",
+                "SEO 策略基于数据而非猜测",
+                "品牌调性保持一致性",
+            ],
+            "collaboration": {
+                "reviews_output_of": [],
+                "output_reviewed_by": ["wayne-ceo"],
+                "can_escalate_to": ["wayne-ceo"],
+            },
         },
         "preferred_model": "deepseek-chat",
         "sort_order": 13,
@@ -613,6 +652,22 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["财务分析", "预算规划", "成本优化", "ROI 分析"],
             "seniority": "30年财务管理经验",
+            "radar": {"分析": 90, "设计": 30, "编码": 15, "测试": 20, "运维": 15, "沟通": 75},
+            "boundary": {
+                "handles": ["成本核算", "预算编制", "费用优化", "ROI 评估", "财务建模"],
+                "delegates_to": {"data": "数据采集交给数据分析师", "ops": "费用监控告警交给 DevOps"},
+            },
+            "deliverables": ["费用分析报告", "预算方案", "成本优化建议", "ROI 评估表"],
+            "standards": [
+                "所有数字精确到两位小数",
+                "成本优化方案必须量化预期节省",
+                "预算偏差超 10% 需预警",
+            ],
+            "collaboration": {
+                "reviews_output_of": [],
+                "output_reviewed_by": ["wayne-ceo"],
+                "can_escalate_to": ["wayne-ceo"],
+            },
         },
         "preferred_model": "deepseek-chat",
         "sort_order": 14,
@@ -636,6 +691,22 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["合同管理", "隐私合规", "知识产权", "风险防控"],
             "seniority": "30年法律从业经验",
+            "radar": {"分析": 85, "设计": 25, "编码": 10, "测试": 30, "运维": 10, "沟通": 85},
+            "boundary": {
+                "handles": ["合同起草与审查", "隐私政策", "GDPR/个保法合规", "知识产权保护", "风险评估"],
+                "delegates_to": {"security": "技术安全问题交给安全工程师"},
+            },
+            "deliverables": ["合同文本", "隐私政策", "合规检查报告", "法律风险评估"],
+            "standards": [
+                "所有建议注明法律依据",
+                "明确声明不构成正式法律意见",
+                "高风险条款必须标红警告",
+            ],
+            "collaboration": {
+                "reviews_output_of": [],
+                "output_reviewed_by": ["wayne-ceo"],
+                "can_escalate_to": ["wayne-ceo"],
+            },
         },
         "preferred_model": "deepseek-chat",
         "sort_order": 15,
@@ -662,6 +733,22 @@ DEFAULT_AGENTS: list[dict] = [
         "capabilities": {
             "domain": ["消息解析", "意图识别", "任务路由", "流水线调度"],
             "seniority": "智能网关",
+            "radar": {"分析": 60, "设计": 30, "编码": 40, "测试": 20, "运维": 50, "沟通": 80},
+            "boundary": {
+                "handles": ["消息接入", "意图分类", "任务分发", "Pipeline 触发"],
+                "delegates_to": {"execution": "具体任务执行交给对应 Agent"},
+            },
+            "deliverables": ["意图解析结果", "任务分发记录", "Pipeline 触发日志"],
+            "standards": [
+                "消息解析延迟 < 500ms",
+                "意图识别准确率 > 90%",
+                "未识别意图必须回退人工确认",
+            ],
+            "collaboration": {
+                "reviews_output_of": [],
+                "output_reviewed_by": ["wayne-ceo"],
+                "can_escalate_to": ["wayne-ceo"],
+            },
         },
         "preferred_model": "deepseek-chat",
         "sort_order": 20,
@@ -795,6 +882,12 @@ async def seed_agents(db: AsyncSession) -> None:
     for agent_data in DEFAULT_AGENTS:
         existing = await db.get(AgentDefinition, agent_data["id"])
         if existing:
+            new_caps = agent_data.get("capabilities", {})
+            old_caps = existing.capabilities or {}
+            if new_caps and new_caps != old_caps:
+                merged = {**old_caps, **new_caps}
+                existing.capabilities = merged
+                logger.info(f"[seed] Updated capabilities for agent: {agent_data['id']}")
             continue
         agent = AgentDefinition(**agent_data)
         db.add(agent)
