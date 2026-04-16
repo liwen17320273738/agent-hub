@@ -390,6 +390,15 @@ function eventLabel(event: string) {
     'executor:started': '执行开始',
     'executor:completed': '执行完成',
     'executor:error': '执行错误',
+    'stage:peer-reviewing': '🔍 审阅中',
+    'stage:peer-review-approved': '✅ 审阅通过',
+    'stage:peer-review-rejected': '❌ 审阅驳回',
+    'stage:peer-review-error': '⚠️ 审阅出错',
+    'stage:rework': '🔄 修改中',
+    'stage:awaiting-approval': '🔔 等待审批',
+    'stage:approval-granted': '✅ 审批通过',
+    'stage:approval-denied': '❌ 审批驳回',
+    'pipeline:resumed': '▶️ 恢复执行',
     connected: '连接建立',
   }
   return labels[event] || event

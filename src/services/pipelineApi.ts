@@ -75,6 +75,11 @@ function mapTask(raw: any): PipelineTask {
       completedAt: s.completed_at ?? s.completedAt,
       output: s.output,
       sortOrder: s.sort_order ?? s.sortOrder,
+      reviewStatus: s.review_status ?? s.reviewStatus ?? null,
+      reviewerFeedback: s.reviewer_feedback ?? s.reviewerFeedback ?? null,
+      reviewerAgent: s.reviewer_agent ?? s.reviewerAgent ?? null,
+      reviewAttempts: s.review_attempts ?? s.reviewAttempts ?? 0,
+      approvalId: s.approval_id ?? s.approvalId ?? null,
     })),
     artifacts: raw.artifacts ?? [],
     createdBy: raw.created_by ?? raw.createdBy ?? '',
@@ -370,6 +375,48 @@ export async function resolveApproval(
   return apiFetch(`/observability/approvals/${approvalId}/resolve`, {
     method: 'POST',
     body: JSON.stringify({ approved, comment }),
+  })
+}
+
+export async function approveStage(
+  taskId: string,
+  stageId: string,
+  approved: boolean,
+  comment?: string,
+): Promise<{ ok: boolean; approved: boolean; stage_id: string }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/stages/${stageId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ approved, comment: comment || '' }),
+  })
+}
+
+export async function getPendingApprovals(taskId: string): Promise<Array<{
+  id: string
+  stage_id: string
+  action: string
+  description: string
+  risk_level: string
+  created_at: string
+}>> {
+  return apiFetch(`/pipeline/tasks/${taskId}/pending-approvals`)
+}
+
+export async function getReviewConfig(): Promise<Record<string, {
+  has_peer_review: boolean
+  reviewer: string | null
+  human_gate: boolean
+}>> {
+  return apiFetch(`/pipeline/tasks/_/review-config`)
+}
+
+export async function resumePipeline(
+  taskId: string,
+  fromStage?: string,
+  forceContinue?: boolean,
+): Promise<{ ok: boolean; resumed_from: string; remaining_stages: string[] }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/resume`, {
+    method: 'POST',
+    body: JSON.stringify({ from_stage: fromStage || null, force_continue: forceContinue || false }),
   })
 }
 

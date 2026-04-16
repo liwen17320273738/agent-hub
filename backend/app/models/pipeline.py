@@ -50,6 +50,12 @@ class PipelineStage(Base):
     output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
+    review_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    reviewer_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewer_agent: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    review_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    approval_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 

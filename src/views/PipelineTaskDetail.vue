@@ -35,6 +35,9 @@
           <div class="timeline-dot">
             <el-icon v-if="processingStage === stage.id" :size="14" class="spin-icon"><Loading /></el-icon>
             <el-icon v-else-if="stage.status === 'done'" :size="14"><Check /></el-icon>
+            <el-icon v-else-if="stage.status === 'reviewing'" :size="14" class="spin-icon"><View /></el-icon>
+            <el-icon v-else-if="stage.status === 'rejected'" :size="14"><CloseBold /></el-icon>
+            <el-icon v-else-if="stage.status === 'awaiting_approval'" :size="14"><Bell /></el-icon>
             <el-icon v-else-if="stage.status === 'active'" :size="14"><Loading /></el-icon>
             <span v-else class="dot-number">{{ idx + 1 }}</span>
           </div>
@@ -45,8 +48,28 @@
               <el-tag v-if="processingStage === stage.id" size="small" type="warning" class="processing-tag">
                 AI 处理中...
               </el-tag>
+              <el-tag v-if="stage.status === 'reviewing'" size="small" type="warning">
+                审阅中
+              </el-tag>
+              <el-tag v-if="stage.reviewStatus === 'approved'" size="small" type="success" effect="plain">
+                ✓ 审阅通过
+              </el-tag>
+              <el-tag v-if="stage.reviewStatus === 'rejected'" size="small" type="danger" effect="plain">
+                ✗ 审阅未通过
+              </el-tag>
+              <el-tag v-if="stage.status === 'awaiting_approval'" size="small" type="danger">
+                等待审批
+              </el-tag>
             </div>
-            <div class="stage-role">{{ stage.ownerRole }}</div>
+            <div class="stage-role">
+              {{ stage.ownerRole }}
+              <span v-if="stage.reviewerAgent" class="reviewer-info">
+                · 审阅者: {{ stage.reviewerAgent }}
+                <span v-if="stage.reviewAttempts && stage.reviewAttempts > 1" class="attempt-badge">
+                  第 {{ stage.reviewAttempts }} 轮
+                </span>
+              </span>
+            </div>
             <div v-if="stage.startedAt" class="stage-time">
               开始: {{ formatDate(stage.startedAt) }}
             </div>
@@ -56,6 +79,34 @@
                 ({{ formatDuration(stage.completedAt - stage.startedAt) }})
               </span>
             </div>
+
+            <!-- Review feedback -->
+            <div v-if="stage.reviewerFeedback" class="review-feedback">
+              <div class="feedback-header" @click="toggleFeedback(stage.id)">
+                <el-icon><ChatDotSquare /></el-icon>
+                <span>审阅反馈</span>
+                <el-icon class="toggle-icon" :class="{ expanded: expandedFeedback.has(stage.id) }">
+                  <ArrowDown />
+                </el-icon>
+              </div>
+              <div v-if="expandedFeedback.has(stage.id)" class="feedback-body">
+                <div class="output-content-md" v-html="renderMarkdown(stage.reviewerFeedback)"></div>
+              </div>
+            </div>
+
+            <!-- Human approval buttons -->
+            <div v-if="stage.status === 'awaiting_approval'" class="approval-actions">
+              <p class="approval-hint">此阶段需要人工审批确认后才能继续</p>
+              <div class="approval-btns">
+                <el-button type="success" size="small" @click="handleApproveStage(stage.id, true)" :loading="approvingStage === stage.id">
+                  <el-icon><Check /></el-icon> 批准
+                </el-button>
+                <el-button type="danger" size="small" @click="handleApproveStage(stage.id, false)" :loading="approvingStage === stage.id">
+                  <el-icon><Close /></el-icon> 驳回
+                </el-button>
+              </div>
+            </div>
+
             <div v-if="stage.output" class="stage-output-preview">
               <div class="output-header" @click="toggleOutput(stage.id)">
                 <el-icon><Document /></el-icon>
@@ -88,6 +139,21 @@
           :key="st.id"
           :subtask="st"
         />
+      </div>
+    </section>
+
+    <section class="task-actions" v-if="task.status === 'paused'">
+      <h2 class="section-title">Pipeline 已暂停</h2>
+      <div class="paused-info">
+        <p>Pipeline 在阶段「{{ task.currentStageId }}」暂停，可能需要人工审批或审阅反馈已达上限。</p>
+        <div class="action-buttons">
+          <el-button type="success" size="large" @click="handleResume(false)" :loading="resuming">
+            <el-icon><CaretRight /></el-icon> 恢复执行
+          </el-button>
+          <el-button size="large" @click="handleResume(true)" :loading="resuming">
+            <el-icon><RefreshRight /></el-icon> 强制继续（跳过审阅）
+          </el-button>
+        </div>
       </div>
     </section>
 
@@ -138,7 +204,7 @@
         </el-button>
         <el-button
           v-if="task.currentStageId === 'development'"
-          @click="handleResume"
+          @click="handleResume(false)"
           :loading="resuming"
         >
           <el-icon><RefreshRight /></el-icon>
@@ -249,14 +315,15 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowDown, ArrowLeft, Back, CaretRight, Check, ChatDotSquare,
-  Document, Loading, RefreshRight, Right, VideoPlay,
+  ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
+  ChatDotSquare, Document, Loading, RefreshRight, Right, VideoPlay, View,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
   smartRunPipeline, subscribePipelineEvents,
+  approveStage as apiApproveStage, resumePipeline,
 } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
@@ -279,6 +346,8 @@ const rejectTarget = ref('')
 const rejectReason = ref('')
 const expandedOutputs = reactive(new Set<string>())
 const expandedArtifacts = reactive(new Set<string>())
+const expandedFeedback = reactive(new Set<string>())
+const approvingStage = ref<string | null>(null)
 const logContainer = ref<HTMLElement | null>(null)
 
 interface LogEntry {
@@ -394,6 +463,15 @@ function formatEventName(event: string) {
     'executor:error': '❌ Claude Code 错误',
     'executor:timeout': '⏰ Claude Code 超时',
     'executor:killed': '🛑 Claude Code 已终止',
+    'stage:peer-reviewing': '🔍 Peer Review 审阅中',
+    'stage:peer-review-approved': '✅ Peer Review 通过',
+    'stage:peer-review-rejected': '❌ Peer Review 驳回',
+    'stage:peer-review-error': '⚠️ Peer Review 出错',
+    'stage:rework': '🔄 根据反馈修改中',
+    'stage:awaiting-approval': '🔔 等待人工审批',
+    'stage:approval-granted': '✅ 人工审批通过',
+    'stage:approval-denied': '❌ 人工审批驳回',
+    'pipeline:resumed': '▶️ Pipeline 恢复执行',
   }
   return map[event] || event
 }
@@ -401,6 +479,28 @@ function formatEventName(event: string) {
 function toggleOutput(stageId: string) {
   if (expandedOutputs.has(stageId)) expandedOutputs.delete(stageId)
   else expandedOutputs.add(stageId)
+}
+
+function toggleFeedback(stageId: string) {
+  if (expandedFeedback.has(stageId)) expandedFeedback.delete(stageId)
+  else expandedFeedback.add(stageId)
+}
+
+async function handleApproveStage(stageId: string, approved: boolean) {
+  if (!task.value) return
+  approvingStage.value = stageId
+  try {
+    await apiApproveStage(String(task.value.id), stageId, approved)
+    ElMessage.success(approved ? '已批准，Pipeline 将继续执行' : '已驳回')
+    await loadTask()
+    if (approved) {
+      await resumePipeline(String(task.value.id), undefined, false)
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  } finally {
+    approvingStage.value = null
+  }
 }
 
 function toggleArtifact(id: string) {
@@ -454,6 +554,25 @@ function setupSSE() {
     if (evt.event === 'stage:error') {
       processingStage.value = null
       stageRunning.value = false
+    }
+
+    if (evt.event === 'stage:peer-reviewing' || evt.event === 'stage:rework') {
+      processingStage.value = null
+      loadTask()
+    }
+    if (
+      evt.event === 'stage:peer-review-approved' ||
+      evt.event === 'stage:peer-review-rejected' ||
+      evt.event === 'stage:peer-review-error' ||
+      evt.event === 'stage:awaiting-approval' ||
+      evt.event === 'stage:approval-granted' ||
+      evt.event === 'stage:approval-denied' ||
+      evt.event === 'pipeline:resumed'
+    ) {
+      processingStage.value = null
+      autoRunning.value = false
+      smartRunning.value = false
+      loadTask()
     }
 
     // Lead Agent 子任务追踪 (deer-flow 风格)
@@ -549,6 +668,21 @@ async function handleSmartRun() {
   }
 }
 
+async function handleResume(forceContinue = false) {
+  if (!task.value) return
+  resuming.value = true
+  try {
+    const res = await resumePipeline(String(task.value.id), undefined, forceContinue)
+    addLog('pipeline:resumed', { fromStage: res.resumed_from })
+    ElMessage.success(`Pipeline 已从「${res.resumed_from}」恢复执行`)
+    await loadTask()
+  } catch (e: unknown) {
+    ElMessage.error(`恢复失败: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    resuming.value = false
+  }
+}
+
 async function handleAutoRun() {
   if (!task.value) return
   autoRunning.value = true
@@ -600,19 +734,6 @@ async function handleReject() {
     ElMessage.success('任务已打回')
   } catch (e: unknown) {
     ElMessage.error(`打回失败: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
-
-async function handleResume() {
-  if (!task.value) return
-  resuming.value = true
-  try {
-    await resumeAfterBuild(task.value.id)
-    addLog('pipeline:auto-start', { taskId: task.value.id })
-  } catch (e: unknown) {
-    ElMessage.error(`恢复失败: ${e instanceof Error ? e.message : String(e)}`)
-  } finally {
-    resuming.value = false
   }
 }
 
@@ -792,6 +913,80 @@ watch(() => route.params.id, () => {
   background: var(--border-color);
 }
 
+.timeline-item.status-reviewing .timeline-dot {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+  animation: pulse 2s infinite;
+}
+.timeline-item.status-rejected .timeline-dot {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #fff;
+}
+.timeline-item.status-awaiting_approval .timeline-dot {
+  background: #f97316;
+  border-color: #f97316;
+  color: #fff;
+  animation: pulse 2s infinite;
+}
+
+.reviewer-info {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.attempt-badge {
+  font-size: 10px;
+  color: #f59e0b;
+  margin-left: 4px;
+}
+
+.review-feedback {
+  margin-top: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.feedback-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+.feedback-header:hover {
+  background: rgba(245, 158, 11, 0.15);
+}
+.feedback-body {
+  padding: 12px;
+  font-size: 13px;
+  border-top: 1px solid rgba(245, 158, 11, 0.2);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.approval-actions {
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(249, 115, 22, 0.08);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  border-radius: 8px;
+}
+.approval-hint {
+  font-size: 12px;
+  color: #f97316;
+  margin: 0 0 8px;
+}
+.approval-btns {
+  display: flex;
+  gap: 8px;
+}
+
 .timeline-item.status-done .timeline-connector {
   background: #22c55e;
 }
@@ -888,6 +1083,18 @@ watch(() => route.params.id, () => {
 }
 
 .task-actions { margin-bottom: 32px; }
+
+.paused-info {
+  padding: 16px;
+  background: rgba(249, 115, 22, 0.08);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  border-radius: 10px;
+}
+.paused-info p {
+  font-size: 13px;
+  color: #f97316;
+  margin: 0 0 12px;
+}
 
 .action-buttons {
   display: flex;

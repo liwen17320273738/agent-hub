@@ -43,6 +43,81 @@ _AGENT_KEY_TO_SEED_ID = {
     "devops-agent": "wayne-devops",
 }
 
+# ── Peer Review Configuration ───────────────────────────────────────────
+# After a stage completes, the configured reviewer agent evaluates the output.
+# reviewer_agent: which agent key performs the review
+# human_gate: if True, also requires human approval after peer review passes
+
+STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
+    "planning": {
+        "reviewer_agent": "architect-agent",
+        "reviewer_prompt": """你是架构师 Agent，现在需要审阅 CEO Agent 产出的 PRD（产品需求文档）。
+请从技术可行性角度评估：
+1. 需求描述是否清晰、无歧义？
+2. 技术约束是否合理？
+3. 是否有遗漏的关键需求或非功能需求？
+4. 里程碑是否现实可行？
+
+最终结论（第一行必须是以下之一）：
+- **APPROVE** — PRD 质量合格，可以开始架构设计
+- **REJECT** — 需要修改（列出具体问题和修改建议）""",
+        "human_gate": False,
+    },
+    "architecture": {
+        "reviewer_agent": "developer-agent",
+        "reviewer_prompt": """你是开发 Agent，现在需要审阅架构师 Agent 产出的技术方案。
+请从开发落地角度评估：
+1. API 设计是否完整、可实现？
+2. 数据模型是否合理、性能可接受？
+3. 技术选型是否成熟稳定？
+4. 是否有模糊不清、需要澄清的设计决策？
+
+最终结论（第一行必须是以下之一）：
+- **APPROVE** — 技术方案可行，可以开始开发
+- **REJECT** — 需要修改（列出具体问题和修改建议）""",
+        "human_gate": False,
+    },
+    "development": {
+        "reviewer_agent": "qa-agent",
+        "reviewer_prompt": """你是测试 Agent，现在需要审阅开发 Agent 产出的代码实现。
+请从质量角度做初步评估：
+1. 代码是否覆盖了 PRD 中的核心用户故事？
+2. 是否有明显的安全漏洞或逻辑错误？
+3. 错误处理和边界情况是否完整？
+4. 代码结构是否清晰、可测试？
+
+最终结论（第一行必须是以下之一）：
+- **APPROVE** — 代码质量可接受，可以进入正式测试
+- **REJECT** — 需要修改（列出具体问题和修改建议）""",
+        "human_gate": False,
+    },
+    "testing": {
+        "reviewer_agent": "ceo-agent",
+        "reviewer_prompt": """你是 CEO Agent，现在需要审阅测试 Agent 的测试报告。
+请从产品验收角度评估：
+1. 测试覆盖率是否达标？
+2. 发现的缺陷严重程度如何？
+3. 是否满足 PRD 中定义的验收标准？
+
+最终结论（第一行必须是以下之一）：
+- **APPROVE** — 测试通过，可以进入验收评审
+- **REJECT** — 需要修改（列出具体问题，指明退回到哪个阶段）""",
+        "human_gate": False,
+    },
+    "reviewing": {
+        "reviewer_agent": None,
+        "reviewer_prompt": "",
+        "human_gate": True,
+    },
+    "deployment": {
+        "reviewer_agent": None,
+        "reviewer_prompt": "",
+        "human_gate": True,
+    },
+}
+
+MAX_REVIEW_RETRIES = 2
+
 AGENT_PROFILES = {
     "ceo-agent": {
         "name": "CEO Agent（总指挥）",
@@ -202,6 +277,111 @@ STAGE_ROLE_PROMPTS = {
 }
 
 
+async def review_stage_output(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    stage_id: str,
+    stage_output: str,
+    task_title: str,
+    task_description: str,
+    previous_outputs: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """
+    Run a peer review on a completed stage's output.
+    The reviewer agent evaluates and returns APPROVE or REJECT with feedback.
+    """
+    review_config = STAGE_REVIEW_CONFIG.get(stage_id)
+    if not review_config or not review_config.get("reviewer_agent"):
+        return {"reviewed": False, "approved": True, "reason": "No peer review configured"}
+
+    reviewer_key = review_config["reviewer_agent"]
+    reviewer_profile = AGENT_PROFILES.get(reviewer_key, {})
+    reviewer_name = reviewer_profile.get("name", reviewer_key)
+    reviewer_icon = reviewer_profile.get("icon", "🔍")
+
+    await emit_event("stage:peer-reviewing", {
+        "taskId": task_id,
+        "stageId": stage_id,
+        "reviewer": reviewer_name,
+        "reviewerIcon": reviewer_icon,
+        "label": f"{reviewer_icon} {reviewer_name} 正在审阅「{stage_id}」阶段产出...",
+    })
+
+    review_system = review_config["reviewer_prompt"]
+    stage_label_map = {
+        "planning": "PRD（产品需求文档）",
+        "architecture": "技术架构方案",
+        "development": "代码实现",
+        "testing": "测试报告",
+        "reviewing": "验收评审",
+        "deployment": "部署方案",
+    }
+    stage_label = stage_label_map.get(stage_id, stage_id)
+
+    review_user = f"## 待审阅内容：{stage_label}\n\n{stage_output}"
+    if previous_outputs:
+        context_parts = []
+        for sid, out in previous_outputs.items():
+            if sid != stage_id and out:
+                lbl = stage_label_map.get(sid, sid)
+                context_parts.append(f"## 前置阶段 — {lbl}\n{out[:2000]}")
+        if context_parts:
+            review_user = "\n\n".join(context_parts) + "\n\n" + review_user
+
+    try:
+        from ..config import settings as app_settings
+        model = app_settings.llm_model or "deepseek-chat"
+        api_url = app_settings.llm_api_url or ""
+
+        messages = [
+            {"role": "system", "content": review_system},
+            {"role": "user", "content": review_user},
+        ]
+        llm_result = await llm_chat(model=model, messages=messages, api_url=api_url)
+        if llm_result.get("error"):
+            raise RuntimeError(f"LLM error: {llm_result['error']}")
+
+        review_content = llm_result.get("content", "")
+    except Exception as e:
+        logger.error(f"[pipeline] Peer review for {stage_id} failed: {e}")
+        await emit_event("stage:peer-review-error", {
+            "taskId": task_id, "stageId": stage_id,
+            "reviewer": reviewer_name, "error": str(e),
+            "label": f"⚠️ {reviewer_name} 审阅失败（{e}），自动通过但建议人工复查",
+        })
+        return {
+            "reviewed": True,
+            "approved": True,
+            "auto_approved_on_error": True,
+            "reason": f"Review error (auto-approved): {e}",
+        }
+
+    first_line = review_content.strip().split("\n")[0].upper()
+    approved = "APPROVE" in first_line and "REJECT" not in first_line
+
+    if approved:
+        await emit_event("stage:peer-review-approved", {
+            "taskId": task_id, "stageId": stage_id,
+            "reviewer": reviewer_name, "reviewerIcon": reviewer_icon,
+        })
+    else:
+        await emit_event("stage:peer-review-rejected", {
+            "taskId": task_id, "stageId": stage_id,
+            "reviewer": reviewer_name, "reviewerIcon": reviewer_icon,
+            "feedback": review_content[:500],
+        })
+
+    return {
+        "reviewed": True,
+        "approved": approved,
+        "reviewer": reviewer_name,
+        "reviewer_agent": reviewer_key,
+        "feedback": review_content,
+        "reason": "Approved by peer" if approved else "Rejected by peer reviewer",
+    }
+
+
 async def execute_stage(
     db: AsyncSession,
     *,
@@ -321,6 +501,7 @@ async def execute_stage(
         }
 
     # --- Layer 4: LLM Call (with optional AgentRuntime tool loop) ---
+    llm_result = None
     try:
         from ..agents.seed import AGENT_TOOLS
         agent_key = stage_conf.get("agent", "")
@@ -383,7 +564,7 @@ async def execute_stage(
     )
 
     # --- Layer 3 + 6: Tool Schema (record execution) ---
-    provider = llm_result.get("provider", "openai")
+    provider = llm_result.get("provider", "openai") if llm_result else "openai"
     cost_estimate = estimate_cost(provider, model, prompt_tokens, completion_tokens)
 
     # --- Layer 8: Complete trace span ---
@@ -462,12 +643,14 @@ async def execute_full_pipeline(
     available_providers: Optional[List[str]] = None,
     complexity: Optional[str] = None,
     force_continue: bool = False,
+    prior_outputs: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Execute a full pipeline with all maturation layers.
     Persists each stage result to DB and emits SSE events in real-time.
     When force_continue=True, verification warnings/failures are logged
     but the pipeline continues (used by auto-run).
+    prior_outputs: outputs from already-completed stages (used when resuming).
     """
     from ..models.pipeline import PipelineTask, PipelineStage
 
@@ -475,7 +658,7 @@ async def execute_full_pipeline(
         stages = list(STAGE_ROLE_PROMPTS.keys())
 
     trace = await start_trace(task_id, task_title)
-    outputs: Dict[str, str] = {}
+    outputs: Dict[str, str] = dict(prior_outputs) if prior_outputs else {}
     results: List[Dict[str, Any]] = []
 
     await emit_event("pipeline:auto-start", {
@@ -586,11 +769,9 @@ async def execute_full_pipeline(
         content = result.get("content", "")
         outputs[stage_id] = content
 
-        # Persist stage output + status to DB
+        # Persist stage output (mark as pending review, finalized to "done" after review)
         if stage_id in db_stages:
             db_stages[stage_id].output = content
-            db_stages[stage_id].status = "done"
-            db_stages[stage_id].completed_at = datetime.utcnow()
         await db.flush()
 
         # Write to delivery docs on disk
@@ -630,6 +811,156 @@ async def execute_full_pipeline(
                     "results": results,
                     "trace_id": trace.trace_id,
                 }
+
+        # --- Peer Review: downstream agent reviews this stage's output ---
+        review_conf = STAGE_REVIEW_CONFIG.get(stage_id, {})
+        if review_conf.get("reviewer_agent") and not force_continue:
+            retries = 0
+            while retries < MAX_REVIEW_RETRIES:
+                if stage_id in db_stages:
+                    db_stages[stage_id].status = "reviewing"
+                await db.flush()
+
+                review_result = await review_stage_output(
+                    db,
+                    task_id=task_id,
+                    stage_id=stage_id,
+                    stage_output=content,
+                    task_title=task_title,
+                    task_description=task_description,
+                    previous_outputs=outputs,
+                )
+
+                results[-1]["review"] = review_result
+
+                if stage_id in db_stages:
+                    db_stages[stage_id].reviewer_agent = review_result.get("reviewer", "")
+                    db_stages[stage_id].reviewer_feedback = review_result.get("feedback", "")
+                    db_stages[stage_id].review_attempts = retries + 1
+
+                if review_result.get("approved", True):
+                    logger.info(f"[pipeline] Stage {stage_id} peer review: APPROVED by {review_result.get('reviewer', '?')}")
+                    if stage_id in db_stages:
+                        db_stages[stage_id].review_status = "approved"
+                    await db.flush()
+                    break
+
+                retries += 1
+                feedback = review_result.get("feedback", "")
+                logger.warning(f"[pipeline] Stage {stage_id} peer review: REJECTED (attempt {retries}/{MAX_REVIEW_RETRIES})")
+
+                if stage_id in db_stages:
+                    db_stages[stage_id].review_status = "rejected"
+                await db.flush()
+
+                if retries >= MAX_REVIEW_RETRIES:
+                    if db_task:
+                        db_task.status = "paused"
+                    if stage_id in db_stages:
+                        db_stages[stage_id].status = "rejected"
+                    await db.flush()
+                    await emit_event("pipeline:auto-paused", {
+                        "taskId": task_id,
+                        "stoppedAt": stage_id,
+                        "reason": f"Peer review rejected after {MAX_REVIEW_RETRIES} retries",
+                        "feedback": feedback[:500],
+                    })
+                    return {
+                        "ok": False,
+                        "paused": True,
+                        "stopped_at": stage_id,
+                        "reason": f"Peer review rejected by {review_result.get('reviewer', '?')}",
+                        "review_feedback": feedback,
+                        "results": results,
+                        "trace_id": trace.trace_id,
+                    }
+
+                # Re-execute stage with reviewer feedback injected
+                await emit_event("stage:rework", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "attempt": retries + 1,
+                    "feedback": feedback[:300],
+                })
+
+                rework_outputs = dict(outputs)
+                rework_outputs[f"{stage_id}_review_feedback"] = (
+                    f"## 审阅反馈（来自 {review_result.get('reviewer', '审阅者')}）\n\n"
+                    f"{feedback}\n\n请根据以上反馈修改你的产出。"
+                )
+
+                if stage_id in db_stages:
+                    db_stages[stage_id].status = "active"
+                    db_stages[stage_id].started_at = datetime.utcnow()
+                await db.flush()
+
+                rework = await execute_stage(
+                    db,
+                    task_id=task_id,
+                    task_title=task_title,
+                    task_description=task_description,
+                    stage_id=stage_id,
+                    previous_outputs=rework_outputs,
+                    trace=trace,
+                    available_providers=available_providers,
+                    complexity=complexity,
+                )
+
+                if not rework.get("ok"):
+                    break
+
+                content = rework.get("content", "")
+                outputs[stage_id] = content
+                results[-1] = {"stage_id": stage_id, **rework}
+
+                if stage_id in db_stages:
+                    db_stages[stage_id].output = content
+                await db.flush()
+
+        # --- Human Approval Gate ---
+        if review_conf.get("human_gate") and not force_continue:
+            from .guardrails import ApprovalRequest, GuardrailLevel as GL, _store_approval
+            approval = ApprovalRequest(
+                task_id=task_id,
+                stage_id=stage_id,
+                action=f"approve_{stage_id}",
+                description=f"阶段「{stage_id}」已完成，需要人工审批确认后才能继续",
+                risk_level=GL.REQUIRE_REVIEW,
+                requested_by="pipeline",
+            )
+            await _store_approval(approval)
+
+            if db_task:
+                db_task.status = "paused"
+            if stage_id in db_stages:
+                db_stages[stage_id].status = "awaiting_approval"
+                db_stages[stage_id].approval_id = approval.id
+            await db.flush()
+
+            await emit_event("stage:awaiting-approval", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "approvalId": approval.id,
+                "label": f"阶段「{stage_id}」等待人工审批...",
+            })
+
+            await complete_trace(trace.trace_id, status="paused")
+            return {
+                "ok": False,
+                "paused": True,
+                "awaiting_approval": True,
+                "approval_id": approval.id,
+                "stopped_at": stage_id,
+                "reason": f"阶段 {stage_id} 需要人工审批",
+                "results": results,
+                "trace_id": trace.trace_id,
+            }
+
+        # Mark stage as finalized
+        if stage_id in db_stages:
+            db_stages[stage_id].status = "done"
+            db_stages[stage_id].completed_at = datetime.utcnow()
+        await db.flush()
 
         if stage_id != stages[0]:
             prev_stage = stages[stages.index(stage_id) - 1]

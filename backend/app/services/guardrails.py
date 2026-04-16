@@ -113,7 +113,6 @@ WARN_ACTIONS = {
 }
 
 STAGE_GUARDRAILS: Dict[str, GuardrailLevel] = {
-    "deployment": GuardrailLevel.REQUIRE_REVIEW,
     "acceptance": GuardrailLevel.WARN,
     "security-review": GuardrailLevel.REQUIRE_REVIEW,
 }

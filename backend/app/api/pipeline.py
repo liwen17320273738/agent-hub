@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from sqlalchemy import select
@@ -693,4 +693,215 @@ async def run_end_to_end(
         "taskId": str(task.id),
         "url": result.get("url", ""),
         "phases": result.get("phases", {}),
+    }
+
+
+# ── Human Approval & Review Endpoints ────────────────────────────────────
+
+
+class ApprovalBody(BaseModel):
+    approved: bool
+    comment: str = ""
+
+
+@router.post("/tasks/{task_id}/stages/{stage_id}/approve")
+async def approve_stage(
+    task_id: str,
+    stage_id: str,
+    body: ApprovalBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Human approval for a paused pipeline stage."""
+    from ..services.guardrails import (
+        get_pending_approvals,
+        resolve_approval,
+    )
+    from ..services.sse import emit_event
+
+    pending = await get_pending_approvals(task_id=task_id)
+    approval = next((a for a in pending if a.stage_id == stage_id), None)
+    if not approval:
+        raise HTTPException(status_code=404, detail="No pending approval for this stage")
+
+    reviewer_id = str(user.id) if user else "api"
+    reviewer_email = user.email if user else "api-key"
+
+    resolved = await resolve_approval(
+        approval_id=approval.id,
+        approved=body.approved,
+        reviewer=reviewer_id,
+        comment=body.comment,
+    )
+    if not resolved:
+        raise HTTPException(status_code=500, detail="Failed to resolve approval")
+
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if task:
+        if body.approved:
+            task.status = "active"
+            stage = next((s for s in task.stages if s.stage_id == stage_id), None)
+            if stage:
+                stage.status = "done"
+                stage.completed_at = datetime.utcnow()
+
+            await emit_event("stage:approval-granted", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "reviewer": reviewer_email,
+                "comment": body.comment,
+            })
+        else:
+            stage = next((s for s in task.stages if s.stage_id == stage_id), None)
+            if stage:
+                stage.status = "rejected"
+
+            await emit_event("stage:approval-denied", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "reviewer": reviewer_email,
+                "comment": body.comment,
+            })
+
+        await db.flush()
+        await db.commit()
+
+    return {
+        "ok": True,
+        "approved": body.approved,
+        "stage_id": stage_id,
+        "comment": body.comment,
+    }
+
+
+@router.get("/tasks/{task_id}/pending-approvals")
+async def get_task_pending_approvals(
+    task_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Get all pending approvals for a pipeline task."""
+    from ..services.guardrails import get_pending_approvals
+    pending = await get_pending_approvals(task_id=task_id)
+    return [
+        {
+            "id": a.id,
+            "stage_id": a.stage_id,
+            "action": a.action,
+            "description": a.description,
+            "risk_level": a.risk_level.value if hasattr(a.risk_level, "value") else a.risk_level,
+            "created_at": a.created_at,
+        }
+        for a in pending
+    ]
+
+
+@router.get("/tasks/{task_id}/review-config")
+async def get_review_config(
+    task_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Get the review configuration for all pipeline stages."""
+    from ..services.pipeline_engine import STAGE_REVIEW_CONFIG, AGENT_PROFILES
+    config = {}
+    for stage_id, conf in STAGE_REVIEW_CONFIG.items():
+        reviewer_key = conf.get("reviewer_agent")
+        reviewer_name = AGENT_PROFILES.get(reviewer_key, {}).get("name", reviewer_key) if reviewer_key else None
+        config[stage_id] = {
+            "has_peer_review": reviewer_key is not None,
+            "reviewer": reviewer_name,
+            "human_gate": conf.get("human_gate", False),
+        }
+    return config
+
+
+class ResumeBody(BaseModel):
+    from_stage: Optional[str] = None
+    force_continue: bool = False
+
+
+@router.post("/tasks/{task_id}/resume")
+async def resume_pipeline(
+    task_id: str,
+    body: ResumeBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks = None,
+):
+    """Resume a paused pipeline from the last completed stage or a specific stage."""
+    from ..services.pipeline_engine import execute_full_pipeline, STAGE_ROLE_PROMPTS
+    from ..services.sse import emit_event
+
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if task.status not in ("paused", "active"):
+        raise HTTPException(status_code=400, detail=f"Task status is '{task.status}', cannot resume")
+
+    all_stages = list(STAGE_ROLE_PROMPTS.keys())
+
+    done_outputs: Dict[str, str] = {}
+    resume_from_idx = 0
+
+    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order or 0)
+    for s in sorted_stages:
+        if s.status == "done" and s.output and s.stage_id in all_stages:
+            done_outputs[s.stage_id] = s.output
+            stage_idx = all_stages.index(s.stage_id)
+            resume_from_idx = max(resume_from_idx, stage_idx + 1)
+
+    if body.from_stage and body.from_stage in all_stages:
+        resume_from_idx = all_stages.index(body.from_stage)
+
+    remaining_stages = all_stages[resume_from_idx:]
+    if not remaining_stages:
+        return {"ok": True, "message": "All stages already completed"}
+
+    task.status = "active"
+    for s in sorted_stages:
+        if s.stage_id in remaining_stages and s.status in ("rejected", "awaiting_approval", "paused"):
+            s.status = "pending"
+    await db.flush()
+    await db.commit()
+
+    await emit_event("pipeline:resumed", {
+        "taskId": task_id,
+        "fromStage": remaining_stages[0],
+        "stages": remaining_stages,
+    })
+
+    captured_outputs = dict(done_outputs)
+
+    async def _run():
+        from ..database import async_session
+        async with async_session() as session:
+            await execute_full_pipeline(
+                session,
+                task_id=task_id,
+                task_title=task.title,
+                task_description=task.description or "",
+                stages=remaining_stages,
+                force_continue=body.force_continue,
+                prior_outputs=captured_outputs,
+            )
+            await session.commit()
+
+    import asyncio
+    asyncio.create_task(_run())
+
+    return {
+        "ok": True,
+        "resumed_from": remaining_stages[0],
+        "remaining_stages": remaining_stages,
+        "prior_outputs": list(done_outputs.keys()),
     }

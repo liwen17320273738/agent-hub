@@ -55,11 +55,16 @@ export interface PipelineTask {
 export interface PipelineStageState {
   id: string
   label: string
-  status: 'pending' | 'active' | 'done' | 'blocked'
+  status: 'pending' | 'active' | 'done' | 'blocked' | 'reviewing' | 'rejected' | 'awaiting_approval'
   ownerRole: string
   startedAt: number | null
   completedAt: number | null
   output: string | null
+  reviewStatus?: 'approved' | 'rejected' | null
+  reviewerFeedback?: string | null
+  reviewerAgent?: string | null
+  reviewAttempts?: number
+  approvalId?: string | null
 }
 
 export interface TaskArtifact {
