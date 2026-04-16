@@ -344,6 +344,69 @@ async def execute_dag_pipeline(
                 stage.status = StageStatus.DONE
                 stage.output = stage_result.get("content", "")
                 outputs[stage.stage_id] = stage.output
+
+                # --- Quality Gate Evaluation (DAG path) ---
+                try:
+                    from .quality_gates import evaluate_quality_gate, GateStatus
+                    from .self_verify import StageVerification, VerifyStatus, VerifyResult
+
+                    verification = stage_result.get("verification", {})
+                    heuristic = StageVerification(
+                        stage_id=stage.stage_id, role="",
+                        overall_status=VerifyStatus(verification.get("status", "pass")),
+                        checks=[
+                            VerifyResult(
+                                check_name=c.get("check_name", c.get("name", "")),
+                                status=VerifyStatus(c.get("status", "pass")),
+                                message=c.get("message", ""),
+                            )
+                            for c in verification.get("checks", [])
+                        ],
+                        auto_proceed=verification.get("auto_proceed", True),
+                    )
+                    gate_result = await evaluate_quality_gate(
+                        stage.stage_id, stage.output,
+                        template=template,
+                        previous_outputs=outputs,
+                        heuristic_result=heuristic,
+                        skip_llm=False,
+                    )
+
+                    db_result_inner = await db.execute(
+                        select(PipelineStage).where(
+                            PipelineStage.task_id == uuid.UUID(task_id),
+                            PipelineStage.stage_id == stage.stage_id,
+                        )
+                    )
+                    db_stage = db_result_inner.scalar_one_or_none()
+                    if db_stage:
+                        db_stage.gate_status = gate_result.overall_status.value
+                        db_stage.gate_score = gate_result.overall_score
+                        db_stage.gate_details = {
+                            "checks": [c.dict() for c in gate_result.checks],
+                            "suggestions": gate_result.suggestions,
+                            "block_reason": gate_result.block_reason,
+                        }
+                        await db.flush()
+
+                    await emit_event("stage:quality-gate", {
+                        "taskId": task_id,
+                        "stageId": stage.stage_id,
+                        "gateStatus": gate_result.overall_status.value,
+                        "gateScore": gate_result.overall_score,
+                        "canProceed": gate_result.can_proceed,
+                        "blockReason": gate_result.block_reason,
+                    })
+
+                    if not gate_result.can_proceed:
+                        stage.status = StageStatus.BLOCKED
+                        stage.error = f"Quality gate failed: {gate_result.block_reason or 'score too low'}"
+                        stage_result["ok"] = False
+                        stage_result["gate_blocked"] = True
+                        stage_result["gate_result"] = gate_result.dict()
+                except Exception as gate_err:
+                    logger.warning(f"[dag] Quality gate evaluation failed for {stage.stage_id}: {gate_err}")
+
                 await emit_event("stage:completed", {
                     "taskId": task_id, "stageId": stage.stage_id,
                 })
@@ -422,6 +485,13 @@ async def execute_dag_pipeline(
 
         if all_ok:
             db_task.status = "done"
+        gate_scores = [
+            s.gate_score for s in db_task.stages if s.gate_score is not None
+        ]
+        if gate_scores:
+            db_task.overall_quality_score = round(
+                sum(gate_scores) / len(gate_scores), 3
+            )
         await db.flush()
 
     return {

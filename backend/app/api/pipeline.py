@@ -911,6 +911,13 @@ async def override_quality_gate(
         target.status = "done"
         target.completed_at = datetime.utcnow()
 
+    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
+    idx = next((i for i, s in enumerate(sorted_stages) if s.stage_id == stage_id), -1)
+    if idx >= 0 and idx + 1 < len(sorted_stages):
+        task.current_stage_id = sorted_stages[idx + 1].stage_id
+    elif idx >= 0:
+        task.current_stage_id = "done"
+
     await db.flush()
 
     from ..services.sse import emit_event

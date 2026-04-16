@@ -795,7 +795,7 @@ async def execute_full_pipeline(
             heuristic = StageVerification(
                 stage_id=stage_id, role="",
                 overall_status=VerifyStatus(verification.get("status", "pass")),
-                checks=[VerifyResult(check_name=c.get("name", ""), status=VerifyStatus(c.get("status", "pass")), message=c.get("message", "")) for c in verification.get("checks", [])],
+                checks=[VerifyResult(check_name=c.get("check_name", c.get("name", "")), status=VerifyStatus(c.get("status", "pass")), message=c.get("message", "")) for c in verification.get("checks", [])],
                 auto_proceed=verification.get("auto_proceed", True),
             )
             task_template = db_task.template if db_task else None
@@ -832,6 +832,7 @@ async def execute_full_pipeline(
                 if stage_id in db_stages:
                     db_stages[stage_id].status = "blocked"
                 await db.flush()
+                await complete_trace(trace.trace_id, status="paused")
 
                 await emit_event("pipeline:auto-paused", {
                     "taskId": task_id,
