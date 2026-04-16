@@ -8,7 +8,7 @@ import {
   localDeleteTask,
   localUpdateTask,
 } from './pipelineLocal'
-import { apiFetch as unifiedApiFetch, getAuthToken } from './api'
+import { getAuthToken } from './api'
 
 let serverAvailable: boolean | null = null
 let lastCheckTime = 0
@@ -20,13 +20,14 @@ function getBaseUrl(): string {
 
 async function checkServer(): Promise<boolean> {
   const now = Date.now()
-  if (serverAvailable !== null && (serverAvailable || now - lastCheckTime < SERVER_CHECK_TTL)) {
+  if (serverAvailable !== null && now - lastCheckTime < SERVER_CHECK_TTL) {
     return serverAvailable
   }
   lastCheckTime = now
   try {
+    const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
     const res = await fetch(`${getBaseUrl()}/pipeline/health`, {
-      credentials: 'include',
+      credentials: isEnterprise ? 'include' : 'same-origin',
       signal: AbortSignal.timeout(3000),
     })
     serverAvailable = res.ok
@@ -38,10 +39,13 @@ async function checkServer(): Promise<boolean> {
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getAuthToken()
+  const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
+
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
 
   const res = await fetch(`${getBaseUrl()}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...authHeaders, ...options?.headers },
+    credentials: isEnterprise ? 'include' : 'same-origin',
+    headers: { 'Content-Type': 'application/json', ...authHeaders, ...(options?.headers || {}) },
     ...options,
   })
   if (!res.ok) {
@@ -50,6 +54,35 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   }
   return res.json()
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function mapTask(raw: any): PipelineTask {
+  return {
+    id: raw.id,
+    title: raw.title,
+    description: raw.description ?? '',
+    source: raw.source ?? 'web',
+    sourceMessageId: raw.source_message_id ?? raw.sourceMessageId,
+    sourceUserId: raw.source_user_id ?? raw.sourceUserId,
+    status: raw.status,
+    currentStageId: raw.current_stage_id ?? raw.currentStageId ?? 'planning',
+    stages: (raw.stages ?? []).map((s: any) => ({
+      id: s.stage_id ?? s.id,
+      label: s.label,
+      status: s.status,
+      ownerRole: s.owner_role ?? s.ownerRole,
+      startedAt: s.started_at ?? s.startedAt,
+      completedAt: s.completed_at ?? s.completedAt,
+      output: s.output,
+      sortOrder: s.sort_order ?? s.sortOrder,
+    })),
+    artifacts: raw.artifacts ?? [],
+    createdBy: raw.created_by ?? raw.createdBy ?? '',
+    createdAt: raw.created_at ?? raw.createdAt,
+    updatedAt: raw.updated_at ?? raw.updatedAt,
+  } as PipelineTask
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export async function fetchTasks(filters?: {
   status?: string
@@ -63,10 +96,10 @@ export async function fetchTasks(filters?: {
   if (filters?.stage) params.set('stage', filters.stage)
   if (filters?.source) params.set('source', filters.source)
   const qs = params.toString()
-  const data = await apiFetch<{ tasks: PipelineTask[] }>(
+  const data = await apiFetch<{ tasks: unknown[] }>(
     `/pipeline/tasks${qs ? `?${qs}` : ''}`,
   )
-  return data.tasks
+  return (data.tasks ?? []).map(mapTask)
 }
 
 export async function fetchTask(id: string): Promise<PipelineTask> {
@@ -76,8 +109,8 @@ export async function fetchTask(id: string): Promise<PipelineTask> {
     return task
   }
 
-  const data = await apiFetch<{ task: PipelineTask }>(`/pipeline/tasks/${id}`)
-  return data.task
+  const data = await apiFetch<{ task: unknown }>(`/pipeline/tasks/${id}`)
+  return mapTask(data.task)
 }
 
 export async function createTask(payload: {
@@ -87,11 +120,11 @@ export async function createTask(payload: {
 }): Promise<PipelineTask> {
   if (!(await checkServer())) return localCreateTask(payload)
 
-  const data = await apiFetch<{ task: PipelineTask }>('/pipeline/tasks', {
+  const data = await apiFetch<{ task: unknown }>('/pipeline/tasks', {
     method: 'POST',
     body: JSON.stringify(payload),
   })
-  return data.task
+  return mapTask(data.task)
 }
 
 export async function advanceTask(
@@ -100,14 +133,14 @@ export async function advanceTask(
 ): Promise<PipelineTask> {
   if (!(await checkServer())) return localAdvanceTask(id, output)
 
-  const data = await apiFetch<{ task: PipelineTask }>(
+  const data = await apiFetch<{ task: unknown }>(
     `/pipeline/tasks/${id}/advance`,
     {
       method: 'POST',
       body: JSON.stringify({ output }),
     },
   )
-  return data.task
+  return mapTask(data.task)
 }
 
 export async function rejectTask(
@@ -117,14 +150,14 @@ export async function rejectTask(
 ): Promise<PipelineTask> {
   if (!(await checkServer())) return localRejectTask(id, targetStageId, reason)
 
-  const data = await apiFetch<{ task: PipelineTask }>(
+  const data = await apiFetch<{ task: unknown }>(
     `/pipeline/tasks/${id}/reject`,
     {
       method: 'POST',
-      body: JSON.stringify({ targetStageId, reason }),
+      body: JSON.stringify({ target_stage_id: targetStageId, reason }),
     },
   )
-  return data.task
+  return mapTask(data.task)
 }
 
 export async function updateTask(
@@ -133,14 +166,14 @@ export async function updateTask(
 ): Promise<PipelineTask> {
   if (!(await checkServer())) return localUpdateTask(id, updates)
 
-  const data = await apiFetch<{ task: PipelineTask }>(
+  const data = await apiFetch<{ task: unknown }>(
     `/pipeline/tasks/${id}`,
     {
       method: 'PATCH',
       body: JSON.stringify(updates),
     },
   )
-  return data.task
+  return mapTask(data.task)
 }
 
 export async function deleteTask(id: string): Promise<void> {
@@ -155,14 +188,14 @@ export async function addArtifact(
   taskId: string,
   artifact: { type: string; name: string; content: string; stageId?: string },
 ): Promise<PipelineTask> {
-  const data = await apiFetch<{ task: PipelineTask }>(
+  const data = await apiFetch<{ task: unknown }>(
     `/pipeline/tasks/${taskId}/artifacts`,
     {
       method: 'POST',
       body: JSON.stringify(artifact),
     },
   )
-  return data.task
+  return mapTask(data.task)
 }
 
 export async function executeTask(taskId: string): Promise<{ jobId: string }> {
@@ -270,26 +303,71 @@ export async function fetchMiddlewareStats(): Promise<Record<string, unknown>> {
 
 // ===== Observability: Traces =====
 
-export async function fetchTraces(): Promise<{ traces: any[] }> {
-  return apiFetch('/pipeline/traces')
+export interface TraceSpan {
+  span_id: string
+  stage_id: string
+  role: string
+  model: string
+  tier: string
+  status: string
+  duration_ms?: number
+  total_tokens?: number
+  cost_usd?: number
+  started_at?: number
 }
 
-export async function fetchTracesByTask(taskId: string): Promise<{ taskId: string; spans: any[] }> {
-  return apiFetch(`/pipeline/traces/${taskId}`)
+export interface TraceInfo {
+  trace_id: string
+  task_id: string
+  task_title: string
+  status: string
+  duration_ms: number
+  total_tokens: number
+  total_cost_usd: number
+  total_llm_calls: number
+  models_used: Record<string, number>
+  stage_durations: Record<string, number>
+  span_count: number
+  started_at: number
+  completed_at: number
+}
+
+export async function fetchTraces(): Promise<{ traces: TraceInfo[] }> {
+  return apiFetch('/observability/traces')
+}
+
+export async function fetchTracesByTask(taskId: string): Promise<{ traces: TraceInfo[] }> {
+  return apiFetch(`/observability/traces/task/${taskId}`)
 }
 
 // ===== Guardrails: Approvals =====
 
-export async function fetchApprovals(): Promise<{ approvals: any[] }> {
-  return apiFetch('/pipeline/approvals')
+export interface ApprovalItem {
+  id: string
+  task_id: string
+  stage_id: string
+  action: string
+  description: string
+  risk_level: string
+  requested_by: string
+  status: string
+  reviewer?: string
+  review_comment?: string
+  created_at: string
+  resolved_at?: string
+  metadata: Record<string, unknown>
+}
+
+export async function fetchApprovals(): Promise<{ approvals: ApprovalItem[] }> {
+  return apiFetch('/observability/approvals')
 }
 
 export async function resolveApproval(
   approvalId: string,
   approved: boolean,
   comment?: string,
-): Promise<{ approval: any }> {
-  return apiFetch(`/pipeline/approvals/${approvalId}/resolve`, {
+): Promise<{ approval: ApprovalItem }> {
+  return apiFetch(`/observability/approvals/${approvalId}/resolve`, {
     method: 'POST',
     body: JSON.stringify({ approved, comment }),
   })
@@ -297,8 +375,20 @@ export async function resolveApproval(
 
 // ===== Audit Log =====
 
-export async function fetchAuditLog(limit = 100): Promise<{ entries: any[] }> {
-  return apiFetch(`/pipeline/audit-log?limit=${limit}`)
+export interface AuditEntry {
+  id: string
+  task_id: string
+  stage_id: string
+  action: string
+  actor: string
+  risk_level: string
+  outcome: string
+  details: string
+  created_at: string
+}
+
+export async function fetchAuditLog(limit = 100): Promise<{ entries: AuditEntry[] }> {
+  return apiFetch(`/observability/audit-log?limit=${limit}`)
 }
 
 // ===== Planner-Worker: Model Resolution =====
@@ -307,7 +397,7 @@ export async function resolveModel(
   role: string,
   stageId?: string,
 ): Promise<{ resolution: { model: string; tier: string } }> {
-  return apiFetch('/pipeline/planner/resolve-model', {
+  return apiFetch('/observability/planner/resolve-model', {
     method: 'POST',
     body: JSON.stringify({ role, stageId }),
   })
@@ -315,40 +405,56 @@ export async function resolveModel(
 
 export type SSEStatus = 'connecting' | 'connected' | 'disconnected'
 
+async function fetchSSETicket(): Promise<string | null> {
+  try {
+    const res = await apiFetch<{ ticket: string }>('/pipeline/events/ticket', { method: 'POST' })
+    return res.ticket
+  } catch {
+    return null
+  }
+}
+
 export function subscribePipelineEvents(
   onEvent: (event: PipelineEvent) => void,
   onStatusChange?: (status: SSEStatus) => void,
 ): () => void {
   if (serverAvailable === false) return () => {}
 
-  const baseUrl = getBaseUrl()
-  const token = getAuthToken()
+  let source: EventSource | null = null
+  let cancelled = false
+
   onStatusChange?.('connecting')
 
-  const url = token
-    ? `${baseUrl}/pipeline/events?token=${encodeURIComponent(token)}`
-    : `${baseUrl}/pipeline/events`
-  const source = new EventSource(url)
+  const baseUrl = getBaseUrl()
 
-  source.onopen = () => {
-    onStatusChange?.('connected')
-  }
+  fetchSSETicket().then((ticket) => {
+    if (cancelled) return
+    const url = ticket
+      ? `${baseUrl}/pipeline/events?ticket=${encodeURIComponent(ticket)}`
+      : `${baseUrl}/pipeline/events`
+    source = new EventSource(url)
 
-  source.onmessage = (e) => {
-    try {
-      const parsed = JSON.parse(e.data) as PipelineEvent
-      onEvent(parsed)
-    } catch {
-      // ignore parse errors
+    source.onopen = () => {
+      onStatusChange?.('connected')
     }
-  }
 
-  source.onerror = () => {
-    onStatusChange?.('disconnected')
-  }
+    source.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data) as PipelineEvent
+        onEvent(parsed)
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    source.onerror = () => {
+      onStatusChange?.('disconnected')
+    }
+  })
 
   return () => {
-    source.close()
+    cancelled = true
+    source?.close()
     onStatusChange?.('disconnected')
   }
 }

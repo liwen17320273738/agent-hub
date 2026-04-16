@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -9,6 +11,54 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
 from ..compat import GUID, JsonDict, utcnow_default
+
+logger = logging.getLogger(__name__)
+
+_fernet = None
+
+
+def _get_fernet():
+    """Lazily init Fernet using JWT_SECRET as key material (HMAC → 32-byte key)."""
+    global _fernet
+    if _fernet is not None:
+        return _fernet
+
+    from ..config import settings
+    secret = settings.jwt_secret
+    if not secret or len(secret) < 16:
+        logger.warning("[model_provider] JWT_SECRET too short for encryption — API keys stored as plaintext")
+        return None
+
+    try:
+        import hashlib
+        from cryptography.fernet import Fernet
+        key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())
+        _fernet = Fernet(key)
+        return _fernet
+    except ImportError:
+        logger.warning("[model_provider] cryptography package not installed — API keys stored as plaintext")
+        return None
+
+
+def encrypt_api_key(plaintext: str) -> str:
+    if not plaintext:
+        return ""
+    f = _get_fernet()
+    if f is None:
+        return plaintext
+    return f.encrypt(plaintext.encode()).decode()
+
+
+def decrypt_api_key(ciphertext: str) -> str:
+    if not ciphertext:
+        return ""
+    f = _get_fernet()
+    if f is None:
+        return ciphertext
+    try:
+        return f.decrypt(ciphertext.encode()).decode()
+    except Exception:
+        return ciphertext
 
 
 class ModelProvider(Base):
@@ -24,6 +74,12 @@ class ModelProvider(Base):
     config: Mapped[dict] = mapped_column(JsonDict(), default=dict)
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+
+    def set_api_key(self, plaintext: str) -> None:
+        self.api_key_encrypted = encrypt_api_key(plaintext)
+
+    def get_api_key(self) -> str:
+        return decrypt_api_key(self.api_key_encrypted)
 
 
 class TokenUsage(Base):

@@ -8,11 +8,37 @@
         <h3>{{ agent.name }}</h3>
         <el-tag size="small" type="info" effect="plain">{{ agent.title }}</el-tag>
       </div>
+
+      <p v-if="seniority" class="card-seniority">{{ seniority }}</p>
+
       <p class="card-desc">{{ agent.description }}</p>
+
+      <div v-if="domainTags.length" class="card-tags">
+        <el-tag
+          v-for="tag in domainTags.slice(0, 4)"
+          :key="tag"
+          size="small"
+          :color="agent.color + '20'"
+          :style="{ color: agent.color, borderColor: agent.color + '40' }"
+          effect="plain"
+        >{{ tag }}</el-tag>
+        <el-tag v-if="domainTags.length > 4" size="small" type="info" effect="plain">
+          +{{ domainTags.length - 4 }}
+        </el-tag>
+      </div>
+
       <div class="card-footer">
+        <span v-if="toolCount" class="card-meta">
+          <el-icon :size="12"><SetUp /></el-icon>
+          {{ toolCount }} 工具
+        </span>
+        <span v-if="skillCount" class="card-meta">
+          <el-icon :size="12"><MagicStick /></el-icon>
+          {{ skillCount }} 技能
+        </span>
         <span v-if="conversationCount" class="conv-count">
           <el-icon :size="12"><ChatDotRound /></el-icon>
-          {{ conversationCount }} 个对话
+          {{ conversationCount }} 对话
         </span>
         <span v-else class="conv-count empty">开始对话 →</span>
       </div>
@@ -22,14 +48,21 @@
 </template>
 
 <script setup lang="ts">
-import type { AgentConfig } from '@/agents/types'
+import { computed } from 'vue'
+import type { AgentProfile } from '@/stores/agents'
 
-defineProps<{
-  agent: AgentConfig
+const props = defineProps<{
+  agent: AgentProfile
   conversationCount: number
 }>()
 
 defineEmits(['click'])
+
+const capabilities = computed(() => props.agent.capabilities || {})
+const seniority = computed(() => capabilities.value.seniority as string || '')
+const domainTags = computed(() => (capabilities.value.domain as string[]) || [])
+const toolCount = computed(() => props.agent.tools?.length || 0)
+const skillCount = computed(() => props.agent.skills?.length || 0)
 </script>
 
 <style scoped>
@@ -85,7 +118,7 @@ defineEmits(['click'])
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .card-top h3 {
@@ -93,20 +126,49 @@ defineEmits(['click'])
   font-weight: 600;
 }
 
+.card-seniority {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-style: italic;
+}
+
 .card-desc {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.5;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.card-tags .el-tag {
+  font-size: 11px;
+  height: 20px;
+  padding: 0 6px;
+}
+
 .card-footer {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .conv-count {
@@ -115,6 +177,7 @@ defineEmits(['click'])
   gap: 4px;
   font-size: 12px;
   color: var(--text-muted);
+  margin-left: auto;
 }
 
 .conv-count.empty {

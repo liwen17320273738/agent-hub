@@ -1,5 +1,13 @@
 <template>
-  <div class="chat-page" v-if="agent">
+  <div v-if="!agent" class="chat-page" style="display: flex; align-items: center; justify-content: center;">
+    <div style="text-align: center; color: var(--text-secondary);">
+      <p style="font-size: 18px; margin-bottom: 12px;">未找到该 Agent</p>
+      <router-link to="/">
+        <el-button type="primary">返回首页</el-button>
+      </router-link>
+    </div>
+  </div>
+  <div class="chat-page" v-else>
     <!-- Conversation sidebar -->
     <aside class="conv-sidebar">
       <div class="conv-header">
@@ -248,7 +256,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Connection, Promotion, Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { getAgent } from '@/agents/registry'
+import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
 import { useWayneWorkflowStore } from '@/stores/wayneWorkflow'
@@ -269,6 +277,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const agentStore = useAgentStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
 const wayneWorkflowStore = useWayneWorkflowStore()
@@ -294,7 +303,8 @@ const deliveryDocOptions = ref<DeliveryDocMeta[]>([])
 const deliveryTargetDoc = ref('01-prd.md')
 const pipelineTask = ref<PipelineTask | null>(null)
 
-const agent = computed(() => getAgent(route.params.id as string))
+const agentProfile = computed(() => agentStore.getAgent(route.params.id as string))
+const agent = computed(() => agentProfile.value ? agentStore.agentAsConfig(agentProfile.value) : undefined)
 
 const conversations = computed(() =>
   agent.value ? chatStore.getConversationsByAgent(agent.value.id) : [],

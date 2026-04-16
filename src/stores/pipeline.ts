@@ -17,8 +17,11 @@ export const usePipelineStore = defineStore('pipeline', () => {
     const map: Record<string, PipelineTask[]> = {}
     for (const task of tasks.value) {
       const stage = task.currentStageId
-      if (!map[stage]) map[stage] = []
-      map[stage].push(task)
+        ?? (task as Record<string, unknown>).current_stage_id as string
+        ?? 'planning'
+      const bucket = task.status === 'done' ? 'done' : stage
+      if (!map[bucket]) map[bucket] = []
+      map[bucket].push(task)
     }
     return map
   })
@@ -79,8 +82,17 @@ export const usePipelineStore = defineStore('pipeline', () => {
         event.event === 'task:stage-advanced' ||
         event.event === 'task:rejected'
       ) {
-        const taskData = (event.data as Record<string, unknown>)?.task as PipelineTask | undefined
-        if (taskData) replaceTask(taskData)
+        const raw = (event.data as Record<string, unknown>)?.task
+        if (raw) {
+          const t = raw as Record<string, unknown>
+          const mapped: PipelineTask = {
+            ...(raw as PipelineTask),
+            currentStageId: (t.current_stage_id ?? t.currentStageId ?? 'planning') as string,
+            createdAt: (t.created_at ?? t.createdAt) as number,
+            updatedAt: (t.updated_at ?? t.updatedAt) as number,
+          }
+          replaceTask(mapped)
+        }
       }
 
       if (event.event === 'task:deleted') {

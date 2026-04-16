@@ -1,12 +1,15 @@
 """Pipeline API: task management, stage progression, collaboration."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from datetime import datetime
 from typing import Annotated, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,6 +19,15 @@ from ..models.pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from ..models.user import User
 from ..security import get_current_user, get_pipeline_auth
 from ..services.collaboration import PIPELINE_STAGES
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_task_id(task_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的任务 ID 格式")
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -49,9 +61,17 @@ def _default_stages() -> List[Dict[str, object]]:
     ]
 
 
-@router.get("/health")
-async def pipeline_health():
-    return {"pipeline": "online", "stages": len(PIPELINE_STAGES)}
+def _apply_org_filter(stmt, user: Optional[User]):
+    """Scope query to user's org.
+
+    API-key callers (user=None) are restricted to tasks with no org
+    (i.e. tasks created by gateway/API). They do NOT get cross-org access.
+    """
+    if user and user.org_id:
+        stmt = stmt.where(PipelineTask.org_id == user.org_id)
+    elif user is None:
+        stmt = stmt.where(PipelineTask.org_id.is_(None))
+    return stmt
 
 
 @router.get("/tasks")
@@ -65,6 +85,8 @@ async def list_tasks(
         selectinload(PipelineTask.artifacts),
     ).order_by(PipelineTask.created_at.desc())
 
+    stmt = _apply_org_filter(stmt, user)
+
     if status:
         stmt = stmt.where(PipelineTask.status == status)
 
@@ -73,20 +95,27 @@ async def list_tasks(
     return {"tasks": tasks}
 
 
+async def _get_task_or_404(
+    db: AsyncSession, task_id: str, user: Optional[User], *, load_relations: bool = True,
+) -> PipelineTask:
+    stmt = select(PipelineTask).where(PipelineTask.id == _parse_task_id(task_id))
+    if load_relations:
+        stmt = stmt.options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
+    stmt = _apply_org_filter(stmt, user)
+    result = await db.execute(stmt)
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return task
+
+
 @router.get("/tasks/{task_id}")
 async def get_task(
     task_id: str,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
     return {"task": task}
 
 
@@ -131,14 +160,7 @@ async def advance_task(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
 
     sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
     current_idx = next(
@@ -166,7 +188,7 @@ async def advance_task(
     result2 = await db.execute(
         select(PipelineTask)
         .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
-        .where(PipelineTask.id == uuid.UUID(task_id))
+        .where(PipelineTask.id == _parse_task_id(task_id))
     )
     return {"task": result2.scalar_one()}
 
@@ -178,14 +200,7 @@ async def reject_task(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
 
     target_stage = next((s for s in task.stages if s.stage_id == body.target_stage_id), None)
     if not target_stage:
@@ -204,7 +219,7 @@ async def reject_task(
     result2 = await db.execute(
         select(PipelineTask)
         .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
-        .where(PipelineTask.id == uuid.UUID(task_id))
+        .where(PipelineTask.id == _parse_task_id(task_id))
     )
     return {"task": result2.scalar_one()}
 
@@ -216,9 +231,7 @@ async def add_artifact(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    task = await db.get(PipelineTask, uuid.UUID(task_id))
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
 
     artifact = PipelineArtifact(
         task_id=task.id,
@@ -238,46 +251,49 @@ async def add_artifact(
     return {"task": result.scalar_one()}
 
 
+class UpdateTaskRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+
+
 @router.patch("/tasks/{task_id}")
 async def update_task(
     task_id: str,
-    body: dict,
+    body: UpdateTaskRequest,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    task = await db.get(PipelineTask, uuid.UUID(task_id))
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
+    updates = body.model_dump(exclude_unset=True)
     for field in ("title", "description", "status"):
-        if field in body:
-            setattr(task, field, body[field])
+        if field in updates:
+            setattr(task, field, updates[field])
     await db.flush()
     result = await db.execute(
         select(PipelineTask)
         .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
-        .where(PipelineTask.id == uuid.UUID(task_id))
+        .where(PipelineTask.id == _parse_task_id(task_id))
     )
     return {"task": result.scalar_one()}
+
+
+class StageOutputRequest(BaseModel):
+    stageId: Optional[str] = None
+    output: str = ""
 
 
 @router.post("/tasks/{task_id}/stage-output")
 async def set_stage_output(
     task_id: str,
-    body: dict,
+    body: StageOutputRequest,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
 
-    stage_id = body.get("stageId", task.current_stage_id)
-    output = body.get("output", "")
+    stage_id = body.stageId or task.current_stage_id
+    output = body.output
     for stage in task.stages:
         if stage.stage_id == stage_id:
             stage.output = output
@@ -292,11 +308,36 @@ async def delete_task(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    task = await db.get(PipelineTask, uuid.UUID(task_id))
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
     await db.delete(task)
     return {"ok": True}
+
+
+# --- Background execution helpers ---
+
+async def _run_in_background(coro_factory, task_label: str):
+    """Run a coroutine in a standalone background task with its own DB session.
+
+    This prevents the execution from being cancelled when the HTTP client
+    disconnects (e.g. user navigates to a different page).
+    """
+    from ..database import async_session as session_factory
+    from ..services.sse import emit_event
+
+    try:
+        async with session_factory() as db:
+            try:
+                await coro_factory(db)
+                await db.commit()
+            except Exception as exc:
+                await db.rollback()
+                logger.exception(f"[background] {task_label} failed: {exc}")
+                await emit_event("pipeline:auto-error", {
+                    "error": str(exc),
+                    "label": task_label,
+                })
+    except Exception as outer:
+        logger.exception(f"[background] session error in {task_label}: {outer}")
 
 
 # --- Lead Agent / Smart Pipeline ---
@@ -307,20 +348,16 @@ async def smart_run(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Run the full smart pipeline (Lead Agent decomposition + parallel execution)."""
-    result = await db.execute(
-        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    """Run the full smart pipeline as a background task (returns immediately)."""
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    tid, title, desc = str(task.id), task.title, task.description
 
-    from ..services.lead_agent import run_smart_pipeline
-    pipeline_result = await run_smart_pipeline(
-        db, str(task.id), task.title, task.description,
-    )
-    await db.commit()
-    return {"ok": pipeline_result.get("ok", False), "taskId": str(task.id), **pipeline_result}
+    async def _run(bg_db: AsyncSession):
+        from ..services.lead_agent import run_smart_pipeline
+        await run_smart_pipeline(bg_db, tid, title, desc)
+
+    asyncio.create_task(_run_in_background(_run, f"smart-run:{tid[:8]}"))
+    return {"ok": True, "started": True, "taskId": tid}
 
 
 @router.post("/tasks/{task_id}/analyze")
@@ -330,12 +367,7 @@ async def analyze_task(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Lead Agent analysis only (without execution)."""
-    result = await db.execute(
-        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
 
     from ..services.lead_agent import analyze_and_decompose
     analysis = await analyze_and_decompose(
@@ -351,33 +383,58 @@ async def run_single_stage(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Execute a single pipeline stage using the enhanced pipeline engine."""
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    """Execute a single pipeline stage as a background task (returns immediately)."""
+    task = await _get_task_or_404(db, task_id, user)
 
     stage_id = body.get("stageId") or task.current_stage_id
     previous_outputs = {}
-    for stage in sorted(task.stages, key=lambda s: s.sort_order):
+    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
+    for stage in sorted_stages:
         if stage.output:
             previous_outputs[stage.stage_id] = stage.output
 
-    from ..services.pipeline_engine import execute_stage
-    stage_result = await execute_stage(
-        db,
-        task_id=str(task.id),
-        task_title=task.title,
-        task_description=task.description,
-        stage_id=stage_id,
-        previous_outputs=previous_outputs,
-    )
-    await db.commit()
-    return {"ok": stage_result.get("ok", False), "taskId": str(task.id), "stageId": stage_id, **stage_result}
+    tid = str(task.id)
+    t_title, t_desc = task.title, task.description
+
+    async def _run(bg_db: AsyncSession):
+        from ..services.pipeline_engine import execute_stage
+        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        result = await execute_stage(
+            bg_db,
+            task_id=tid,
+            task_title=t_title,
+            task_description=t_desc,
+            stage_id=stage_id,
+            previous_outputs=previous_outputs,
+        )
+
+        if result.get("ok"):
+            db_result = await bg_db.execute(
+                select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
+            )
+            db_task = db_result.scalar_one_or_none()
+            if db_task:
+                ss = sorted(db_task.stages, key=lambda s: s.sort_order)
+                cur = next((s for s in ss if s.stage_id == stage_id), None)
+                if cur:
+                    cur.output = result.get("content", "")
+                    cur.status = "done"
+                    cur.completed_at = datetime.utcnow()
+                cur_idx = next((i for i, s in enumerate(ss) if s.stage_id == stage_id), -1)
+                if cur_idx >= 0 and cur_idx + 1 < len(ss):
+                    nxt = ss[cur_idx + 1]
+                    nxt.status = "active"
+                    nxt.started_at = datetime.utcnow()
+                    db_task.current_stage_id = nxt.stage_id
+                elif cur_idx >= 0:
+                    db_task.status = "done"
+                    db_task.current_stage_id = "done"
+
+    asyncio.create_task(_run_in_background(_run, f"run-stage:{tid[:8]}/{stage_id}"))
+    return {"ok": True, "started": True, "taskId": tid, "stageId": stage_id}
 
 
 @router.post("/tasks/{task_id}/auto-run")
@@ -386,23 +443,26 @@ async def auto_run_pipeline(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Execute the full pipeline sequentially using the enhanced engine."""
-    result = await db.execute(
-        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    """Execute the full pipeline as a background task (returns immediately).
 
-    from ..services.pipeline_engine import execute_full_pipeline
-    pipeline_result = await execute_full_pipeline(
-        db,
-        task_id=str(task.id),
-        task_title=task.title,
-        task_description=task.description,
-    )
-    await db.commit()
-    return {"ok": pipeline_result.get("ok", False), "taskId": str(task.id), **pipeline_result}
+    Progress is reported via SSE events — the client does NOT need to hold
+    the HTTP connection open for the entire duration.
+    """
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    tid, title, desc = str(task.id), task.title, task.description
+
+    async def _run(bg_db: AsyncSession):
+        from ..services.pipeline_engine import execute_full_pipeline
+        await execute_full_pipeline(
+            bg_db,
+            task_id=tid,
+            task_title=title,
+            task_description=desc,
+            force_continue=True,
+        )
+
+    asyncio.create_task(_run_in_background(_run, f"auto-run:{tid[:8]}"))
+    return {"ok": True, "started": True, "taskId": tid}
 
 
 # --- Skills + Middleware ---
@@ -425,6 +485,10 @@ async def toggle_pipeline_skill(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    if not user:
+        raise HTTPException(status_code=403, detail="API Key 无法修改技能，需要用户登录")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可修改技能状态")
     from ..models.skill import Skill as SkillModel
     skill = await db.get(SkillModel, skill_name)
     if not skill:
@@ -439,11 +503,11 @@ async def middleware_stats(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
 ):
     from ..services.observability import get_recent_traces
-    traces = get_recent_traces(limit=50)
+    traces = await get_recent_traces(limit=50)
     return {
         "totalTraces": len(traces),
         "traces": [
-            {"traceId": t.trace_id, "status": t.status, "spanCount": len(t.spans)}
+            {"traceId": t["trace_id"], "status": t["status"], "spanCount": t["span_count"]}
             for t in traces
         ],
     }
@@ -452,6 +516,16 @@ async def middleware_stats(
 @router.get("/stages")
 async def list_stages():
     return {"stages": PIPELINE_STAGES}
+
+
+@router.get("/agent-team")
+async def get_agent_team():
+    """Return the 5 core expert agents and their stage mappings."""
+    from ..services.collaboration import get_team_roster, STAGE_AGENTS
+    return {
+        "agents": get_team_roster(),
+        "stageMapping": STAGE_AGENTS,
+    }
 
 
 # --- DAG Pipeline ---
@@ -469,12 +543,7 @@ async def dag_run(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Execute pipeline using DAG-based scheduling (parallel stages)."""
-    result = await db.execute(
-        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
 
     from ..services.dag_orchestrator import execute_dag_pipeline
     dag_result = await execute_dag_pipeline(
@@ -528,14 +597,7 @@ async def run_codegen(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Generate project code from completed pipeline stages."""
-    result = await db.execute(
-        select(PipelineTask)
-        .options(selectinload(PipelineTask.stages))
-        .where(PipelineTask.id == uuid.UUID(task_id))
-    )
-    task = result.scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="任务不存在")
+    task = await _get_task_or_404(db, task_id, user)
 
     outputs = {}
     for stage in task.stages:
@@ -580,6 +642,7 @@ class E2ERequest(BaseModel):
 @router.post("/e2e")
 async def run_end_to_end(
     body: E2ERequest,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Execute the ENTIRE lifecycle: pipeline → codegen → build → deploy → preview → notify.
@@ -592,7 +655,8 @@ async def run_end_to_end(
         title=body.title,
         description=body.description,
         source="api-e2e",
-        created_by="e2e",
+        created_by=str(user.id) if user else "api",
+        org_id=user.org_id if user else None,
         current_stage_id="planning",
     )
     db.add(task)

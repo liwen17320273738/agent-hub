@@ -4,7 +4,8 @@ from .agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugi
 from .skill import Skill
 from .model_provider import ModelProvider, TokenUsage
 from .pipeline import PipelineTask, PipelineStage, PipelineArtifact
-from ..services.memory import TaskMemory, LearnedPattern
+from .memory import TaskMemory, LearnedPattern
+from .observability import TraceRecord, SpanRecord, AuditLog, ApprovalRecord, FeedbackRecord
 
 __all__ = [
     "Org",
@@ -24,4 +25,9 @@ __all__ = [
     "PipelineArtifact",
     "TaskMemory",
     "LearnedPattern",
+    "TraceRecord",
+    "SpanRecord",
+    "AuditLog",
+    "ApprovalRecord",
+    "FeedbackRecord",
 ]

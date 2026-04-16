@@ -20,10 +20,15 @@ _redis_instance = None
 _fallback_mode = False
 _memory_store: dict[str, Any] = {}
 _memory_expiry: dict[str, float] = {}
+_memory_sets: dict[str, set[str]] = {}
+_memory_zsets: dict[str, dict[str, float]] = {}
+_memory_pubsub_channels: dict[str, list[asyncio.Queue]] = {}
 
 
 class _MemoryFallback:
     """In-memory Redis-like stub for development without Redis."""
+
+    # --- String / generic key operations ---
 
     async def get(self, key: str) -> Optional[str]:
         self._expire_check(key)
@@ -39,6 +44,13 @@ class _MemoryFallback:
     async def delete(self, key: str) -> None:
         _memory_store.pop(key, None)
         _memory_expiry.pop(key, None)
+        _memory_sets.pop(key, None)
+        _memory_zsets.pop(key, None)
+
+    async def expire(self, key: str, ttl: int) -> None:
+        _memory_expiry[key] = time.time() + ttl
+
+    # --- Hash operations ---
 
     async def hset(self, key: str, field: str, value: str) -> None:
         if key not in _memory_store or not isinstance(_memory_store[key], dict):
@@ -50,26 +62,135 @@ class _MemoryFallback:
         val = _memory_store.get(key, {})
         return val if isinstance(val, dict) else {}
 
-    async def expire(self, key: str, ttl: int) -> None:
-        _memory_expiry[key] = time.time() + ttl
+    # --- Pub/Sub (in-process only, no cross-worker delivery) ---
 
     async def publish(self, channel: str, message: str) -> int:
-        return 0
+        subs = _memory_pubsub_channels.get(channel, [])
+        for q in subs:
+            try:
+                q.put_nowait({"type": "message", "channel": channel, "data": message})
+            except asyncio.QueueFull:
+                pass
+        return len(subs)
 
     def pubsub(self):
         return _MemoryPubSub()
 
     async def pubsub_numsub(self, *channels):
-        return [(ch, 0) for ch in channels]
+        return [(ch, len(_memory_pubsub_channels.get(ch, []))) for ch in channels]
 
     def pipeline(self):
         return _MemoryPipeline()
+
+    # --- List operations ---
+
+    async def rpush(self, key: str, *values: str) -> int:
+        if key not in _memory_store or not isinstance(_memory_store[key], list):
+            _memory_store[key] = []
+        _memory_store[key].extend(values)
+        return len(_memory_store[key])
+
+    async def lrange(self, key: str, start: int, end: int) -> list:
+        self._expire_check(key)
+        val = _memory_store.get(key, [])
+        if not isinstance(val, list):
+            return []
+        if end < 0:
+            end = len(val) + end + 1
+        else:
+            end = end + 1
+        return val[start:end]
+
+    async def llen(self, key: str) -> int:
+        self._expire_check(key)
+        lst = _memory_store.get(key, [])
+        return len(lst) if isinstance(lst, list) else 0
+
+    # --- Set operations (use dedicated _memory_sets) ---
+
+    async def sadd(self, key: str, *members: str) -> int:
+        if key not in _memory_sets:
+            _memory_sets[key] = set()
+        before = len(_memory_sets[key])
+        _memory_sets[key].update(str(m) for m in members)
+        return len(_memory_sets[key]) - before
+
+    async def srem(self, key: str, *members: str) -> int:
+        if key not in _memory_sets:
+            return 0
+        removed = 0
+        for m in members:
+            if str(m) in _memory_sets[key]:
+                _memory_sets[key].discard(str(m))
+                removed += 1
+        return removed
+
+    async def smembers(self, key: str) -> set:
+        return set(_memory_sets.get(key, set()))
+
+    # --- Sorted set operations (use dedicated _memory_zsets) ---
+
+    async def zadd(self, key: str, mapping: dict, **kwargs) -> int:
+        if key not in _memory_zsets:
+            _memory_zsets[key] = {}
+        added = 0
+        for member, score in mapping.items():
+            if member not in _memory_zsets[key]:
+                added += 1
+            _memory_zsets[key][member] = float(score)
+        return added
+
+    async def zrem(self, key: str, *members: str) -> int:
+        zset = _memory_zsets.get(key)
+        if not zset:
+            return 0
+        removed = 0
+        for m in members:
+            if m in zset:
+                del zset[m]
+                removed += 1
+        return removed
+
+    async def zrange(self, key: str, start: int, end: int, **kwargs) -> list:
+        zset = _memory_zsets.get(key, {})
+        items = sorted(zset.items(), key=lambda x: x[1])
+        members = [m for m, _ in items]
+        if end == -1:
+            return members[start:]
+        return members[start:end + 1]
+
+    async def zrevrange(self, key: str, start: int, end: int, **kwargs) -> list:
+        zset = _memory_zsets.get(key, {})
+        items = sorted(zset.items(), key=lambda x: x[1], reverse=True)
+        members = [m for m, _ in items]
+        if end == -1:
+            return members[start:]
+        return members[start:end + 1]
+
+    async def zcard(self, key: str) -> int:
+        return len(_memory_zsets.get(key, {}))
+
+    async def zremrangebyrank(self, key: str, start: int, stop: int) -> int:
+        zset = _memory_zsets.get(key)
+        if not zset:
+            return 0
+        items = sorted(zset.items(), key=lambda x: x[1])
+        if stop < 0:
+            stop = len(items) + stop
+        to_remove = items[start:stop + 1]
+        for m, _ in to_remove:
+            del zset[m]
+        return len(to_remove)
+
+    # --- Scan ---
 
     async def scan_iter(self, match: str = "*"):
         import fnmatch
         for key in list(_memory_store.keys()):
             if fnmatch.fnmatch(key, match):
                 yield key
+
+    # --- Internal ---
 
     def _expire_check(self, key: str):
         exp = _memory_expiry.get(key)
@@ -79,19 +200,38 @@ class _MemoryFallback:
 
 
 class _MemoryPubSub:
+    def __init__(self):
+        self._queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
+        self._channels: list[str] = []
+
     async def subscribe(self, *channels):
-        pass
+        for ch in channels:
+            if ch not in _memory_pubsub_channels:
+                _memory_pubsub_channels[ch] = []
+            _memory_pubsub_channels[ch].append(self._queue)
+            self._channels.append(ch)
 
     async def unsubscribe(self, *channels):
-        pass
+        for ch in channels:
+            if ch in _memory_pubsub_channels:
+                try:
+                    _memory_pubsub_channels[ch].remove(self._queue)
+                except ValueError:
+                    pass
+            if ch in self._channels:
+                self._channels.remove(ch)
 
     async def close(self):
-        pass
+        for ch in list(self._channels):
+            await self.unsubscribe(ch)
 
     async def listen(self):
         while True:
-            await asyncio.sleep(30)
-            yield {"type": "heartbeat", "data": ""}
+            try:
+                msg = await asyncio.wait_for(self._queue.get(), timeout=30)
+                yield msg
+            except asyncio.TimeoutError:
+                yield {"type": "heartbeat", "data": ""}
 
 
 class _MemoryPipeline:

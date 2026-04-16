@@ -104,6 +104,85 @@ async def chat(
     }
 
 
+@router.post("/chat-with-tools")
+async def chat_with_tools(
+    body: ChatRequest,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Execute a chat using AgentRuntime with tool calling enabled.
+
+    When agent_id is provided, the agent's bound tools are used.
+    Falls back to plain chat if the agent has no tools configured.
+    """
+    _validate_messages(body.messages)
+
+    if not body.agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required for tool-enabled chat")
+
+    from ..agents.seed import AGENT_TOOLS
+    from ..models.agent import AgentDefinition
+
+    agent = await db.get(AgentDefinition, body.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    tool_names = AGENT_TOOLS.get(body.agent_id, [])
+
+    user_content = ""
+    for msg in body.messages:
+        if msg.get("role") == "user":
+            user_content = msg.get("content", "")
+
+    if not user_content:
+        raise HTTPException(status_code=400, detail="No user message found")
+
+    if not tool_names:
+        from ..config import settings
+        model = body.model.strip() or settings.llm_model
+        result = await chat_completion(
+            model=model,
+            messages=body.messages,
+            temperature=body.temperature,
+            max_tokens=min(16384, body.max_tokens),
+        )
+        if "error" in result:
+            raise HTTPException(status_code=502, detail=result["error"])
+        return {
+            "choices": [{"message": {"content": result["content"]}}],
+            "usage": result.get("usage", {}),
+            "provider": result.get("provider"),
+            "tools_used": [],
+        }
+
+    from ..services.agent_runtime import AgentRuntime
+    from ..config import settings
+
+    model = body.model.strip() or agent.preferred_model or settings.llm_model
+
+    runtime = AgentRuntime(
+        agent_id=body.agent_id,
+        system_prompt=agent.system_prompt,
+        tools=tool_names,
+        model_preference={"execution": model},
+        max_steps=8,
+        temperature=body.temperature,
+    )
+
+    result = await runtime.execute(db, task=user_content)
+
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result.get("error", "Agent execution failed"))
+
+    return {
+        "choices": [{"message": {"content": result["content"]}}],
+        "tools_used": result.get("observations", []),
+        "steps": result.get("steps", 0),
+        "model": result.get("model"),
+        "verification": result.get("verification"),
+    }
+
+
 @router.post("/chat-once")
 async def chat_once(
     body: ChatRequest,

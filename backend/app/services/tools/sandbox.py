@@ -49,7 +49,9 @@ def resolve_safe_path(path: str) -> str:
     else:
         resolved = (root / path).resolve()
 
-    if not str(resolved).startswith(str(root)):
+    try:
+        resolved.relative_to(root)
+    except ValueError:
         raise ValueError(f"Path traversal denied: {path} resolves outside sandbox")
 
     return str(resolved)

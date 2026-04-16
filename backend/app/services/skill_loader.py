@@ -94,7 +94,11 @@ def discover_skills(skills_root: Optional[str] = None) -> Dict[str, Dict[str, An
     if skills_root:
         root = Path(skills_root)
     else:
-        root = Path(__file__).resolve().parent.parent.parent.parent / "skills"
+        candidates = [
+            Path(__file__).resolve().parent.parent.parent.parent / "skills",
+            Path("/app/skills"),  # Docker container path
+        ]
+        root = next((p for p in candidates if p.exists()), candidates[0])
 
     if not root.exists():
         logger.info(f"Skills directory not found: {root}")
@@ -116,13 +120,60 @@ def discover_skills(skills_root: Optional[str] = None) -> Dict[str, Dict[str, An
 
             parsed = _parse_skill_md(skill_file)
             if parsed:
-                parsed["category"] = category_dir
+                # Preserve the frontmatter category for DB sync instead of
+                # overwriting with the folder name ("public"/"custom").
+                parsed["source_type"] = category_dir
                 skills[parsed["id"]] = parsed
                 logger.info(f"Loaded skill: {parsed['id']} from {skill_file}")
 
     _loaded_skills = skills
     logger.info(f"Discovered {len(skills)} skills from {root}")
     return skills
+
+
+async def sync_skills_to_db(db) -> int:
+    """Sync filesystem SKILL.md definitions into the Skill DB table.
+
+    Uses the rich prompt_body from the markdown files, preserving
+    frontmatter category for STAGE_SKILL_MAP matching.
+    Returns the number of skills synced.
+    """
+    from ..models.skill import Skill
+
+    if not _loaded_skills:
+        discover_skills()
+
+    synced = 0
+    for skill_id, fs_skill in _loaded_skills.items():
+        existing = await db.get(Skill, skill_id)
+        if existing:
+            if not existing.prompt_template or len(existing.prompt_template) < 100:
+                existing.prompt_template = fs_skill.get("prompt_template", existing.prompt_template)
+            if existing.category in ("public", "custom"):
+                existing.category = fs_skill.get("category", existing.category)
+            continue
+
+        skill = Skill(
+            id=skill_id,
+            name=fs_skill.get("name", skill_id),
+            category=fs_skill.get("category", "general"),
+            description=fs_skill.get("description", ""),
+            version=fs_skill.get("version", "1.0.0"),
+            author=fs_skill.get("author", "community"),
+            prompt_template=fs_skill.get("prompt_template", ""),
+            input_schema=fs_skill.get("input_schema", {}),
+            output_schema=fs_skill.get("output_schema", {}),
+            tags=fs_skill.get("tags", []),
+            is_builtin=True,
+            enabled=True,
+        )
+        db.add(skill)
+        synced += 1
+        logger.info(f"[sync] Synced filesystem skill to DB: {skill_id}")
+
+    if synced:
+        await db.flush()
+    return synced
 
 
 def get_loaded_skills() -> Dict[str, Dict[str, Any]]:

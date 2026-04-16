@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.skill import Skill
@@ -349,6 +349,45 @@ async def get_marketplace_catalog() -> List[Dict[str, Any]]:
         })
 
     return catalog
+
+
+STAGE_SKILL_MAP: Dict[str, List[str]] = {
+    "planning": ["product", "analysis", "prd"],
+    "architecture": ["architecture", "design", "development"],
+    "development": ["development", "security"],
+    "testing": ["testing"],
+    "reviewing": ["analysis", "product"],
+    "deployment": ["deployment", "operations"],
+}
+
+
+async def get_skills_for_stage(
+    db: AsyncSession,
+    stage_id: str,
+    role: str,
+) -> List[Dict[str, str]]:
+    """Get enabled skills relevant to a pipeline stage."""
+    categories = STAGE_SKILL_MAP.get(stage_id, [])
+    if not categories:
+        return []
+
+    stmt = (
+        select(Skill)
+        .where(
+            Skill.enabled.is_(True),
+            or_(Skill.category.in_(categories)),
+        )
+        .limit(5)
+    )
+
+    result = await db.execute(stmt)
+    skills = result.scalars().all()
+
+    return [
+        {"name": s.name, "prompt": s.prompt_template[:2000]}
+        for s in skills
+        if s.prompt_template
+    ]
 
 
 async def install_skill(db: AsyncSession, skill_id: str) -> Optional[Skill]:

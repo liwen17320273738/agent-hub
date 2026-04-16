@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { apiUrl, isEnterpriseBuild } from '@/services/enterpriseApi'
+import { setAuthToken } from '@/services/api'
 
 export interface AuthUser {
   id: string
@@ -35,32 +36,40 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!user.value)
 
   async function hydrate(): Promise<void> {
-    if (!isEnterpriseBuild) {
-      initialized.value = true
-      return
-    }
     try {
-      const r = await fetch(apiUrl('/auth/me'), { credentials: 'include' })
+      const { getAuthToken } = await import('@/services/api')
+      const token = getAuthToken()
+
+      // Enterprise mode: use session cookie; standalone mode: use localStorage JWT
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
+      const credentials: RequestCredentials = isEnterpriseBuild ? 'include' : 'same-origin'
+
+      const r = await fetch(apiUrl('/auth/me'), { credentials, headers })
       if (r.ok) {
-        const data = (await r.json()) as {
-          user: AuthUser
-          llmConfigured: boolean
-          publicLlm: PublicLlmMeta | null
+        const raw = await r.json()
+        // /auth/me returns the user object directly (snake_case from backend)
+        const u = raw.user ?? raw
+        user.value = {
+          id: u.id,
+          email: u.email,
+          displayName: u.display_name ?? u.displayName ?? u.email,
+          role: u.role,
+          orgId: u.org_id ?? u.orgId ?? '',
+          orgName: u.org_name ?? u.orgName ?? '',
         }
-        user.value = data.user
-        llmConfigured.value = data.llmConfigured
-        publicLlm.value = data.publicLlm
-        await pullEnterpriseConversations()
-      } else {
+        llmConfigured.value = raw.llmConfigured ?? true
+        publicLlm.value = raw.publicLlm ?? null
+        if (isEnterpriseBuild) await pullEnterpriseConversations()
+      } else if (r.status === 401 || r.status === 403) {
+        setAuthToken(null)
         user.value = null
         llmConfigured.value = false
         publicLlm.value = null
-        await clearChatOnEnterpriseSessionEnd()
+        if (isEnterpriseBuild) await clearChatOnEnterpriseSessionEnd()
       }
+      // Other HTTP errors (500, network issues): keep existing user state
     } catch {
-      user.value = null
-      llmConfigured.value = false
-      publicLlm.value = null
+      // Network failure: don't clear user — they might just be offline
     } finally {
       initialized.value = true
     }
@@ -69,18 +78,29 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string): Promise<void> {
     const r = await fetch(apiUrl('/auth/login'), {
       method: 'POST',
-      credentials: 'include',
+      credentials: isEnterpriseBuild ? 'include' : 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     })
     const data = await r.json().catch(() => ({}))
     if (!r.ok) {
-      throw new Error(typeof data.error === 'string' ? data.error : '登录失败')
+      throw new Error(data.detail ?? (typeof data.error === 'string' ? data.error : '登录失败'))
     }
-    user.value = data.user
+    if (data.access_token) {
+      setAuthToken(data.access_token)
+    }
+    const u = data.user ?? {}
+    user.value = {
+      id: u.id,
+      email: u.email,
+      displayName: u.display_name ?? u.displayName ?? u.email,
+      role: u.role,
+      orgId: u.org_id ?? u.orgId ?? '',
+      orgName: u.org_name ?? u.orgName ?? '',
+    }
     llmConfigured.value = !!data.llmConfigured
     publicLlm.value = data.publicLlm ?? null
-    await pullEnterpriseConversations()
+    if (isEnterpriseBuild) await pullEnterpriseConversations()
   }
 
   async function logout(): Promise<void> {
@@ -89,6 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       /* ignore */
     }
+    setAuthToken(null)
     user.value = null
     llmConfigured.value = false
     publicLlm.value = null

@@ -98,20 +98,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { Connection } from '@element-plus/icons-vue'
-import { agents } from '@/agents/registry'
+import { useAgentStore } from '@/stores/agents'
 import { useSettingsStore } from '@/stores/settings'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useChatStore } from '@/stores/chat'
 import AgentCard from '@/components/AgentCard.vue'
 
+const agentStore = useAgentStore()
 const settingsStore = useSettingsStore()
 const chatStore = useChatStore()
 
-const coreAgents = computed(() => agents.filter((a) => a.category === 'core'))
-const pipelineAgents = computed(() => agents.filter((a) => a.category === 'pipeline'))
-const supportAgents = computed(() => agents.filter((a) => a.category === 'support'))
+const { coreAgents, pipelineAgents, supportAgents } = storeToRefs(agentStore)
+
+onMounted(() => {
+  agentStore.fetchAgents()
+})
 </script>
 
 <style scoped>

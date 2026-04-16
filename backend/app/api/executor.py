@@ -52,6 +52,7 @@ async def run_executor(
         work_dir=body.workDir,
         allowed_tools=body.allowedTools or None,
         timeout_seconds=body.timeoutSeconds,
+        created_by=str(user.id),
     )
 
     return {"ok": True, "job": _safe_job(job)}
@@ -62,8 +63,10 @@ async def get_job_endpoint(
     job_id: str,
     user: Annotated[User, Depends(get_current_user)],
 ):
-    job = get_job(job_id)
+    job = await get_job(job_id)
     if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("createdBy") and job["createdBy"] != str(user.id) and user.role != "admin":
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job": _safe_job(job)}
 
@@ -73,7 +76,9 @@ async def get_jobs_by_task_endpoint(
     task_id: str,
     user: Annotated[User, Depends(get_current_user)],
 ):
-    jobs = get_jobs_by_task(task_id)
+    jobs = await get_jobs_by_task(task_id)
+    if user.role != "admin":
+        jobs = [j for j in jobs if j.get("createdBy") == str(user.id)]
     return {"jobs": [_safe_job(j) for j in jobs]}
 
 
@@ -82,22 +87,28 @@ async def kill_job_endpoint(
     job_id: str,
     user: Annotated[User, Depends(get_current_user)],
 ):
-    success = kill_job(job_id)
+    job = await get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or already completed")
+    if job.get("createdBy") and job["createdBy"] != str(user.id) and user.role != "admin":
+        raise HTTPException(status_code=404, detail="Job not found or already completed")
+    success = await kill_job(job_id)
     if not success:
         raise HTTPException(status_code=404, detail="Job not found or already completed")
     return {"ok": True}
 
 
 def _safe_job(job: dict) -> dict:
-    """Strip large log content for API responses."""
+    """Strip large output content for API responses."""
     return {
         "id": job.get("id"),
         "taskId": job.get("taskId"),
+        "createdBy": job.get("createdBy"),
         "status": job.get("status"),
         "pid": job.get("pid"),
         "startedAt": job.get("startedAt"),
         "completedAt": job.get("completedAt"),
         "exitCode": job.get("exitCode"),
         "outputLength": len(job.get("output", "")),
-        "logCount": len(job.get("logs", [])),
+        "logCount": job.get("logCount", 0),
     }

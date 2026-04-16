@@ -4,11 +4,10 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: agenthub
-      POSTGRES_PASSWORD: agenthub
-      POSTGRES_DB: agenthub
-    ports:
-      - '5432:5432'
+      POSTGRES_USER: ${POSTGRES_USER:-agenthub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-agenthub}
+    # ports:  # Uncomment for local dev: - '5432:5432'
     volumes:
       - agenthub_pg:/var/lib/postgresql/data
     healthcheck:
@@ -20,9 +19,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - '6379:6379'
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
+    # ports:  # Uncomment for local dev: - '6379:6379'
     volumes:
       - agenthub_redis:/data
     healthcheck:
@@ -34,14 +32,14 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgresql+asyncpg://agenthub:agenthub@db:5432/agenthub
-      REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string-in-production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agenthub}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-agenthub}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (min 32 chars)}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}

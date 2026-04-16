@@ -1,4 +1,4 @@
-"""Feedback Loop — process user feedback and trigger Agent iteration."""
+"""Feedback Loop — process user feedback and trigger Agent iteration (DB-backed)."""
 from __future__ import annotations
 
 import logging
@@ -6,7 +6,12 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..sse import emit_event
+from ...models.observability import FeedbackRecord
+from ...database import async_session
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +30,8 @@ class FeedbackItem:
         self.source = source
         self.user_id = user_id
         self.content = content
-        self.feedback_type = feedback_type  # approve, reject, revision, bug_report
-        self.status = "pending"  # pending, processing, resolved
+        self.feedback_type = feedback_type
+        self.status = "pending"
         self.created_at = datetime.utcnow().isoformat()
         self.resolved_at: Optional[str] = None
         self.resolution: Optional[str] = None
@@ -48,12 +53,51 @@ class FeedbackItem:
         }
 
 
-class FeedbackLoop:
-    """Manages the user feedback → agent iteration cycle."""
+async def _persist_feedback(item: FeedbackItem) -> None:
+    try:
+        async with async_session() as db:
+            record = FeedbackRecord(
+                feedback_id=item.id,
+                task_id=item.task_id,
+                source=item.source,
+                user_id=item.user_id,
+                content=item.content,
+                feedback_type=item.feedback_type,
+                status=item.status,
+                iteration_count=item.iteration_count,
+            )
+            db.add(record)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"[feedback] DB persist failed: {e}")
 
-    def __init__(self):
-        self._items: Dict[str, FeedbackItem] = {}
-        self._task_feedback: Dict[str, List[str]] = {}
+
+async def _update_feedback_status(
+    feedback_id: str,
+    status: str,
+    resolution: Optional[str] = None,
+    iteration_count: int = 0,
+) -> None:
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(FeedbackRecord).where(FeedbackRecord.feedback_id == feedback_id)
+            )
+            record = result.scalar_one_or_none()
+            if record:
+                record.status = status
+                if resolution:
+                    record.resolution = resolution
+                record.iteration_count = iteration_count
+                if status == "resolved":
+                    record.resolved_at = datetime.utcnow()
+                await db.commit()
+    except Exception as e:
+        logger.warning(f"[feedback] DB update failed: {e}")
+
+
+class FeedbackLoop:
+    """Manages the user feedback → agent iteration cycle (DB-backed)."""
 
     async def submit_feedback(
         self,
@@ -71,8 +115,8 @@ class FeedbackLoop:
             content=content,
             feedback_type=feedback_type,
         )
-        self._items[item.id] = item
-        self._task_feedback.setdefault(task_id, []).append(item.id)
+
+        await _persist_feedback(item)
 
         await emit_event("feedback:submitted", {
             "taskId": task_id,
@@ -88,18 +132,15 @@ class FeedbackLoop:
         feedback_id: str,
         db=None,
     ) -> Dict[str, Any]:
-        """Process feedback and trigger appropriate agent action.
-
-        For "approve" → proceed to deployment
-        For "reject" / "revision" → re-run relevant pipeline stages
-        For "bug_report" → create fix task
-        """
-        item = self._items.get(feedback_id)
+        """Process feedback and trigger appropriate agent action."""
+        item = await self.get_feedback(feedback_id)
         if not item:
             return {"ok": False, "error": "Feedback not found"}
 
         item.status = "processing"
         item.iteration_count += 1
+
+        await _update_feedback_status(feedback_id, "processing", iteration_count=item.iteration_count)
 
         await emit_event("feedback:processing", {
             "taskId": item.task_id,
@@ -112,6 +153,7 @@ class FeedbackLoop:
             item.status = "resolved"
             item.resolved_at = datetime.utcnow().isoformat()
             item.resolution = "approved_for_deployment"
+            await _update_feedback_status(feedback_id, "resolved", "approved_for_deployment", item.iteration_count)
             return {
                 "ok": True,
                 "action": "deploy",
@@ -165,12 +207,62 @@ class FeedbackLoop:
 
         return stages
 
-    def get_feedback(self, feedback_id: str) -> Optional[FeedbackItem]:
-        return self._items.get(feedback_id)
+    async def get_feedback(self, feedback_id: str) -> Optional[FeedbackItem]:
+        """Load a feedback item from DB."""
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(FeedbackRecord).where(FeedbackRecord.feedback_id == feedback_id)
+                )
+                rec = result.scalar_one_or_none()
+                if not rec:
+                    return None
+                item = FeedbackItem(
+                    task_id=rec.task_id,
+                    source=rec.source,
+                    user_id=rec.user_id,
+                    content=rec.content,
+                    feedback_type=rec.feedback_type,
+                )
+                item.id = rec.feedback_id
+                item.status = rec.status
+                item.iteration_count = rec.iteration_count
+                item.resolution = rec.resolution
+                item.created_at = rec.created_at.isoformat() if rec.created_at else ""
+                item.resolved_at = rec.resolved_at.isoformat() if rec.resolved_at else None
+                return item
+        except Exception as e:
+            logger.warning(f"[feedback] DB load failed: {e}")
+            return None
 
-    def get_task_feedback(self, task_id: str) -> List[FeedbackItem]:
-        ids = self._task_feedback.get(task_id, [])
-        return [self._items[fid] for fid in ids if fid in self._items]
+    async def get_task_feedback(self, task_id: str) -> List[FeedbackItem]:
+        """Get all feedback items for a task from DB."""
+        items: List[FeedbackItem] = []
+        try:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(FeedbackRecord)
+                    .where(FeedbackRecord.task_id == task_id)
+                    .order_by(desc(FeedbackRecord.created_at))
+                )
+                for rec in result.scalars().all():
+                    item = FeedbackItem(
+                        task_id=rec.task_id,
+                        source=rec.source,
+                        user_id=rec.user_id,
+                        content=rec.content,
+                        feedback_type=rec.feedback_type,
+                    )
+                    item.id = rec.feedback_id
+                    item.status = rec.status
+                    item.iteration_count = rec.iteration_count
+                    item.resolution = rec.resolution
+                    item.created_at = rec.created_at.isoformat() if rec.created_at else ""
+                    item.resolved_at = rec.resolved_at.isoformat() if rec.resolved_at else None
+                    items.append(item)
+        except Exception as e:
+            logger.warning(f"[feedback] DB load task feedback failed: {e}")
+        return items
 
     async def parse_im_feedback(
         self,
@@ -179,14 +271,7 @@ class FeedbackLoop:
         source: str,
         user_id: str,
     ) -> FeedbackItem:
-        """Parse feedback from IM channel messages.
-
-        Convention:
-        - "通过" / "approve" / "ok" → approve
-        - "修改：xxx" / "改：xxx" → revision
-        - "bug：xxx" → bug_report
-        - anything else → revision
-        """
+        """Parse feedback from IM channel messages."""
         msg_lower = message.strip().lower()
 
         if msg_lower in ("通过", "approve", "ok", "确认", "上线", "lgtm", "approved"):

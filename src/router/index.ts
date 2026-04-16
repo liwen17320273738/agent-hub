@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
@@ -56,11 +55,16 @@ const router = createRouter({
       name: 'skills',
       component: () => import('@/views/SkillsView.vue'),
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      meta: { public: true },
+      component: () => import('@/views/NotFound.vue'),
+    },
   ],
 })
 
 router.beforeEach(async (to) => {
-  if (!isEnterpriseBuild) return true
   const auth = useAuthStore()
   if (!auth.initialized) await auth.hydrate()
   if (to.meta.public) {

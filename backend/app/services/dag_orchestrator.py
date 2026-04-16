@@ -85,39 +85,131 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
         DAGStage("testing", "测试验证", "qa-lead"),
         DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
     ],
+    "adaptive": [
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"], skip_condition="simple_task"),
+        DAGStage("development", "开发实现", "developer", depends_on=["planning", "architecture"]),
+        DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"], skip_condition="approved"),
+    ],
 }
 
 
-def get_ready_stages(stages: List[DAGStage]) -> List[DAGStage]:
-    """Find all stages whose dependencies are satisfied and can run now."""
+def get_ready_stages(stages: List[DAGStage], outputs: Dict[str, str] = None) -> List[DAGStage]:
+    """Find all stages whose dependencies are satisfied and can run now.
+    
+    Evaluates skip_condition against collected outputs — stages that match
+    their skip predicate are marked SKIPPED rather than returned as ready.
+    """
     completed = {s.stage_id for s in stages if s.status in (StageStatus.DONE, StageStatus.SKIPPED)}
-    return [
-        s for s in stages
-        if s.status == StageStatus.PENDING
-        and all(dep in completed for dep in s.depends_on)
-    ]
+    ready = []
+    for s in stages:
+        if s.status != StageStatus.PENDING:
+            continue
+        if not all(dep in completed for dep in s.depends_on):
+            continue
+        if s.skip_condition and _should_skip(s.skip_condition, outputs or {}):
+            s.status = StageStatus.SKIPPED
+            continue
+        ready.append(s)
+    return ready
 
 
-def resolve_execution_plan(stages: List[DAGStage]) -> List[List[DAGStage]]:
-    """Resolve the full execution order as batches of parallel-safe stages."""
+def _should_skip(condition: str, outputs: Dict[str, str]) -> bool:
+    """Evaluate a simple skip condition against pipeline outputs.
+
+    Supported conditions:
+    - "simple_task": skip if planning output is short (< 500 chars)
+    - "no_code": skip if development output contains no code blocks
+    - "approved": skip if reviewing output contains APPROVED
+    - Custom: "stage.{id}.contains:{text}" pattern
+    """
+    if condition == "simple_task":
+        return len(outputs.get("planning", "")) < 500
+
+    if condition == "no_code":
+        return "```" not in outputs.get("development", "")
+
+    if condition == "approved":
+        return "APPROVED" in outputs.get("reviewing", "")
+
+    if condition.startswith("stage."):
+        parts = condition.split(".", 2)
+        if len(parts) == 3 and ".contains:" in parts[2]:
+            stage_id = parts[1]
+            text = parts[2].split("contains:", 1)[1]
+            return text in outputs.get(stage_id, "")
+
+    return False
+
+
+def _extract_rejection_target(content: str) -> Optional[str]:
+    """Extract target stage from rejection content."""
+    import re
+    for stage_id in ("planning", "architecture", "development", "testing"):
+        match = re.search(rf'(返回|back to|重新|redo)\s*{stage_id}', content, re.IGNORECASE)
+        if match:
+            return stage_id
+    return "planning"
+
+
+def _reset_to_stage(stages: List[DAGStage], target_stage_id: str) -> None:
+    """Reset a stage and all stages that depend on it back to PENDING."""
+    target_idx = next(
+        (i for i, s in enumerate(stages) if s.stage_id == target_stage_id), -1,
+    )
+    if target_idx < 0:
+        return
+
+    reset_ids: Set[str] = set()
+    for s in stages[target_idx:]:
+        if s.stage_id == target_stage_id or any(dep in reset_ids for dep in s.depends_on):
+            reset_ids.add(s.stage_id)
+            if s.stage_id != "reviewing":
+                s.status = StageStatus.PENDING
+                s.output = None
+                s.error = None
+
+
+def resolve_execution_plan(stages: List[DAGStage], outputs: Dict[str, str] = None) -> List[List[DAGStage]]:
+    """Resolve the full execution order as batches of parallel-safe stages.
+    
+    Evaluates skip_condition for each candidate stage so skipped stages
+    are excluded from batches and their dependents can still proceed.
+    """
     batches: List[List[DAGStage]] = []
     completed: Set[str] = set()
+    skipped: Set[str] = set()
     remaining = [s for s in stages if s.status == StageStatus.PENDING]
+    effective_outputs = outputs or {}
 
     while remaining:
-        batch = [
-            s for s in remaining
-            if all(dep in completed for dep in s.depends_on)
-        ]
-        if not batch:
+        batch = []
+        newly_skipped = []
+        for s in remaining:
+            if not all(dep in completed | skipped for dep in s.depends_on):
+                continue
+            if s.skip_condition and _should_skip(s.skip_condition, effective_outputs):
+                s.status = StageStatus.SKIPPED
+                newly_skipped.append(s)
+                continue
+            batch.append(s)
+
+        for s in newly_skipped:
+            skipped.add(s.stage_id)
+
+        if not batch and not newly_skipped:
             for s in remaining:
                 s.status = StageStatus.BLOCKED
             batches.append(remaining)
             break
-        batches.append(batch)
+
+        if batch:
+            batches.append(batch)
         for s in batch:
             completed.add(s.stage_id)
-        remaining = [s for s in remaining if s.stage_id not in completed]
+        remaining = [s for s in remaining if s.stage_id not in completed and s.stage_id not in skipped]
 
     return batches
 
@@ -137,11 +229,11 @@ async def execute_dag_pipeline(
     """
     template_stages = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full"])
     stages = [
-        DAGStage(s.stage_id, s.label, s.role, list(s.depends_on))
+        DAGStage(s.stage_id, s.label, s.role, list(s.depends_on), s.skip_condition)
         for s in template_stages
     ]
 
-    trace = start_trace(task_id, task_title)
+    trace = await start_trace(task_id, task_title)
     await emit_event("pipeline:dag-start", {
         "taskId": task_id, "title": task_title,
         "template": template, "stageCount": len(stages),
@@ -149,12 +241,19 @@ async def execute_dag_pipeline(
 
     results: List[Dict[str, Any]] = []
     outputs: Dict[str, str] = {}
-    batches = resolve_execution_plan(stages)
+    max_iterations = len(stages) * 2  # cap to prevent infinite rejection loops
+    iteration = 0
 
-    for batch_idx, batch in enumerate(batches):
+    while iteration < max_iterations:
+        iteration += 1
+        ready = get_ready_stages(stages, outputs)
+        if not ready:
+            break
+
+        batch_idx = iteration - 1
         await emit_event("pipeline:dag-batch", {
             "taskId": task_id, "batchIndex": batch_idx,
-            "stageIds": [s.stage_id for s in batch],
+            "stageIds": [s.stage_id for s in ready],
         })
 
         async def _run_stage(stage: DAGStage) -> Dict[str, Any]:
@@ -182,6 +281,15 @@ async def execute_dag_pipeline(
                 await emit_event("stage:completed", {
                     "taskId": task_id, "stageId": stage.stage_id,
                 })
+
+                if stage.stage_id == "reviewing" and "REJECTED" in stage.output:
+                    target = _extract_rejection_target(stage.output)
+                    if target:
+                        _reset_to_stage(stages, target)
+                        await emit_event("pipeline:dag-branch", {
+                            "taskId": task_id, "from": "reviewing", "to": target,
+                            "reason": "Review rejected, returning to earlier stage",
+                        })
             else:
                 stage.status = StageStatus.FAILED
                 stage.error = stage_result.get("error", "Unknown error")
@@ -192,14 +300,14 @@ async def execute_dag_pipeline(
 
             return {"stageId": stage.stage_id, **stage_result}
 
-        if len(batch) == 1:
-            result = await _run_stage(batch[0])
+        if len(ready) == 1:
+            result = await _run_stage(ready[0])
             results.append(result)
             if not result.get("ok"):
                 break
         else:
             batch_results = await asyncio.gather(
-                *[_run_stage(s) for s in batch],
+                *[_run_stage(s) for s in ready],
                 return_exceptions=True,
             )
             for br in batch_results:
@@ -208,11 +316,11 @@ async def execute_dag_pipeline(
                 else:
                     results.append(br)
 
-            if any(not r.get("ok") for r in results[-len(batch):] if isinstance(r, dict)):
+            if any(not r.get("ok") for r in results[-len(ready):] if isinstance(r, dict)):
                 break
 
     all_ok = all(r.get("ok", False) for r in results if isinstance(r, dict))
-    complete_trace(trace.trace_id, status="completed" if all_ok else "failed")
+    await complete_trace(trace.trace_id, status="completed" if all_ok else "failed")
 
     await emit_event("pipeline:dag-completed", {
         "taskId": task_id,
@@ -220,7 +328,6 @@ async def execute_dag_pipeline(
         "stagesTotal": len(stages),
     })
 
-    # Persist stage outputs to DB
     db_result = await db.execute(
         select(PipelineTask)
         .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
@@ -258,7 +365,7 @@ async def execute_dag_pipeline(
         "template": template,
         "summary": {
             "stagesCompleted": sum(1 for s in stages if s.status == StageStatus.DONE),
+            "stagesSkipped": sum(1 for s in stages if s.status == StageStatus.SKIPPED),
             "stagesTotal": len(stages),
-            "parallelBatches": len(batches),
         },
     }

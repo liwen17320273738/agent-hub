@@ -54,6 +54,8 @@ ROLE_TIER_MAP: Dict[str, ModelTier] = {
     "wayne-cto": ModelTier.PLANNING,
     "wayne-acceptance": ModelTier.PLANNING,
     "orchestrator": ModelTier.PLANNING,
+    "lead-agent": ModelTier.PLANNING,
+    "architect": ModelTier.PLANNING,
 
     # Execution roles — balanced quality/cost
     "wayne-product": ModelTier.EXECUTION,
@@ -64,6 +66,7 @@ ROLE_TIER_MAP: Dict[str, ModelTier] = {
     "product-manager": ModelTier.EXECUTION,
     "developer": ModelTier.EXECUTION,
     "qa-lead": ModelTier.EXECUTION,
+    "devops": ModelTier.EXECUTION,
 
     # Routine roles — cost-efficient
     "wayne-marketing": ModelTier.ROUTINE,
@@ -82,9 +85,12 @@ STAGE_TIER_OVERRIDE: Dict[str, ModelTier] = {
     "development": ModelTier.EXECUTION,
     "testing": ModelTier.EXECUTION,
     "security-review": ModelTier.EXECUTION,
+    "reviewing": ModelTier.PLANNING,
     "acceptance": ModelTier.PLANNING,
-    "deployment": ModelTier.ROUTINE,
+    "deployment": ModelTier.EXECUTION,
     "retrospective": ModelTier.ROUTINE,
+    "lead-agent": ModelTier.PLANNING,
+    "subtask": ModelTier.EXECUTION,
 }
 
 

@@ -98,46 +98,40 @@
       <div v-if="activeObsTab === 'traces'" class="panel-content">
         <div v-if="!traces.length" class="empty-state">暂无 trace 数据</div>
         <div v-else class="trace-list">
-          <div v-for="trace in traces" :key="trace.taskId" class="trace-card">
+          <div v-for="trace in traces" :key="trace.trace_id" class="trace-card">
             <div class="trace-header">
-              <span class="trace-task">{{ trace.taskId?.slice(0, 8) }}...</span>
-              <el-tag :type="trace.lastSpan?.status === 'completed' ? 'success' : 'warning'" size="small">
-                {{ trace.lastSpan?.status || 'unknown' }}
+              <span class="trace-task">{{ trace.task_title || trace.task_id?.slice(0, 8) + '...' }}</span>
+              <el-tag :type="trace.status === 'completed' ? 'success' : trace.status === 'failed' ? 'danger' : 'warning'" size="small">
+                {{ trace.status }}
               </el-tag>
             </div>
             <div class="trace-metrics">
               <span class="metric">
                 <span class="metric-label">Spans</span>
-                <span class="metric-value">{{ trace.spans }}</span>
+                <span class="metric-value">{{ trace.span_count }}</span>
               </span>
-              <span class="metric" v-if="trace.lastSpan?.durationMs">
+              <span class="metric" v-if="trace.duration_ms">
                 <span class="metric-label">耗时</span>
-                <span class="metric-value">{{ (trace.lastSpan.durationMs / 1000).toFixed(1) }}s</span>
+                <span class="metric-value">{{ (trace.duration_ms / 1000).toFixed(1) }}s</span>
               </span>
-              <span class="metric" v-if="trace.lastSpan?.totalTokens">
+              <span class="metric" v-if="trace.total_tokens">
                 <span class="metric-label">Tokens</span>
-                <span class="metric-value">{{ trace.lastSpan.totalTokens.toLocaleString() }}</span>
+                <span class="metric-value">{{ trace.total_tokens.toLocaleString() }}</span>
               </span>
-              <span class="metric" v-if="trace.lastSpan?.model">
-                <span class="metric-label">模型</span>
-                <span class="metric-value model-tag">{{ trace.lastSpan.model }}</span>
+              <span class="metric" v-if="trace.total_cost_usd">
+                <span class="metric-label">费用</span>
+                <span class="metric-value">${{ trace.total_cost_usd.toFixed(4) }}</span>
               </span>
-              <span class="metric" v-if="trace.lastSpan?.tier">
-                <span class="metric-label">Tier</span>
-                <span class="metric-value" :class="'tier-' + trace.lastSpan.tier">{{ trace.lastSpan.tier }}</span>
+              <span class="metric" v-if="trace.total_llm_calls">
+                <span class="metric-label">LLM 调用</span>
+                <span class="metric-value">{{ trace.total_llm_calls }}</span>
               </span>
             </div>
-            <div class="trace-verify" v-if="trace.lastSpan?.verification">
-              <span
-                class="verify-badge"
-                :class="'verify-' + trace.lastSpan.verification.overall"
-              >
-                {{ trace.lastSpan.verification.overall === 'pass' ? 'PASS' : trace.lastSpan.verification.overall === 'warn' ? 'WARN' : 'FAIL' }}
-              </span>
-              <span class="verify-detail" v-for="c in (trace.lastSpan.verification.checks || [])" :key="c.check">
-                <span :class="'verify-dot-' + c.status"></span>
-                {{ c.check }}
-              </span>
+            <div class="trace-models" v-if="trace.models_used && Object.keys(trace.models_used).length">
+              <span class="metric-label">模型: </span>
+              <el-tag v-for="(count, model) in trace.models_used" :key="model" size="small" class="model-tag">
+                {{ model }} ×{{ count }}
+              </el-tag>
             </div>
           </div>
         </div>
@@ -150,8 +144,9 @@
           <div v-for="a in approvals" :key="a.id" class="approval-card">
             <div class="approval-info">
               <span class="approval-action">{{ a.action }}</span>
-              <span class="approval-role">{{ a.role }}</span>
-              <span class="approval-time">{{ timeAgo(a.createdAt) }}</span>
+              <span class="approval-desc">{{ a.description }}</span>
+              <span class="approval-role">{{ a.requested_by }}</span>
+              <span class="approval-time">{{ timeAgo(a.created_at) }}</span>
             </div>
             <div class="approval-actions">
               <el-button type="success" size="small" @click="handleApproval(a.id, true)">批准</el-button>
@@ -165,11 +160,11 @@
       <div v-if="activeObsTab === 'audit'" class="panel-content">
         <div v-if="!auditEntries.length" class="empty-state">审计日志为空</div>
         <div v-else class="audit-list">
-          <div v-for="(entry, idx) in auditEntries" :key="idx" class="audit-entry">
+          <div v-for="(entry, idx) in auditEntries" :key="entry.id || idx" class="audit-entry">
             <span class="audit-outcome" :class="'outcome-' + entry.outcome">{{ entry.outcome }}</span>
             <span class="audit-action">{{ entry.action }}</span>
-            <span class="audit-role">{{ entry.role }}</span>
-            <span class="audit-time">{{ formatTime(entry.time) }}</span>
+            <span class="audit-role">{{ entry.actor }}</span>
+            <span class="audit-time">{{ formatTime(entry.created_at) }}</span>
           </div>
         </div>
       </div>
@@ -257,9 +252,9 @@ const creating = ref(false)
 const healthStatus = ref<Record<string, unknown>>({})
 
 const activeObsTab = ref('traces')
-const traces = ref<any[]>([])
-const approvals = ref<any[]>([])
-const auditEntries = ref<any[]>([])
+const traces = ref<import('@/services/pipelineApi').TraceInfo[]>([])
+const approvals = ref<import('@/services/pipelineApi').ApprovalItem[]>([])
+const auditEntries = ref<import('@/services/pipelineApi').AuditEntry[]>([])
 
 const obsTabs = computed(() => [
   { id: 'traces', label: 'Traces', badge: traces.value.length || null },
@@ -301,8 +296,8 @@ async function handleApproval(id: string, approved: boolean) {
     await apiResolveApproval(id, approved)
     ElMessage.success(approved ? '已批准' : '已拒绝')
     await loadObsData()
-  } catch (e: any) {
-    ElMessage.error(`操作失败: ${e.message}`)
+  } catch (e) {
+    ElMessage.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
@@ -314,22 +309,22 @@ const newTask = ref({
 })
 
 const stages = [
-  { id: 'intake', label: '需求接入' },
-  { id: 'planning', label: 'PRD 定义' },
-  { id: 'architecture', label: '技术方案' },
-  { id: 'building', label: '开发实现' },
-  { id: 'testing', label: '质量验证' },
-  { id: 'reviewing', label: '验收评审' },
+  { id: 'planning', label: '需求规划' },
+  { id: 'architecture', label: '架构设计' },
+  { id: 'development', label: '开发实现' },
+  { id: 'testing', label: '测试验证' },
+  { id: 'reviewing', label: '审查验收' },
+  { id: 'deployment', label: '部署上线' },
   { id: 'done', label: '已完成' },
 ]
 
 const stageColors: Record<string, string> = {
-  intake: '#6366f1',
-  planning: '#3b82f6',
-  architecture: '#14b8a6',
-  building: '#f59e0b',
-  testing: '#ef4444',
-  reviewing: '#8b5cf6',
+  planning: '#6366f1',
+  architecture: '#3b82f6',
+  development: '#14b8a6',
+  testing: '#f59e0b',
+  reviewing: '#ef4444',
+  deployment: '#8b5cf6',
   done: '#22c55e',
 }
 
@@ -337,26 +332,30 @@ function stageColor(id: string) {
   return stageColors[id] || '#666'
 }
 
-function sourceTagType(source: string) {
-  const map: Record<string, string> = {
+function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     feishu: 'warning',
     qq: 'success',
     web: 'info',
-    api: '',
-  }
-  return (map[source] || '') as '' | 'success' | 'warning' | 'info' | 'danger'
+    api: 'primary',
+ }
+  return map[source] ?? 'info'
 }
 
-function timeAgo(ts: number) {
-  const diff = Date.now() - ts
+function timeAgo(ts: number | string | undefined) {
+  if (!ts) return ''
+  const ms = typeof ts === 'string' ? new Date(ts).getTime() : (ts < 1e12 ? ts * 1000 : ts)
+  const diff = Date.now() - ms
   if (diff < 60_000) return '刚刚'
   if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`
   if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`
   return `${Math.floor(diff / 86400_000)}天前`
 }
 
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+function formatTime(ts: number | string | undefined) {
+  if (!ts) return ''
+  const date = typeof ts === 'string' ? new Date(ts) : new Date(ts < 1e12 ? ts * 1000 : ts)
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 const recentEvents = computed(() => {
@@ -760,6 +759,16 @@ onUnmounted(() => {
 .metric-value { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .model-tag { font-family: monospace; font-size: 11px; }
 
+.trace-models {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  flex-wrap: wrap;
+}
+
 .tier-planning { color: #ef4444; }
 .tier-execution { color: #f59e0b; }
 .tier-routine { color: #22c55e; }
@@ -819,6 +828,7 @@ onUnmounted(() => {
 
 .approval-info { display: flex; align-items: center; gap: 12px; font-size: 13px; }
 .approval-action { font-weight: 600; color: var(--text-primary); }
+.approval-desc { color: var(--text-secondary); font-size: 12px; }
 .approval-role { color: var(--text-muted); }
 .approval-time { color: var(--text-muted); font-size: 11px; }
 .approval-actions { display: flex; gap: 8px; }

@@ -13,13 +13,35 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 from .file_tools import file_read, file_write, file_list, str_replace
 from .bash_tool import bash_execute
 from .web_search import web_search
-from .git_tool import (
-    git_init, git_status, git_add, git_commit,
-    git_diff, git_log, git_branch, git_push,
-)
+from .git_tool import GIT_TOOL_DEFINITIONS, execute_git_tool
 from .build_tool import build_project, install_dependencies, run_tests
+from .test_runner import (
+    run_tests as advanced_run_tests,
+    detect_test_runner,
+    format_test_report,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def _test_execute_handler(params: Dict[str, Any]) -> str:
+    """Adapter: run structured test execution and return JSON report."""
+    result = await advanced_run_tests(
+        project_dir=params.get("project_dir", "."),
+        runner=params.get("runner"),
+        test_path=params.get("test_path"),
+        extra_args=params.get("extra_args"),
+        timeout=params.get("timeout", 300),
+        env_vars=params.get("env_vars"),
+    )
+    result["report"] = format_test_report(result)
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
+async def _test_detect_handler(params: Dict[str, Any]) -> str:
+    """Adapter: detect test runner and return JSON."""
+    runner = detect_test_runner(params.get("project_dir", "."))
+    return json.dumps({"ok": True, "runner": runner})
 
 ToolFunc = Callable[[Dict[str, Any]], Coroutine[Any, Any, str]]
 
@@ -106,111 +128,6 @@ TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "permissions": ["network"],
         "handler": web_search,
     },
-    # --- Git tools ---
-    "git_init": {
-        "name": "git_init",
-        "description": "Initialize a new git repository in the project",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string", "description": "Project directory name"},
-            },
-        },
-        "permissions": ["write"],
-        "handler": git_init,
-    },
-    "git_status": {
-        "name": "git_status",
-        "description": "Show current git status (modified/untracked files)",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string", "description": "Project directory name"},
-            },
-        },
-        "permissions": ["read"],
-        "handler": git_status,
-    },
-    "git_add": {
-        "name": "git_add",
-        "description": "Stage files for commit",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "files": {"type": "string", "description": "Files to stage (default: '.' for all)"},
-            },
-        },
-        "permissions": ["write"],
-        "handler": git_add,
-    },
-    "git_commit": {
-        "name": "git_commit",
-        "description": "Create a git commit with a message",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "message": {"type": "string", "description": "Commit message"},
-            },
-            "required": ["message"],
-        },
-        "permissions": ["write"],
-        "handler": git_commit,
-    },
-    "git_diff": {
-        "name": "git_diff",
-        "description": "Show diff of current changes",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "staged": {"type": "boolean", "description": "Show staged changes only"},
-            },
-        },
-        "permissions": ["read"],
-        "handler": git_diff,
-    },
-    "git_log": {
-        "name": "git_log",
-        "description": "Show recent commit history",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "count": {"type": "integer", "description": "Number of commits (default: 10)"},
-            },
-        },
-        "permissions": ["read"],
-        "handler": git_log,
-    },
-    "git_branch": {
-        "name": "git_branch",
-        "description": "Create a new branch or list branches",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "name": {"type": "string", "description": "Branch name to create (omit to list)"},
-            },
-        },
-        "permissions": ["write"],
-        "handler": git_branch,
-    },
-    "git_push": {
-        "name": "git_push",
-        "description": "Push commits to a remote repository",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "project": {"type": "string"},
-                "remote": {"type": "string", "description": "Remote name (default: origin)"},
-                "branch": {"type": "string", "description": "Branch name (default: main)"},
-            },
-        },
-        "permissions": ["network", "write"],
-        "handler": git_push,
-    },
     # --- Build tools ---
     "build": {
         "name": "build",
@@ -254,7 +171,69 @@ TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {
         "permissions": ["execute"],
         "handler": run_tests,
     },
+    # --- Advanced test tools (structured results with parsed output) ---
+    "test_execute": {
+        "name": "test_execute",
+        "description": "Run tests with structured result parsing (pass/fail/skip counts, failure details, Markdown report). Supports pytest, jest, vitest, go test, cargo test.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "project_dir": {"type": "string", "description": "Path to project root"},
+                "runner": {"type": "string", "description": "Test runner (pytest/jest/vitest/go/cargo). Auto-detected if omitted."},
+                "test_path": {"type": "string", "description": "Specific test file or directory to run"},
+                "extra_args": {"type": "array", "items": {"type": "string"}, "description": "Extra CLI args for the test runner"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 300)"},
+            },
+            "required": ["project_dir"],
+        },
+        "permissions": ["execute"],
+        "handler": _test_execute_handler,
+    },
+    "test_detect": {
+        "name": "test_detect",
+        "description": "Auto-detect which test runner a project uses (pytest/jest/vitest/go/cargo)",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "project_dir": {"type": "string", "description": "Path to project root"},
+            },
+            "required": ["project_dir"],
+        },
+        "permissions": ["read"],
+        "handler": _test_detect_handler,
+    },
 }
+
+
+def _make_git_handler(tool_name: str) -> ToolFunc:
+    """Create a registry-compatible handler that wraps execute_git_tool."""
+    async def _handler(params: Dict[str, Any]) -> str:
+        result = await execute_git_tool(tool_name, params)
+        return json.dumps(result, ensure_ascii=False)
+    return _handler
+
+
+_GIT_PERMISSIONS = {
+    "git_clone": ["network", "write"],
+    "git_status": ["read"],
+    "git_checkout": ["write"],
+    "git_add": ["write"],
+    "git_commit": ["write"],
+    "git_push": ["network", "write"],
+    "git_diff": ["read"],
+    "git_log": ["read"],
+    "git_create_pr": ["network", "write"],
+    "write_file": ["write"],
+}
+
+for _defn in GIT_TOOL_DEFINITIONS:
+    TOOL_REGISTRY[_defn["name"]] = {
+        "name": _defn["name"],
+        "description": _defn["description"],
+        "parameters": _defn["parameters"],
+        "permissions": _GIT_PERMISSIONS.get(_defn["name"], ["read"]),
+        "handler": _make_git_handler(_defn["name"]),
+    }
 
 
 async def execute_tool(

@@ -1,14 +1,18 @@
 """Agent collaboration framework: enables multi-agent workflows.
 
-Supports:
-- Serial pipeline: agents process sequentially (requirement → PRD → design → build → test → deploy)
-- Parallel fan-out: multiple agents process sub-tasks concurrently
-- Review chain: critical checkpoints require specific role approval
-- Feedback loop: downstream agents can send issues back upstream
+5 Core Expert Agents — 30年资深专家团队:
+  👔 CEO Agent (总指挥) — 需求规划 + 评审验收
+  🏗️ 架构师 Agent — 系统架构设计
+  💻 开发 Agent — 全栈代码实现
+  🧪 测试 Agent — 质量保障与验证
+  🚀 运维 Agent — 部署上线与运维
+
+Session state is persisted to Redis for multi-worker consistency.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from datetime import datetime
@@ -17,7 +21,60 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
+from ..redis_client import get_redis, cache_get, cache_set
+
 logger = logging.getLogger(__name__)
+
+_COLLAB_SESSION_TTL = 3600 * 24  # 24 hours
+
+
+AGENT_TEAM = {
+    "ceo-agent": {
+        "id": "ceo-agent",
+        "name": "CEO Agent（总指挥）",
+        "icon": "👔",
+        "expertise": "30年产品战略 + 团队管理",
+        "responsibilities": ["需求分析", "PRD撰写", "项目评审", "验收决策", "团队协调"],
+        "stages": ["planning", "reviewing"],
+        "tier": "planning",
+    },
+    "architect-agent": {
+        "id": "architect-agent",
+        "name": "架构师 Agent",
+        "icon": "🏗️",
+        "expertise": "30年系统架构设计",
+        "responsibilities": ["技术选型", "系统架构", "数据模型", "API设计", "性能规划"],
+        "stages": ["architecture"],
+        "tier": "planning",
+    },
+    "developer-agent": {
+        "id": "developer-agent",
+        "name": "开发 Agent",
+        "icon": "💻",
+        "expertise": "30年全栈开发",
+        "responsibilities": ["前端开发", "后端开发", "数据库实现", "API编码", "代码优化"],
+        "stages": ["development"],
+        "tier": "execution",
+    },
+    "qa-agent": {
+        "id": "qa-agent",
+        "name": "测试 Agent",
+        "icon": "🧪",
+        "expertise": "30年质量保障",
+        "responsibilities": ["测试设计", "自动化测试", "安全测试", "性能测试", "验收测试"],
+        "stages": ["testing"],
+        "tier": "execution",
+    },
+    "devops-agent": {
+        "id": "devops-agent",
+        "name": "运维 Agent",
+        "icon": "🚀",
+        "expertise": "30年DevOps运维",
+        "responsibilities": ["CI/CD搭建", "容器化", "部署上线", "监控告警", "灾备恢复"],
+        "stages": ["deployment"],
+        "tier": "execution",
+    },
+}
 
 
 class CollabMode(str, Enum):
@@ -32,7 +89,7 @@ class CollabMessage(BaseModel):
     from_agent: str
     to_agent: str
     content: str
-    message_type: str = "task"  # task / review / feedback / approval / rejection
+    message_type: str = "task"
     metadata: Dict[str, Any] = {}
     created_at: str = ""
 
@@ -50,7 +107,7 @@ class CollabSession(BaseModel):
     agents: List[str] = []
     current_agent_index: int = 0
     messages: List[CollabMessage] = []
-    status: str = "active"  # active / paused / completed / failed
+    status: str = "active"
     context: Dict[str, Any] = {}
     created_at: str = ""
 
@@ -63,22 +120,47 @@ class CollabSession(BaseModel):
 
 
 PIPELINE_STAGES = [
-    {"id": "planning", "label": "需求规划", "role": "product-manager"},
-    {"id": "architecture", "label": "架构设计", "role": "architect"},
-    {"id": "development", "label": "开发实现", "role": "developer"},
-    {"id": "testing", "label": "测试验证", "role": "qa-lead"},
-    {"id": "reviewing", "label": "审查验收", "role": "orchestrator"},
-    {"id": "deployment", "label": "部署上线", "role": "devops"},
+    {"id": "planning", "label": "需求规划", "role": "product-manager", "agent": "ceo-agent"},
+    {"id": "architecture", "label": "架构设计", "role": "architect", "agent": "architect-agent"},
+    {"id": "development", "label": "开发实现", "role": "developer", "agent": "developer-agent"},
+    {"id": "testing", "label": "测试验证", "role": "qa-lead", "agent": "qa-agent"},
+    {"id": "reviewing", "label": "审查验收", "role": "orchestrator", "agent": "ceo-agent"},
+    {"id": "deployment", "label": "部署上线", "role": "devops", "agent": "devops-agent"},
 ]
 
 STAGE_LABELS = {s["id"]: s["label"] for s in PIPELINE_STAGES}
 STAGE_ROLES = {s["id"]: s["role"] for s in PIPELINE_STAGES}
+STAGE_AGENTS = {s["id"]: s["agent"] for s in PIPELINE_STAGES}
 
 
-def create_serial_pipeline(task_title: str, description: str = "") -> CollabSession:
+def get_agent_for_stage(stage_id: str) -> Optional[Dict[str, Any]]:
+    """Get the expert agent profile responsible for a given pipeline stage."""
+    agent_id = STAGE_AGENTS.get(stage_id)
+    return AGENT_TEAM.get(agent_id) if agent_id else None
+
+
+def get_team_roster() -> List[Dict[str, Any]]:
+    """Return the full agent team roster for display."""
+    return list(AGENT_TEAM.values())
+
+
+async def _save_session(session: CollabSession) -> None:
+    """Persist session to Redis."""
+    await cache_set(f"collab:session:{session.id}", session.model_dump(), ttl=_COLLAB_SESSION_TTL)
+
+
+async def load_session(session_id: str) -> Optional[CollabSession]:
+    """Load a collaboration session from Redis."""
+    data = await cache_get(f"collab:session:{session_id}")
+    if data is None:
+        return None
+    return CollabSession(**data)
+
+
+async def create_serial_pipeline(task_title: str, description: str = "") -> CollabSession:
     """Create a standard serial pipeline with all stages."""
     agents = [stage["role"] for stage in PIPELINE_STAGES]
-    return CollabSession(
+    session = CollabSession(
         mode=CollabMode.SERIAL,
         agents=agents,
         context={
@@ -87,15 +169,18 @@ def create_serial_pipeline(task_title: str, description: str = "") -> CollabSess
             "stages": PIPELINE_STAGES,
         },
     )
+    await _save_session(session)
+    return session
 
 
-def create_parallel_session(agents: List[str], task: str) -> CollabSession:
-    """Create a parallel session where multiple agents work on sub-tasks."""
-    return CollabSession(
+async def create_parallel_session(agents: List[str], task: str) -> CollabSession:
+    session = CollabSession(
         mode=CollabMode.PARALLEL,
         agents=agents,
         context={"task": task},
     )
+    await _save_session(session)
+    return session
 
 
 def get_next_agent(session: CollabSession) -> Optional[str]:
@@ -105,7 +190,7 @@ def get_next_agent(session: CollabSession) -> Optional[str]:
     return None
 
 
-def advance_session(session: CollabSession, output: str) -> CollabSession:
+async def advance_session(session: CollabSession, output: str) -> CollabSession:
     """Advance the session to the next stage/agent."""
     if session.mode == CollabMode.SERIAL:
         current = session.agents[session.current_agent_index] if session.current_agent_index < len(session.agents) else "unknown"
@@ -124,10 +209,11 @@ def advance_session(session: CollabSession, output: str) -> CollabSession:
         else:
             session.status = "completed"
 
+    await _save_session(session)
     return session
 
 
-def send_feedback(session: CollabSession, from_agent: str, to_agent: str, feedback: str) -> CollabSession:
+async def send_feedback(session: CollabSession, from_agent: str, to_agent: str, feedback: str) -> CollabSession:
     """Send feedback from downstream agent back to upstream."""
     msg = CollabMessage(
         from_agent=from_agent,
@@ -141,4 +227,5 @@ def send_feedback(session: CollabSession, from_agent: str, to_agent: str, feedba
     if target_idx is not None:
         session.current_agent_index = target_idx
 
+    await _save_session(session)
     return session

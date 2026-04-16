@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets as _secrets
 from datetime import datetime
 from typing import Annotated, Any, Dict, Optional
 
@@ -135,11 +136,12 @@ async def openclaw_intake(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     secret = settings.pipeline_api_key
-    if secret:
-        auth = request.headers.get("authorization", "")
-        token = auth.replace("Bearer ", "").strip() if auth.startswith("Bearer ") else ""
-        if token != secret:
-            raise HTTPException(status_code=403, detail="Invalid gateway secret")
+    if not secret:
+        raise HTTPException(status_code=503, detail="Gateway not configured: PIPELINE_API_KEY is required")
+    auth = request.headers.get("authorization", "")
+    token = auth.replace("Bearer ", "").strip() if auth.startswith("Bearer ") else ""
+    if not _secrets.compare_digest(token, secret):
+        raise HTTPException(status_code=403, detail="Invalid gateway secret")
 
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="title is required")
@@ -187,10 +189,11 @@ async def feishu_webhook(
         return {"challenge": body.challenge}
 
     verify_token = getattr(settings, "feishu_verification_token", "")
-    if verify_token and body.header:
-        token = body.header.get("token", "")
-        if token != verify_token:
-            raise HTTPException(status_code=403, detail="Invalid Feishu verification token")
+    if not verify_token:
+        raise HTTPException(status_code=503, detail="Feishu webhook not configured: feishu_verification_token is required")
+    token = (body.header or {}).get("token", "")
+    if not token or not _secrets.compare_digest(token, verify_token):
+        raise HTTPException(status_code=403, detail="Invalid Feishu verification token")
 
     event = body.event or {}
     msg = event.get("message", {})
@@ -235,9 +238,18 @@ class QQWebhookBody(BaseModel):
 @router.post("/qq/webhook")
 async def qq_webhook(
     body: QQWebhookBody,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
+    secret = settings.pipeline_api_key
+    if not secret:
+        raise HTTPException(status_code=503, detail="Gateway not configured: PIPELINE_API_KEY is required")
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
+    if not _secrets.compare_digest(token, secret):
+        raise HTTPException(status_code=403, detail="Invalid QQ webhook secret")
+
     text = (body.content or "").strip()
     if not text:
         return {"ok": True, "action": "ignored"}

@@ -6,8 +6,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
+from ipaddress import ip_address
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,6 +26,49 @@ PROVIDER_ENDPOINTS: Dict[str, str] = {
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     "google": "https://generativelanguage.googleapis.com/v1beta/models",
 }
+
+_ALLOWED_API_HOSTS = {
+    "api.openai.com",
+    "api.anthropic.com",
+    "api.deepseek.com",
+    "open.bigmodel.cn",
+    "dashscope.aliyuncs.com",
+    "generativelanguage.googleapis.com",
+}
+
+
+def _validate_api_url(url: str) -> str:
+    """Validate user-supplied api_url against an allowlist to prevent SSRF."""
+    if not url:
+        return url
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise ValueError("Invalid URL: missing hostname")
+
+    try:
+        addr = ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
+            raise ValueError(f"Blocked private/internal address: {hostname}")
+    except ValueError as e:
+        if "does not appear to be" not in str(e):
+            raise
+
+    extra_hosts_env = settings.__dict__.get("llm_allowed_hosts", "")
+    extra = {h.strip().lower() for h in extra_hosts_env.split(",") if h.strip()} if extra_hosts_env else set()
+    allowed = _ALLOWED_API_HOSTS | extra
+
+    if hostname.lower() not in allowed:
+        raise ValueError(
+            f"URL host '{hostname}' is not in the allowed list. "
+            f"Allowed: {', '.join(sorted(allowed))}"
+        )
+
+    return url
 
 
 def infer_provider(model: str, api_url: str = "") -> str:
@@ -168,6 +214,11 @@ async def chat_completion(
     tool_choice: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Non-streaming chat completion (aggregates full response)."""
+    try:
+        api_url = _validate_api_url(api_url)
+    except ValueError as e:
+        return {"error": str(e), "status": 400}
+
     provider = infer_provider(model, api_url)
     api_key = _get_api_key(provider)
     started = time.monotonic()
@@ -176,7 +227,7 @@ async def chat_completion(
         return {"error": f"未配置 {provider} 的 API Key", "status": 503}
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             if provider == "anthropic":
                 url = api_url or PROVIDER_ENDPOINTS["anthropic"]
                 headers = {"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
@@ -271,6 +322,12 @@ async def chat_completion_stream(
     api_url: str = "",
 ) -> AsyncIterator[str]:
     """Streaming chat completion — yields SSE-compatible data chunks."""
+    try:
+        api_url = _validate_api_url(api_url)
+    except ValueError as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        return
+
     provider = infer_provider(model, api_url)
     api_key = _get_api_key(provider)
 

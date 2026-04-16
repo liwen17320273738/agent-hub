@@ -90,11 +90,14 @@ async def process_feedback(
         import uuid
 
         task_id = result["taskId"]
-        task_result = await db.execute(
+        stmt = (
             select(PipelineTask)
             .options(selectinload(PipelineTask.stages))
             .where(PipelineTask.id == uuid.UUID(task_id))
         )
+        if user and hasattr(user, "org_id") and user.org_id:
+            stmt = stmt.where(PipelineTask.org_id == user.org_id)
+        task_result = await db.execute(stmt)
         task = task_result.scalar_one_or_none()
         if task:
             previous_outputs = {}
@@ -128,7 +131,7 @@ async def get_task_feedback(
 ):
     from ..services.interaction.feedback import feedback_loop
 
-    items = feedback_loop.get_task_feedback(task_id)
+    items = await feedback_loop.get_task_feedback(task_id)
     return {
         "taskId": task_id,
         "feedback": [item.to_dict() for item in items],

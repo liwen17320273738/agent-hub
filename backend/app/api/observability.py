@@ -49,20 +49,20 @@ async def list_traces(
     limit: int = Query(20, ge=1, le=100),
     _user=Depends(get_current_user),
 ):
-    return {"traces": get_recent_traces(limit=limit)}
+    return {"traces": await get_recent_traces(limit=limit)}
 
 
 @router.get("/traces/{trace_id}")
 async def get_trace(trace_id: str, _user=Depends(get_current_user)):
-    detail = get_trace_detail(trace_id)
+    detail = await get_trace_detail(trace_id)
     if not detail:
-        raise HTTPException(404, "Trace not found")
+        raise HTTPException(status_code=404, detail="Trace not found")
     return {"trace": detail}
 
 
 @router.get("/traces/task/{task_id}")
 async def get_traces_by_task(task_id: str, _user=Depends(get_current_user)):
-    traces = get_task_traces(task_id)
+    traces = await get_task_traces(task_id)
     return {"traces": [
         {
             "trace_id": t.trace_id,
@@ -84,7 +84,7 @@ async def list_approvals(
     task_id: Optional[str] = Query(None),
     _user=Depends(get_current_user),
 ):
-    approvals = get_pending_approvals(task_id)
+    approvals = await get_pending_approvals(task_id)
     return {"approvals": [a.dict() for a in approvals]}
 
 
@@ -98,16 +98,33 @@ async def resolve_approval_endpoint(
     approval_id: str,
     body: ResolveApprovalRequest,
     user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    if not hasattr(user, "role") or user.role != "admin":
+        from ..models.pipeline import PipelineTask
+        from sqlalchemy import select as sa_select
+        pending = await get_pending_approvals(task_id=None)
+        approval = next((a for a in pending if a.approval_id == approval_id), None)
+        if not approval:
+            raise HTTPException(status_code=404, detail="Approval request not found")
+        task_result = await db.execute(
+            sa_select(PipelineTask.org_id).where(
+                PipelineTask.id == approval.task_id
+            )
+        )
+        row = task_result.one_or_none()
+        if row and row[0] and hasattr(user, "org_id") and row[0] != user.org_id:
+            raise HTTPException(status_code=404, detail="Approval request not found")
+
     reviewer_id = str(user.id) if hasattr(user, "id") else "unknown"
-    result = resolve_approval(
+    result = await resolve_approval(
         approval_id=approval_id,
         approved=body.approved,
         reviewer=reviewer_id,
         comment=body.comment,
     )
     if not result:
-        raise HTTPException(404, "Approval request not found")
+        raise HTTPException(status_code=404, detail="Approval request not found")
     return {"approval": result.dict()}
 
 
@@ -119,7 +136,7 @@ async def get_audit_log_endpoint(
     limit: int = Query(100, ge=1, le=1000),
     _user=Depends(get_current_user),
 ):
-    entries = get_audit_log(task_id=task_id, limit=limit)
+    entries = await get_audit_log(task_id=task_id, limit=limit)
     return {"entries": [e.dict() for e in entries]}
 
 
@@ -131,15 +148,19 @@ async def search_memory(
     role: Optional[str] = Query(None),
     stage_id: Optional[str] = Query(None),
     limit: int = Query(5, ge=1, le=20),
+    min_quality: float = Query(0.0, ge=0, le=1),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
+    org_id = _user.org_id if hasattr(_user, "org_id") else None
     results = await search_similar_memories(
         db,
         query=q,
         role=role,
         stage_id=stage_id,
         limit=limit,
+        min_quality=min_quality,
+        org_id=org_id,
     )
     return {"results": results}
 

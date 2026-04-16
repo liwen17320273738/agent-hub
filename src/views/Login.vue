@@ -48,8 +48,9 @@ async function onSubmit() {
   loading.value = true
   try {
     await auth.login(form.email.trim(), form.password)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
-    await router.replace(redirect || '/')
+    let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    if (!redirect.startsWith('/') || redirect.startsWith('//')) redirect = '/'
+    await router.replace(redirect)
   } catch (e) {
     error.value = e instanceof Error ? e.message : '登录失败'
   } finally {

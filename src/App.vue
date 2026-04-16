@@ -127,37 +127,38 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Operation, SetUp, SwitchButton, Tickets } from '@element-plus/icons-vue'
-import { agents } from '@/agents/registry'
+import { Connection, Operation, SetUp, SwitchButton } from '@element-plus/icons-vue'
 import type { ConversationSearchHit } from '@/agents/types'
+import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 
 const route = useRoute()
 const router = useRouter()
+const agentStore = useAgentStore()
 const chatStore = useChatStore()
 const authStore = useAuthStore()
 const searchQuery = ref('')
 
 const isLoginRoute = computed(() => route.name === 'login')
 
-const beihaiTripStandaloneUrl = (() => {
-  const base = import.meta.env.BASE_URL || '/'
-  const path = 'beihai-trip-animated.html'
-  return base.endsWith('/') ? `${base}${path}` : `${base}/${path}`
-})()
-
-const coreAgents = computed(() => agents.filter((a) => a.category === 'core'))
-const supportAgents = computed(() => agents.filter((a) => a.category === 'support'))
+const { coreAgents, supportAgents } = storeToRefs(agentStore)
 
 const searchHits = computed(() => chatStore.searchConversations(searchQuery.value))
 
 function agentName(id: string) {
-  return agents.find((a) => a.id === id)?.name ?? id
+  return agentStore.getAgent(id)?.name ?? id
 }
+
+onMounted(() => {
+  if (authStore.isLoggedIn && !agentStore.loaded) {
+    agentStore.fetchAgents()
+  }
+})
 
 function openSearchHit(h: ConversationSearchHit) {
   searchQuery.value = ''

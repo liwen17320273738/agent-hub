@@ -6,7 +6,8 @@ data/
 
 # Environment
 .env
-.env.*.local
+.env.*
+!.env.example
 backend/.env
 
 # Config (local overrides)
@@ -17,13 +18,22 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.ruff_cache/
+.mypy_cache/
 backend/.pytest_cache/
 backend/htmlcov/
 backend/.coverage
+coverage.*
+
+# Secrets / keys
+*.pem
+*.key
+*.p12
 
 # Logs
 logs/
 *.log
+pnpm-debug.log*
 
 # IDE
 .idea/

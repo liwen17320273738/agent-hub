@@ -44,3 +44,14 @@ Build with `VITE_ENTERPRISE=true` (see `.env.enterprise.example`). Local full st
 
 GitHub Actions 工作流：`.github/workflows/deploy-github-pages.yml`。
 
+Kimi_key: sk-67EzrYtI6rARayc3eFisJuhDUPk0bljJH3BbjilM0Xgh7B8U
+
+Qwn_key:
+sk-1f19571aa000485f83a5db8f9f1ba196 
+
+Deepseek_key:
+sk-673436a6786144d79bb86a75e98f341a
+
+
+邮箱: admin@example.com
+密码: changeme

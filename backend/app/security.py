@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Optional
@@ -75,7 +76,7 @@ async def get_pipeline_auth(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未认证")
 
     token = credentials.credentials
-    if settings.pipeline_api_key and token == settings.pipeline_api_key:
+    if settings.pipeline_api_key and secrets.compare_digest(token, settings.pipeline_api_key):
         return None  # API key auth — no user context
 
     return await get_current_user(credentials, db)

@@ -1,4 +1,9 @@
-"""Agent CRUD: dynamic agent definitions with skills, rules, hooks, plugins, MCP."""
+"""Agent CRUD: dynamic agent definitions with skills, rules, hooks, plugins, MCP.
+
+Phase 1: Agents are the single source of truth. The API enriches each agent
+with its bound tools (from AGENT_TOOLS) so the frontend can render
+full expert profiles.
+"""
 from __future__ import annotations
 
 from typing import Annotated, List, Optional
@@ -11,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..models.agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugin, AgentMcp
 from ..models.user import User
-from ..schemas.agent import AgentOut, AgentCreate, AgentUpdate
+from ..schemas.agent import AgentOut, AgentCreate, AgentUpdate, ToolBindingOut
 from ..security import get_current_user, require_admin
 
 router = APIRouter(prefix="/agents", tags=["agents"])
@@ -27,6 +32,48 @@ def _load_options():
     ]
 
 
+def _enrich_with_tools(agent: AgentDefinition) -> dict:
+    """Convert ORM agent to dict and inject tool bindings from AGENT_TOOLS."""
+    from ..agents.seed import AGENT_TOOLS
+    from ..services.tools import TOOL_REGISTRY
+
+    data = {
+        "id": agent.id,
+        "name": agent.name,
+        "title": agent.title,
+        "icon": agent.icon,
+        "color": agent.color,
+        "description": agent.description,
+        "system_prompt": agent.system_prompt,
+        "quick_prompts": agent.quick_prompts or [],
+        "category": agent.category,
+        "pipeline_role": agent.pipeline_role,
+        "capabilities": agent.capabilities or {},
+        "preferred_model": agent.preferred_model,
+        "max_tokens": agent.max_tokens,
+        "temperature": agent.temperature,
+        "is_active": agent.is_active,
+        "skills": agent.skills or [],
+        "rules": agent.rules or [],
+        "hooks": agent.hooks or [],
+        "plugins": agent.plugins or [],
+        "mcps": agent.mcps or [],
+    }
+
+    tool_names = AGENT_TOOLS.get(agent.id, [])
+    tools = []
+    for t_name in tool_names:
+        t_def = TOOL_REGISTRY.get(t_name)
+        if t_def:
+            tools.append(ToolBindingOut(
+                name=t_def["name"],
+                description=t_def["description"],
+                permissions=t_def.get("permissions", []),
+            ))
+    data["tools"] = tools
+    return data
+
+
 @router.get("/", response_model=List[AgentOut])
 async def list_agents(
     user: Annotated[User, Depends(get_current_user)],
@@ -40,7 +87,8 @@ async def list_agents(
     if active_only:
         stmt = stmt.where(AgentDefinition.is_active.is_(True))
     result = await db.execute(stmt)
-    return result.scalars().all()
+    agents = result.scalars().all()
+    return [_enrich_with_tools(a) for a in agents]
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
@@ -55,7 +103,7 @@ async def get_agent(
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(status_code=404, detail="智能体不存在")
-    return agent
+    return _enrich_with_tools(agent)
 
 
 @router.post("/", response_model=AgentOut, status_code=201)

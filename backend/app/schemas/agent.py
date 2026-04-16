@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
+
+
+class ToolBindingOut(BaseModel):
+    name: str
+    description: str
+    permissions: List[str] = []
 
 
 class AgentOut(BaseModel):
@@ -21,6 +27,7 @@ class AgentOut(BaseModel):
     max_tokens: int = 4096
     temperature: float = 0.7
     is_active: bool = True
+    tools: List[ToolBindingOut] = []
     skills: List[AgentSkillOut] = []
     rules: List[AgentRuleOut] = []
     hooks: List[AgentHookOut] = []
@@ -65,7 +72,7 @@ class AgentUpdate(BaseModel):
 
 
 class AgentSkillOut(BaseModel):
-    id: str
+    id: Any
     skill_id: str
     config: dict = {}
     enabled: bool = True
@@ -73,7 +80,7 @@ class AgentSkillOut(BaseModel):
 
 
 class AgentRuleOut(BaseModel):
-    id: str
+    id: Any
     name: str
     description: str = ""
     rule_type: str
@@ -84,7 +91,7 @@ class AgentRuleOut(BaseModel):
 
 
 class AgentHookOut(BaseModel):
-    id: str
+    id: Any
     name: str
     hook_type: str
     handler: str = ""
@@ -94,7 +101,7 @@ class AgentHookOut(BaseModel):
 
 
 class AgentPluginOut(BaseModel):
-    id: str
+    id: Any
     name: str
     plugin_type: str
     config: dict = {}
@@ -104,7 +111,7 @@ class AgentPluginOut(BaseModel):
 
 
 class AgentMcpOut(BaseModel):
-    id: str
+    id: Any
     name: str
     server_url: str = ""
     tools: list = []

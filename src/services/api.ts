@@ -56,7 +56,10 @@ export async function apiFetch<T = unknown>(
     let detail = `HTTP ${res.status}`
     try {
       const body = await res.json()
-      detail = body.detail || body.error || detail
+      const raw = body.detail || body.error || detail
+      detail = Array.isArray(raw)
+        ? raw.map((e: Record<string, unknown>) => e.msg ?? JSON.stringify(e)).join('; ')
+        : String(raw)
     } catch {
       /* empty */
     }
@@ -304,6 +307,12 @@ export interface AppConfig {
     skill_center: boolean
     token_tracking: boolean
     multi_provider: boolean
+    memory_layer: boolean
+    dag_orchestrator: boolean
+    skill_marketplace: boolean
+    self_verify: boolean
+    guardrails: boolean
+    observability: boolean
   }
 }
 

@@ -184,11 +184,11 @@ async def run_smart_pipeline(
     """Full smart pipeline: decompose → execute → collect → verify."""
     await emit_event("pipeline:smart-start", {"taskId": task_id, "title": title})
 
-    trace = start_trace(task_id, title)
+    trace = await start_trace(task_id, title)
 
     decomposition = await analyze_and_decompose(db, task_id, title, description)
     if not decomposition["ok"]:
-        complete_trace(trace.trace_id, status="failed")
+        await complete_trace(trace.trace_id, status="failed")
         return decomposition
 
     plan = decomposition["plan"]
@@ -199,9 +199,11 @@ async def run_smart_pipeline(
     stage_mapping = {
         "product-manager": "planning",
         "developer": "architecture",
-        "executor": "building",
+        "executor": "development",
         "qa-lead": "testing",
         "orchestrator": "reviewing",
+        "devops": "deployment",
+        "architect": "architecture",
     }
     stage_outputs: Dict[str, str] = {}
     for _, result in subtask_results.items():
@@ -211,8 +213,46 @@ async def run_smart_pipeline(
         if target_stage:
             stage_outputs[target_stage] = result.get("content", "")
 
+    # Persist stage outputs to DB
+    from datetime import datetime
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from ..models.pipeline import PipelineTask, PipelineStage
+    import uuid as _uuid
+    try:
+        task_uuid = _uuid.UUID(task_id)
+        db_result = await db.execute(
+            select(PipelineTask)
+            .options(selectinload(PipelineTask.stages))
+            .where(PipelineTask.id == task_uuid)
+        )
+        db_task = db_result.scalar_one_or_none()
+        if db_task:
+            db_stage_map = {s.stage_id: s for s in db_task.stages}
+            for stage_id, output in stage_outputs.items():
+                if stage_id in db_stage_map:
+                    db_stage_map[stage_id].output = output
+                    db_stage_map[stage_id].status = "done"
+                    db_stage_map[stage_id].completed_at = datetime.utcnow()
+            last_done = max(
+                (PIPELINE_STAGE_ORDER.index(sid) for sid in stage_outputs if sid in PIPELINE_STAGE_ORDER),
+                default=-1,
+            )
+            if last_done >= 0 and last_done + 1 < len(PIPELINE_STAGE_ORDER):
+                next_sid = PIPELINE_STAGE_ORDER[last_done + 1]
+                db_task.current_stage_id = next_sid
+                if next_sid in db_stage_map:
+                    db_stage_map[next_sid].status = "active"
+                    db_stage_map[next_sid].started_at = datetime.utcnow()
+            elif last_done + 1 >= len(PIPELINE_STAGE_ORDER):
+                db_task.status = "done"
+                db_task.current_stage_id = "done"
+            await db.flush()
+    except Exception as e:
+        logger.warning(f"Failed to persist smart-run results to DB: {e}")
+
     completed = sum(1 for r in subtask_results.values() if r.get("ok"))
-    complete_trace(trace.trace_id, status="completed")
+    await complete_trace(trace.trace_id, status="completed")
 
     await emit_event("pipeline:smart-completed", {
         "taskId": task_id,
@@ -227,6 +267,9 @@ async def run_smart_pipeline(
         "stageOutputs": stage_outputs,
         "traceId": trace.trace_id,
     }
+
+
+PIPELINE_STAGE_ORDER = ["planning", "architecture", "development", "testing", "reviewing", "deployment"]
 
 
 # --- internals ---

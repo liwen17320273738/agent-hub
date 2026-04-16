@@ -6,11 +6,33 @@ import base64
 import logging
 import os
 import shutil
+from ipaddress import ip_address
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 from ..sse import emit_event
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_preview_url(url: str) -> None:
+    """Block requests to private/internal networks."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported scheme: {parsed.scheme}")
+    hostname = parsed.hostname or ""
+    if not hostname:
+        raise ValueError("Missing hostname")
+    try:
+        addr = ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
+            raise ValueError(f"Blocked private/internal address: {hostname}")
+    except ValueError as e:
+        if "does not appear to be" not in str(e):
+            raise
+    blocked_hosts = {"metadata.google.internal", "169.254.169.254"}
+    if hostname.lower() in blocked_hosts:
+        raise ValueError(f"Blocked metadata endpoint: {hostname}")
 
 
 class PreviewService:
@@ -29,6 +51,7 @@ class PreviewService:
 
         Falls back gracefully if puppeteer is not installed.
         """
+        _validate_preview_url(url)
         try:
             check = await asyncio.create_subprocess_exec(
                 "node", "-e", "require('puppeteer')",
@@ -60,30 +83,41 @@ class PreviewService:
         wait: int,
         full_page: bool,
     ) -> Dict[str, Any]:
-        script = f"""
+        import json as _json
+
+        script = """
 const puppeteer = require('puppeteer');
-(async () => {{
-    const browser = await puppeteer.launch({{
+const args = JSON.parse(process.argv[1]);
+(async () => {
+    const browser = await puppeteer.launch({
         headless: 'new',
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    }});
+    });
     const page = await browser.newPage();
-    await page.setViewport({{ width: {width}, height: {height} }});
-    await page.goto('{url}', {{ waitUntil: 'networkidle0', timeout: 30000 }});
-    await new Promise(r => setTimeout(r, {wait * 1000}));
-    await page.screenshot({{
-        path: '{output_path}',
-        fullPage: {str(full_page).lower()},
-    }});
+    await page.setViewport({ width: args.width, height: args.height });
+    await page.goto(args.url, { waitUntil: 'networkidle0', timeout: 30000 });
+    await new Promise(r => setTimeout(r, args.wait * 1000));
+    await page.screenshot({
+        path: args.outputPath,
+        fullPage: args.fullPage,
+    });
     await browser.close();
-    console.log(JSON.stringify({{ ok: true, path: '{output_path}' }}));
-}})().catch(err => {{
-    console.error(JSON.stringify({{ ok: false, error: err.message }}));
+    console.log(JSON.stringify({ ok: true, path: args.outputPath }));
+})().catch(err => {
+    console.error(JSON.stringify({ ok: false, error: err.message }));
     process.exit(1);
-}});
+});
 """
+        args_json = _json.dumps({
+            "url": url,
+            "outputPath": output_path,
+            "width": width,
+            "height": height,
+            "wait": wait,
+            "fullPage": full_page,
+        })
         proc = await asyncio.create_subprocess_exec(
-            "node", "-e", script,
+            "node", "-e", script, args_json,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -117,6 +151,7 @@ const puppeteer = require('puppeteer');
         webhook_url: str,
     ) -> Dict[str, Any]:
         """Send a preview screenshot to Feishu via webhook."""
+        _validate_preview_url(webhook_url)
         import httpx
 
         b64 = await self.screenshot_to_base64(screenshot_path)
@@ -166,6 +201,7 @@ const puppeteer = require('puppeteer');
         bot_endpoint: str,
     ) -> Dict[str, Any]:
         """Send preview link to QQ bot."""
+        _validate_preview_url(bot_endpoint)
         import httpx
 
         body = {

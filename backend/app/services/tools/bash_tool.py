@@ -20,10 +20,22 @@ async def bash_execute(params: Dict[str, Any]) -> str:
     timeout = min(params.get("timeout", _DEFAULT_TIMEOUT), 120)
     sandbox_root = get_sandbox_root()
 
-    blocked = ["rm -rf /", "dd if=", "mkfs", "> /dev/", ":(){ :|:", "fork bomb"]
+    blocked = [
+        "rm -rf /", "rm -rf /*", "dd if=", "mkfs", "> /dev/",
+        ":(){ :|:", "fork bomb", "chmod -R 777 /", "chown -R",
+        "/etc/shadow", "/etc/passwd", "curl.*|.*sh", "wget.*|.*sh",
+    ]
+    cmd_lower = command.lower()
     for b in blocked:
-        if b in command:
+        if b in cmd_lower:
             return f"Error: Blocked dangerous command pattern: {b}"
+
+    safe_env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": sandbox_root,
+        "TMPDIR": sandbox_root,
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
 
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -31,11 +43,7 @@ async def bash_execute(params: Dict[str, Any]) -> str:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=sandbox_root,
-            env={
-                **os.environ,
-                "HOME": sandbox_root,
-                "TMPDIR": sandbox_root,
-            },
+            env=safe_env,
         )
 
         try:

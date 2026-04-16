@@ -115,16 +115,24 @@ class DockerSandbox:
             "exit_code": proc.returncode or 0,
         }
 
+    def _safe_host_path(self, path: str) -> str:
+        """Resolve path within workspace, blocking traversal."""
+        workspace = Path(self.workspace_dir).resolve()
+        resolved = (workspace / path.lstrip("/")).resolve()
+        if not str(resolved).startswith(str(workspace)):
+            raise ValueError(f"Path traversal denied: {path}")
+        return str(resolved)
+
     async def write_file(self, path: str, content: str) -> None:
         """Write a file into the container workspace."""
-        host_path = os.path.join(self.workspace_dir, path.lstrip("/"))
+        host_path = self._safe_host_path(path)
         os.makedirs(os.path.dirname(host_path), exist_ok=True)
         with open(host_path, "w", encoding="utf-8") as f:
             f.write(content)
 
     async def read_file(self, path: str) -> str:
         """Read a file from the container workspace."""
-        host_path = os.path.join(self.workspace_dir, path.lstrip("/"))
+        host_path = self._safe_host_path(path)
         if not os.path.exists(host_path):
             raise FileNotFoundError(f"File not found: {path}")
         with open(host_path, "r", encoding="utf-8") as f:

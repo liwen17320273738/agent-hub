@@ -81,9 +81,15 @@ class CodeGenAgent:
 
         code_blocks = await self._extract_code_from_outputs(pipeline_outputs)
 
+        from pathlib import Path
+        project_root = Path(project_dir).resolve()
+
         written_files = []
         for filepath, content in code_blocks.items():
-            full_path = os.path.join(project_dir, filepath)
+            full_path = (project_root / filepath).resolve()
+            if not str(full_path).startswith(str(project_root)):
+                logger.warning(f"[codegen] Skipped path traversal attempt: {filepath}")
+                continue
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)

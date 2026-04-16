@@ -1,13 +1,19 @@
 """
 Self-Verification Loop — 每个 Skill 执行后的自动验证
 
-验证链:
-1. 格式验证: 输出是否符合预期格式 (Markdown? JSON? 包含必要 section?)
-2. 完整性验证: 输出是否覆盖了所有必要项 (如 PRD 需包含验收标准)
-3. 质量验证: 使用 LLM 快速评估输出质量 (用便宜模型)
-4. 回归验证: 是否与前序阶段产出一致 (不矛盾)
+验证链 (启发式规则，无 LLM 调用):
+1. 格式验证: 输出是否符合预期格式 (Markdown 标题/列表检测)
+2. 长度验证: 输出是否达到最低字符数要求
+3. 必要章节检测: 输出是否包含阶段要求的关键章节名
+4. 关键词检测: 输出是否包含特定结论关键词
+5. 一致性检查: 输出是否引用了前序阶段的主题
+6. 占位符检测: 输出是否残留 TODO/TBD 等占位符
+7. 截断检测: 输出是否被意外截断
 
 每个验证步骤返回 PASS / WARN / FAIL + 具体原因
+
+NOTE: LLM-based quality evaluation is planned but not yet implemented.
+Current checks are purely heuristic (pattern matching, length, keyword).
 """
 from __future__ import annotations
 

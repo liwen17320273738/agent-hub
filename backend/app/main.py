@@ -36,6 +36,7 @@ from .api import (
     memory,
     deploy,
     interaction,
+    delivery_docs,
 )
 
 logging.basicConfig(
@@ -52,16 +53,56 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Starting Agent Hub backend...")
 
     if not settings.jwt_secret or len(settings.jwt_secret) < 32:
-        import secrets
-        settings.jwt_secret = secrets.token_urlsafe(48)
-        logger.warning(
-            "JWT_SECRET not set or too short — generated ephemeral secret. "
-            "Set JWT_SECRET in .env for persistent sessions."
-        )
+        if settings.debug:
+            import secrets
+            settings.jwt_secret = secrets.token_urlsafe(48)
+            logger.warning(
+                "JWT_SECRET not set or too short — generated ephemeral secret. "
+                "Set JWT_SECRET in .env for persistent sessions."
+            )
+        else:
+            raise RuntimeError(
+                "JWT_SECRET must be set to a string of at least 32 characters in production. "
+                "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables ensured.")
+    if "sqlite" in settings.database_url or settings.debug:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables ensured via create_all (dev/SQLite mode).")
+    else:
+        from sqlalchemy import text
+        try:
+            async with engine.begin() as conn:
+                result = await conn.execute(text(
+                    "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'users')"
+                ))
+                has_tables = result.scalar()
+            if not has_tables:
+                logger.warning(
+                    "PostgreSQL detected but no tables found. "
+                    "Running create_all to bootstrap schema..."
+                )
+                from .compat import enable_pgvector
+                async with engine.begin() as conn:
+                    try:
+                        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                        enable_pgvector(True)
+                        logger.info("pgvector extension enabled.")
+                    except Exception:
+                        enable_pgvector(False)
+                        logger.warning("pgvector extension not available — vector columns will use TEXT fallback")
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("Database tables created via create_all (first-run bootstrap).")
+            else:
+                logger.info("PostgreSQL tables exist. Skipping create_all.")
+        except Exception as e:
+            logger.error(f"DB check failed: {e}. Attempting create_all as fallback...")
+            from .compat import enable_pgvector
+            enable_pgvector(False)
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
 
     async with async_session() as db:
         await _bootstrap_admin(db)
@@ -74,9 +115,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await db.commit()
     logger.info("Seed data loaded.")
 
-    from .services.skill_loader import discover_skills
+    from .services.skill_loader import discover_skills, sync_skills_to_db
     skills_found = discover_skills()
     logger.info(f"Loaded {len(skills_found)} filesystem skills.")
+
+    async with async_session() as db:
+        synced = await sync_skills_to_db(db)
+        await db.commit()
+    if synced:
+        logger.info(f"Synced {synced} filesystem skills to database.")
 
     yield
 
@@ -182,6 +229,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(observability.router)
     application.include_router(deploy.router, prefix="/api")
     application.include_router(interaction.router, prefix="/api")
+    application.include_router(delivery_docs.router, prefix="/api")
 
     # ── Health & Config ──────────────────────────────────────────────────
 
@@ -200,14 +248,12 @@ AI Agent Hub — 全栈智能体协作平台
             "version": "2.0.0",
             "database": db_type,
             "cache": cache_type,
-            "providers_configured": list(provider_keys.keys()),
-            "deploy_platforms": [
-                p for p, v in [
-                    ("vercel", settings.vercel_token),
-                    ("cloudflare", settings.cloudflare_api_token),
-                    ("miniprogram", settings.wechat_mp_appid),
-                ] if v
-            ],
+            "providers_count": len(provider_keys),
+            "deploy_platforms_count": sum(1 for _, v in [
+                ("vercel", settings.vercel_token),
+                ("cloudflare", settings.cloudflare_api_token),
+                ("miniprogram", settings.wechat_mp_appid),
+            ] if v),
         }
 
     @application.get("/api/config", tags=["health"])

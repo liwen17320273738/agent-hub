@@ -116,7 +116,7 @@
           type="primary"
           @click="handleRunCurrentStage"
           :loading="stageRunning"
-          :disabled="task.currentStageId === 'done' || task.currentStageId === 'intake'"
+          :disabled="task.currentStageId === 'done'"
         >
           <el-icon><CaretRight /></el-icon>
           AI 执行当前阶段
@@ -131,13 +131,13 @@
         <el-button
           type="warning"
           @click="showRejectDialog = true"
-          :disabled="task.currentStageId === 'intake'"
+          :disabled="task.currentStageId === 'planning'"
         >
           <el-icon><Back /></el-icon>
           打回
         </el-button>
         <el-button
-          v-if="task.currentStageId === 'building'"
+          v-if="task.currentStageId === 'development'"
           @click="handleResume"
           :loading="resuming"
         >
@@ -233,6 +233,12 @@
     </el-dialog>
   </div>
 
+  <div v-else-if="loadError" class="task-loading">
+    <p class="error-text">{{ loadError }}</p>
+    <el-button type="primary" @click="loadTask" style="margin-top: 12px">重试</el-button>
+    <el-button @click="router.push('/pipeline')" style="margin-top: 12px">返回列表</el-button>
+  </div>
+
   <div v-else class="task-loading">
     <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
     <p>加载中...</p>
@@ -261,6 +267,7 @@ const router = useRouter()
 const pipelineStore = usePipelineStore()
 
 const task = ref<PipelineTask | null>(null)
+const loadError = ref('')
 const autoRunning = ref(false)
 const smartRunning = ref(false)
 const stageRunning = ref(false)
@@ -281,15 +288,15 @@ interface LogEntry {
 }
 const stageLogs = ref<LogEntry[]>([])
 
-const STAGE_IDS = ['intake', 'planning', 'architecture', 'building', 'testing', 'reviewing', 'done']
+const STAGE_IDS = ['planning', 'architecture', 'development', 'testing', 'reviewing', 'deployment', 'done']
 
 const stageToAgent: Record<string, string> = {
-  intake: 'openclaw',
-  planning: 'wayne-product-manager',
-  architecture: 'wayne-developer',
-  building: 'wayne-developer',
-  testing: 'wayne-qa-lead',
-  reviewing: 'wayne-orchestrator',
+  planning: 'ceo-agent',
+  architecture: 'architect-agent',
+  development: 'developer-agent',
+  testing: 'qa-agent',
+  reviewing: 'ceo-agent',
+  deployment: 'devops-agent',
 }
 
 const completedSubtasks = computed(() =>
@@ -316,9 +323,11 @@ const statusTagType = computed(() => {
   return (map[task.value?.status || ''] || 'info') as '' | 'success' | 'warning' | 'info' | 'danger'
 })
 
-function sourceTagType(source: string) {
-  const map: Record<string, string> = { feishu: 'warning', qq: 'success', web: 'info', api: '' }
-  return (map[source] || '') as '' | 'success' | 'warning' | 'info' | 'danger'
+function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
+    feishu: 'warning', qq: 'success', web: 'info', api: 'primary', 'api-e2e': 'danger',
+  }
+  return map[source] ?? 'info'
 }
 
 function artifactTagType(type: string) {
@@ -329,7 +338,12 @@ function artifactTagType(type: string) {
 const previousStages = computed(() => {
   if (!task.value) return []
   const currentIdx = STAGE_IDS.indexOf(task.value.currentStageId)
-  return task.value.stages.filter((_s, idx) => idx < currentIdx)
+  if (currentIdx <= 0) return []
+  return task.value.stages
+    .filter(s => {
+      const sIdx = STAGE_IDS.indexOf(s.id)
+      return sIdx >= 0 && sIdx < currentIdx
+    })
 })
 
 function formatDate(ts: number) {
@@ -432,8 +446,14 @@ function setupSSE() {
       processingStage.value = (data?.stageId as string) || null
     }
 
-    if (evt.event === 'stage:completed' || evt.event === 'stage:error') {
+    if (evt.event === 'stage:completed') {
       processingStage.value = null
+      stageRunning.value = false
+      loadTask()
+    }
+    if (evt.event === 'stage:error') {
+      processingStage.value = null
+      stageRunning.value = false
     }
 
     // Lead Agent 子任务追踪 (deer-flow 风格)
@@ -522,6 +542,7 @@ async function handleSmartRun() {
   try {
     await smartRunPipeline(task.value.id)
     addLog('pipeline:smart-start', { taskId: task.value.id })
+    ElMessage.success('Lead Agent 已启动后台执行，可自由切换页面')
   } catch (e: unknown) {
     smartRunning.value = false
     ElMessage.error(`智能执行启动失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -535,6 +556,7 @@ async function handleAutoRun() {
   try {
     await autoRunPipeline(task.value.id)
     addLog('pipeline:auto-start', { taskId: task.value.id })
+    ElMessage.success('全自动流水线已启动后台执行，可自由切换页面')
   } catch (e: unknown) {
     autoRunning.value = false
     ElMessage.error(`启动失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -547,6 +569,7 @@ async function handleRunCurrentStage() {
   try {
     await apiRunStage(task.value.id)
     addLog('stage:queued', { stageId: task.value.currentStageId })
+    ElMessage.success('AI 已开始执行当前阶段，可自由切换页面')
   } catch (e: unknown) {
     stageRunning.value = false
     ElMessage.error(`执行失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -605,9 +628,23 @@ function goToAgent() {
 async function loadTask() {
   const id = route.params.id as string
   if (!id) return
+  loadError.value = ''
   try {
     task.value = await fetchTask(id)
+    // Detect if a background run is in progress (stage is active but has no output yet)
+    if (task.value && task.value.status === 'active') {
+      const activeStage = task.value.stages.find(s => s.status === 'active')
+      if (activeStage && !activeStage.output) {
+        processingStage.value = activeStage.id
+      }
+    }
+    if (task.value?.status === 'done' || task.value?.currentStageId === 'done') {
+      autoRunning.value = false
+      smartRunning.value = false
+      stageRunning.value = false
+    }
   } catch (e) {
+    loadError.value = e instanceof Error ? e.message : '加载任务失败'
     console.error('加载任务失败:', e)
   }
 }

@@ -7,7 +7,7 @@ Three layers:
 3. Learned patterns (LearnedPattern table — extracted best practices)
 
 When pgvector extension is installed, vector similarity search is used.
-Otherwise, falls back to PostgreSQL keyword search.
+Otherwise, falls back to in-process cosine similarity or keyword search.
 """
 from __future__ import annotations
 
@@ -19,54 +19,123 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import httpx
-from sqlalchemy import Column, DateTime, String, Text, Integer, Float, select, func
+from sqlalchemy import select, func, text, String as SAString
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..models.memory import TaskMemory, LearnedPattern
+from ..models.pipeline import PipelineTask
 from ..redis_client import get_redis, cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
 EMBEDDING_DIM = 1536
-_PGVECTOR_AVAILABLE: Optional[bool] = None
+_pgvector_checked = False
+_pgvector_available = False
 _WORKING_MEMORY_TTL = 3600 * 4  # 4 hours
+_EMBEDDING_CACHE_TTL = 3600 * 24 * 7  # 7 days
 
 
-class TaskMemory(Base):
-    """Long-term memory: embeddings + content for semantic retrieval."""
-    __tablename__ = "task_memories"
+async def _check_pgvector(db: AsyncSession) -> bool:
+    """Check once if pgvector extension is available in the current database."""
+    global _pgvector_checked, _pgvector_available
+    if _pgvector_checked:
+        return _pgvector_available
+    _pgvector_checked = True
+    try:
+        from ..config import settings
+        if "sqlite" in settings.database_url:
+            _pgvector_available = False
+            return False
+        result = await db.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'"))
+        _pgvector_available = result.scalar() is not None
+        if _pgvector_available:
+            logger.info("[memory] pgvector extension detected — using native vector search")
+        else:
+            logger.info("[memory] pgvector not installed — using in-process cosine similarity")
+    except Exception as e:
+        logger.warning(f"[memory] pgvector check failed: {e}")
+        _pgvector_available = False
+    return _pgvector_available
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    task_id = Column(String(200), index=True, nullable=False)
-    stage_id = Column(String(50), nullable=False)
-    role = Column(String(100), nullable=False)
-    title = Column(String(500), default="")
-    content = Column(Text, default="")
-    content_hash = Column(String(64), unique=True, nullable=False)
-    summary = Column(Text, default="")
-    tags = Column(JsonDict(), default=list)
-    quality_score = Column(Float, default=0.0)
-    token_count = Column(Integer, default=0)
-    embedding_model = Column(String(100), default="")
-    metadata_extra = Column(JsonDict(), default=dict)
-    created_at = Column(DateTime, server_default=utcnow_default())
+
+# --- Embedding helpers ---
+
+def _cosine_similarity(a: List[float], b: List[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(x * x for x in b) ** 0.5
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
-class LearnedPattern(Base):
-    """Patterns extracted from successful task completions."""
-    __tablename__ = "learned_patterns"
+_EMBEDDING_PROVIDERS = [
+    {
+        "name": "zhipu",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "embedding-3",
+    },
+    {
+        "name": "dashscope",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "text-embedding-v3",
+    },
+    {
+        "name": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "model": "text-embedding-3-small",
+    },
+]
 
-    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
-    pattern_type = Column(String(50), nullable=False)
-    role = Column(String(100), nullable=False)
-    stage_id = Column(String(50), nullable=False)
-    description = Column(Text, default="")
-    example_task_ids = Column(JsonDict(), default=list)
-    frequency = Column(Integer, default=1)
-    confidence = Column(Float, default=0.5)
-    created_at = Column(DateTime, server_default=utcnow_default())
-    updated_at = Column(DateTime, server_default=utcnow_default())
+
+async def _get_embedding(text: str) -> Optional[List[float]]:
+    """Generate embedding via the first available provider with an API key."""
+    from ..config import settings
+
+    provider_keys = settings.get_provider_keys()
+    if not provider_keys:
+        return None
+
+    for provider in _EMBEDDING_PROVIDERS:
+        api_key = provider_keys.get(provider["name"])
+        if not api_key:
+            continue
+
+        embed_url = f"{provider['base_url'].rstrip('/')}/embeddings"
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    embed_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"model": provider["model"], "input": text[:8000]},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["data"][0]["embedding"]
+        except Exception as e:
+            logger.warning(f"[memory] Embedding via {provider['name']} failed: {e}")
+            continue
+
+    return None
+
+
+async def _cache_embedding(content_hash: str, embedding: List[float]) -> None:
+    """Cache an embedding vector in Redis keyed by content hash."""
+    r = get_redis()
+    key = f"memory:embedding:{content_hash}"
+    await r.set(key, json.dumps(embedding), ex=_EMBEDDING_CACHE_TTL)
+
+
+async def _get_cached_embedding(content_hash: str) -> Optional[List[float]]:
+    """Retrieve a cached embedding vector from Redis."""
+    r = get_redis()
+    raw = await r.get(f"memory:embedding:{content_hash}")
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
 
 
 # --- Working Memory (Redis-backed ephemeral context) ---
@@ -124,21 +193,31 @@ async def store_memory(
     summary = _extract_summary(content, max_len=500)
     token_count = len(content) // 4  # rough estimate
 
+    embedding = await _get_embedding(f"{title} {summary}")
+
     memory = TaskMemory(
         task_id=task_id,
         stage_id=stage_id,
         role=role,
         title=title,
-        content=content[:50000],  # cap storage
+        content=content[:50000],
         content_hash=content_hash,
         summary=summary,
         tags=tags or [],
         quality_score=quality_score,
         token_count=token_count,
+        embedding=embedding,
+        embedding_model="text-embedding-3-small" if embedding else "",
     )
     db.add(memory)
     await db.flush()
-    logger.info(f"[memory] Stored memory for task={task_id} stage={stage_id}")
+
+    if embedding:
+        await _cache_embedding(content_hash, embedding)
+        logger.info(f"[memory] Stored memory + embedding for task={task_id} stage={stage_id}")
+    else:
+        logger.info(f"[memory] Stored memory (no embedding) for task={task_id} stage={stage_id}")
+
     return memory
 
 
@@ -150,19 +229,46 @@ async def search_similar_memories(
     stage_id: Optional[str] = None,
     limit: int = 5,
     min_quality: float = 0.0,
+    org_id: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
     Search for similar historical task outputs.
-    Uses keyword matching (PostgreSQL full-text search) as primary strategy.
-    Vector search available when pgvector extension is installed.
+
+    Strategy (ordered by preference):
+    1. pgvector: native cosine distance ordering in PostgreSQL (fastest, most accurate)
+    2. In-process: fetch keyword candidates, re-rank by cosine similarity against DB/cached embeddings
+    3. Keyword-only: quality + recency ordering when no embeddings available
     """
-    cache_key = f"memory:search:{hashlib.md5(query.encode()).hexdigest()[:12]}:{role}:{stage_id}"
+    cache_key = f"memory:search:{hashlib.md5(query.encode()).hexdigest()[:12]}:{role}:{stage_id}:{org_id}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
 
+    use_pgvector = await _check_pgvector(db)
+    query_embedding = await _get_embedding(query)
+
+    # --- Strategy 1: pgvector native search ---
+    if use_pgvector and query_embedding:
+        memories = await _pgvector_search(
+            db, query_embedding,
+            role=role, stage_id=stage_id, limit=limit,
+            min_quality=min_quality, org_id=org_id,
+        )
+        if memories:
+            output = _format_memory_results(memories)
+            await cache_set(cache_key, output, ttl=300)
+            return output
+
+    # --- Strategy 2 & 3: keyword candidates + optional re-ranking ---
+    candidate_limit = max(limit * 4, 20)
     stmt = select(TaskMemory).where(TaskMemory.quality_score >= min_quality)
 
+    if org_id:
+        org_task_ids = (
+            select(func.cast(PipelineTask.id, SAString))
+            .where(PipelineTask.org_id == org_id)
+        )
+        stmt = stmt.where(TaskMemory.task_id.in_(org_task_ids))
     if role:
         stmt = stmt.where(TaskMemory.role == role)
     if stage_id:
@@ -171,19 +277,104 @@ async def search_similar_memories(
     keywords = _extract_keywords(query)
     if keywords:
         conditions = []
-        for kw in keywords[:5]:  # limit to 5 keywords
+        for kw in keywords[:5]:
             conditions.append(TaskMemory.content.ilike(f"%{kw}%"))
         if conditions:
             from sqlalchemy import or_
             stmt = stmt.where(or_(*conditions))
 
     stmt = stmt.order_by(TaskMemory.quality_score.desc(), TaskMemory.created_at.desc())
-    stmt = stmt.limit(limit)
+    stmt = stmt.limit(candidate_limit)
 
     result = await db.execute(stmt)
-    memories = result.scalars().all()
+    memories = list(result.scalars().all())
 
-    output = [
+    if not memories:
+        await cache_set(cache_key, [], ttl=300)
+        return []
+
+    if query_embedding:
+        scored: List[tuple] = []
+        for m in memories:
+            mem_embedding = m.embedding
+            if not mem_embedding:
+                mem_embedding = await _get_cached_embedding(m.content_hash)
+            if mem_embedding:
+                sim = _cosine_similarity(query_embedding, mem_embedding)
+                blended = 0.7 * sim + 0.3 * m.quality_score
+                scored.append((m, blended))
+            else:
+                scored.append((m, 0.3 * m.quality_score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        memories = [m for m, _ in scored[:limit]]
+    else:
+        memories = memories[:limit]
+
+    output = _format_memory_results(memories)
+    await cache_set(cache_key, output, ttl=300)
+    return output
+
+
+async def _pgvector_search(
+    db: AsyncSession,
+    query_embedding: List[float],
+    *,
+    role: Optional[str] = None,
+    stage_id: Optional[str] = None,
+    limit: int = 5,
+    min_quality: float = 0.0,
+    org_id: Optional[Any] = None,
+) -> List[TaskMemory]:
+    """Native pgvector cosine distance search."""
+    try:
+        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+        where_clauses = [
+            "embedding IS NOT NULL",
+            "quality_score >= :min_quality",
+        ]
+        if role:
+            where_clauses.append("role = :role")
+        if stage_id:
+            where_clauses.append("stage_id = :stage_id")
+        if org_id:
+            where_clauses.append(
+                "task_id IN (SELECT CAST(id AS VARCHAR) FROM pipeline_tasks WHERE org_id = :org_id)"
+            )
+
+        where_sql = " AND ".join(where_clauses)
+        sql = text(f"""
+            SELECT *, (embedding <=> :embedding::vector) AS distance
+            FROM task_memories
+            WHERE {where_sql}
+            ORDER BY distance ASC
+            LIMIT :limit
+        """)
+
+        params: Dict[str, Any] = {"embedding": embedding_str, "limit": limit, "min_quality": min_quality}
+        if role:
+            params["role"] = role
+        if stage_id:
+            params["stage_id"] = stage_id
+        if org_id:
+            params["org_id"] = str(org_id)
+
+        result = await db.execute(sql, params)
+        rows = result.fetchall()
+
+        memories = []
+        for row in rows:
+            m = await db.get(TaskMemory, row.id)
+            if m:
+                memories.append(m)
+        return memories
+    except Exception as e:
+        logger.warning(f"[memory] pgvector search failed, falling back: {e}")
+        return []
+
+
+def _format_memory_results(memories: List[TaskMemory]) -> List[Dict[str, Any]]:
+    return [
         {
             "task_id": m.task_id,
             "stage_id": m.stage_id,
@@ -195,9 +386,6 @@ async def search_similar_memories(
         }
         for m in memories
     ]
-
-    await cache_set(cache_key, output, ttl=300)
-    return output
 
 
 async def get_context_from_history(
@@ -266,7 +454,8 @@ async def update_quality_score(
         select(TaskMemory).where(
             TaskMemory.task_id == task_id,
             TaskMemory.stage_id == stage_id,
-        )
+        ).order_by(TaskMemory.created_at.desc())
+        .limit(1)
     )
     memory = result.scalar_one_or_none()
     if memory:
@@ -324,3 +513,46 @@ def _extract_keywords(text: str) -> List[str]:
     words = re.findall(r'[\u4e00-\u9fff]+|[a-zA-Z]{3,}', text)
     stopwords = {"the", "and", "for", "that", "this", "with", "from", "are", "was", "been"}
     return [w for w in words if w.lower() not in stopwords][:10]
+
+
+async def store_learned_pattern(
+    db: AsyncSession,
+    *,
+    role: str,
+    stage_id: str,
+    pattern_type: str,
+    description: str,
+    task_id: str,
+) -> Optional[LearnedPattern]:
+    """Store or update a learned pattern from successful task completion."""
+    existing = await db.execute(
+        select(LearnedPattern).where(
+            LearnedPattern.role == role,
+            LearnedPattern.stage_id == stage_id,
+            LearnedPattern.description == description,
+        )
+    )
+    pattern = existing.scalar_one_or_none()
+
+    if pattern:
+        pattern.frequency += 1
+        pattern.confidence = min(1.0, pattern.confidence + 0.05)
+        examples = pattern.example_task_ids or []
+        if task_id not in examples:
+            examples.append(task_id)
+            pattern.example_task_ids = examples[-20:]  # keep last 20
+        await db.flush()
+        return pattern
+
+    pattern = LearnedPattern(
+        pattern_type=pattern_type,
+        role=role,
+        stage_id=stage_id,
+        description=description,
+        example_task_ids=[task_id],
+        frequency=1,
+        confidence=0.5,
+    )
+    db.add(pattern)
+    await db.flush()
+    return pattern
