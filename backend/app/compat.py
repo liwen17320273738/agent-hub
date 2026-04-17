@@ -37,6 +37,11 @@ def enable_pgvector(enabled: bool = True):
     _use_pgvector = enabled and _HAS_PGVECTOR_LIB
 
 
+def is_pgvector_enabled() -> bool:
+    """Returns True if pgvector is enabled and the SQLAlchemy adapter is available."""
+    return _use_pgvector and _HAS_PGVECTOR_LIB
+
+
 class GUID(TypeDecorator):
     """Platform-independent UUID type.
 

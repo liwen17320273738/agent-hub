@@ -25,6 +25,9 @@ class PipelineTask(Base):
     current_stage_id: Mapped[str] = mapped_column(String(50), default="planning")
     template: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    repo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    project_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     created_by: Mapped[str] = mapped_column(String(200), default="system")
     org_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), ForeignKey("orgs.id"), nullable=True)
 
@@ -70,6 +73,22 @@ class PipelineStage(Base):
 
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+
+    # ── Wave 4: collaboration loop ────────────────────────────────────
+    # Last raw error string from the most recent failed execution attempt.
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # How many times this stage has been retried after a failure.
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Per-stage retry budget (overrides task default; 0 = no auto-retry).
+    max_retries: Mapped[int] = mapped_column(Integer, default=0)
+    # Behavior when this stage fails after retries are exhausted:
+    #   "halt"     — stop the pipeline (default, today's behavior)
+    #   "rollback" — reset this stage + downstream to pending and pause
+    #   "skip"     — mark stage skipped and proceed
+    on_failure: Mapped[str] = mapped_column(String(20), default="halt")
+    # When True, the stage requires human approval AFTER it produces output
+    # before the next stage can start (DAG-side mid-pipeline gate).
+    human_gate: Mapped[bool] = mapped_column(default=False)
 
     task: Mapped[PipelineTask] = relationship(back_populates="stages")
 

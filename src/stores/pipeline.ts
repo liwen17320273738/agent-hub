@@ -38,7 +38,7 @@ export const usePipelineStore = defineStore('pipeline', () => {
     }
   }
 
-  async function createTask(payload: { title: string; description?: string; source?: string; template?: string }) {
+  async function createTask(payload: { title: string; description?: string; source?: string; template?: string; repo_url?: string; project_path?: string }) {
     const task = await api.createTask(payload)
     tasks.value.unshift(task)
     return task

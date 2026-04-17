@@ -41,24 +41,26 @@
 
     <section class="pipeline-board">
       <h2 class="section-title">阶段看板</h2>
-      <div class="stage-columns">
-        <div
-          v-for="stage in stages"
-          :key="stage.id"
-          class="stage-column"
-          :class="{ 'has-tasks': (pipelineStore.tasksByStage[stage.id] || []).length > 0 }"
-        >
-          <div class="stage-header">
-            <span class="stage-dot" :style="{ background: stageColor(stage.id) }"></span>
-            <span class="stage-name">{{ stage.label }}</span>
-            <el-badge
-              :value="(pipelineStore.tasksByStage[stage.id] || []).length"
-              :hidden="!(pipelineStore.tasksByStage[stage.id] || []).length"
-              type="primary"
-              class="stage-badge"
-            />
-          </div>
-          <div class="stage-tasks">
+      <div class="stage-columns-scroll">
+        <div class="stage-columns">
+          <div
+            v-for="stage in stages"
+            :key="stage.id"
+            class="stage-column"
+            :class="{ 'has-tasks': (pipelineStore.tasksByStage[stage.id] || []).length > 0 }"
+          >
+            <div class="stage-header">
+              <span class="stage-dot" :style="{ background: stageColor(stage.id) }"></span>
+              <el-badge
+                :value="(pipelineStore.tasksByStage[stage.id] || []).length"
+                :hidden="!(pipelineStore.tasksByStage[stage.id] || []).length"
+                type="primary"
+                class="stage-badge-wrap"
+              >
+                <span class="stage-name">{{ stage.label }}</span>
+              </el-badge>
+            </div>
+            <div class="stage-tasks">
             <div
               v-for="task in (pipelineStore.tasksByStage[stage.id] || [])"
               :key="task.id"
@@ -73,6 +75,7 @@
             </div>
             <div v-if="!(pipelineStore.tasksByStage[stage.id] || []).length" class="stage-empty">
               暂无任务
+            </div>
             </div>
           </div>
         </div>
@@ -198,7 +201,14 @@
       </div>
     </section>
 
-    <el-dialog v-model="showCreateDialog" title="创建新任务" width="680px">
+    <el-dialog
+      v-model="showCreateDialog"
+      title="创建新任务"
+      width="720px"
+      class="create-task-dialog"
+      destroy-on-close
+      align-center
+    >
       <el-form label-position="top">
         <el-form-item label="任务标题">
           <el-input v-model="newTask.title" placeholder="简洁描述需求..." />
@@ -243,6 +253,70 @@
             </div>
           </div>
         </el-form-item>
+        <el-form-item label="关联已有项目（可选）">
+          <el-radio-group v-model="newTask.projectMode" style="margin-bottom: 8px">
+            <el-radio-button value="none">新建项目</el-radio-button>
+            <el-radio-button value="git">Git 仓库</el-radio-button>
+            <el-radio-button value="local">本地目录</el-radio-button>
+          </el-radio-group>
+          <el-input
+            v-if="newTask.projectMode === 'git'"
+            v-model="newTask.repoUrl"
+            placeholder="https://github.com/user/repo.git"
+            style="margin-top: 4px"
+          >
+            <template #prepend>Git URL</template>
+          </el-input>
+          <div v-if="newTask.projectMode === 'local'" class="local-path-field">
+            <div class="local-path-inner">
+              <span class="path-prepend">路径</span>
+              <el-autocomplete
+                v-model="newTask.projectPath"
+                :fetch-suggestions="fetchPathSuggestions"
+                :trigger-on-focus="true"
+                clearable
+                placeholder="绝对路径，如 /Users/wayne/Documents/my-app"
+                value-key="value"
+                class="path-autocomplete"
+              />
+            </div>
+            <div class="local-path-actions">
+              <el-button size="small" @click="pasteProjectPathFromClipboard">从剪贴板粘贴</el-button>
+              <el-button size="small" type="primary" plain @click="pickLocalDirectoryAssist">
+                选择文件夹…
+              </el-button>
+            </div>
+            <el-input
+              v-model="localProjectParent"
+              placeholder="选填：常用项目父目录（与所选文件夹名拼接后由后端校验），如 /Users/you/Documents/YJD"
+              size="small"
+              class="local-project-parent-input"
+              clearable
+              @blur="persistLocalProjectParent"
+            />
+            <p class="form-tip-small">
+              后端需要<strong>运行 Agent Hub 的那台机器上</strong>能访问的绝对路径（本机开发即本机路径）。
+              选择文件夹后，会根据<strong>最近路径 / 上方路径的同级目录 / 父目录</strong>等候选由后端校验并自动填入；仍无法匹配时请粘贴路径或使用终端 <code class="inline-code">pwd</code>。
+            </p>
+          </div>
+        </el-form-item>
+        <el-form-item label="附件（可选）">
+          <el-upload
+            ref="uploadRef"
+            :auto-upload="false"
+            :limit="8"
+            multiple
+            :on-change="onPendingFileChange"
+            :on-remove="onPendingFileRemove"
+          >
+            <el-button type="default" size="small">选择文件</el-button>
+            <template #tip>
+              <p class="form-tip-small">
+                参考图、截图、PRD、代码等。文本类会注入上下文；图片会按当前所选模型走多模态（OpenAI / Anthropic / Gemini 等）；不支持的模型会自动回退为纯文本。单文件最大 15MB。
+              </p>
+            </template>
+          </el-upload>
+        </el-form-item>
         <el-form-item label="来源">
           <el-select v-model="newTask.source" style="width: 100%">
             <el-option label="Web 手动" value="web" />
@@ -268,12 +342,15 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchPipelineHealth, autoRunPipeline, smartRunPipeline,
   fetchTraces, fetchApprovals, resolveApproval as apiResolveApproval, fetchAuditLog,
   fetchTemplates, fetchSDLCTemplates,
+  uploadTaskAttachment,
+  validateLocalPath,
 } from '@/services/pipelineApi'
+import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import type { SDLCTemplate } from '@/services/pipelineApi'
 import type { PipelineEvent } from '@/agents/types'
 
@@ -283,6 +360,135 @@ const pipelineStore = usePipelineStore()
 
 const showCreateDialog = ref(false)
 const creating = ref(false)
+const uploadRef = ref<UploadInstance>()
+const pendingFiles = ref<File[]>([])
+
+function onPendingFileChange(_f: UploadFile, fileList: UploadFiles) {
+  pendingFiles.value = fileList.map((x) => x.raw).filter((u): u is File => u instanceof File)
+}
+function onPendingFileRemove(_f: UploadFile, fileList: UploadFiles) {
+  pendingFiles.value = fileList.map((x) => x.raw).filter((u): u is File => u instanceof File)
+}
+
+const RECENT_PROJECT_PATHS_KEY = 'agenthub-recent-project-paths'
+const LOCAL_PROJECT_PARENT_KEY = 'agenthub-local-project-parent'
+const MAX_RECENT_PATHS = 14
+
+const localProjectParent = ref('')
+
+function pathBasename(p: string): string {
+  const normalized = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  const i = normalized.lastIndexOf('/')
+  return i >= 0 ? normalized.slice(i + 1) : normalized
+}
+
+function pathDirname(p: string): string {
+  const normalized = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  const i = normalized.lastIndexOf('/')
+  if (i <= 0) return i === 0 ? '/' : ''
+  return normalized.slice(0, i)
+}
+
+function persistLocalProjectParent() {
+  const t = localProjectParent.value.trim()
+  if (t) localStorage.setItem(LOCAL_PROJECT_PARENT_KEY, t)
+  else localStorage.removeItem(LOCAL_PROJECT_PARENT_KEY)
+}
+
+function loadRecentProjectPaths(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_PROJECT_PATHS_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter((x: unknown) => typeof x === 'string' && (x as string).length > 1) : []
+  } catch {
+    return []
+  }
+}
+
+function rememberProjectPath(p: string) {
+  const t = p.trim()
+  if (t.length < 2) return
+  const next = [t, ...loadRecentProjectPaths().filter((x) => x !== t)].slice(0, MAX_RECENT_PATHS)
+  localStorage.setItem(RECENT_PROJECT_PATHS_KEY, JSON.stringify(next))
+}
+
+function fetchPathSuggestions(queryString: string, cb: (rows: { value: string }[]) => void) {
+  const recent = loadRecentProjectPaths()
+  const q = queryString.trim().toLowerCase()
+  const filtered = q ? recent.filter((p) => p.toLowerCase().includes(q)) : recent
+  cb(filtered.slice(0, MAX_RECENT_PATHS).map((value) => ({ value })))
+}
+
+async function pasteProjectPathFromClipboard() {
+  try {
+    const t = await navigator.clipboard.readText()
+    if (t?.trim()) {
+      newTask.value.projectPath = t.trim()
+      ElMessage.success('已从剪贴板填入路径')
+    } else {
+      ElMessage.warning('剪贴板为空')
+    }
+  } catch {
+    ElMessage.warning('无法读取剪贴板，请检查浏览器权限或手动粘贴')
+  }
+}
+
+async function pickLocalDirectoryAssist() {
+  const w = window as Window & { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle> }
+  if (typeof w.showDirectoryPicker !== 'function') {
+    ElMessage.info('当前浏览器不支持系统文件夹选择，请使用「从剪贴板粘贴」或手动输入绝对路径')
+    return
+  }
+  try {
+    const handle = await w.showDirectoryPicker()
+    const name = handle.name
+    const candidates: string[] = []
+    const seen = new Set<string>()
+    const add = (p: string | undefined) => {
+      const t = p?.trim()
+      if (!t) return
+      if (seen.has(t)) return
+      seen.add(t)
+      candidates.push(t)
+    }
+    const recent = loadRecentProjectPaths()
+    for (const p of recent) {
+      if (pathBasename(p) === name) add(p)
+    }
+    const cur = newTask.value.projectPath?.trim()
+    if (cur) {
+      const d = pathDirname(cur)
+      if (d) add(`${d.replace(/\/+$/, '')}/${name}`)
+    }
+    const parent = localProjectParent.value.trim() || localStorage.getItem(LOCAL_PROJECT_PARENT_KEY)?.trim()
+    if (parent) add(`${parent.replace(/\/+$/, '')}/${name}`)
+    for (const r of recent) {
+      const d = pathDirname(r)
+      if (d) add(`${d.replace(/\/+$/, '')}/${name}`)
+    }
+    for (const c of candidates) {
+      try {
+        const r = await validateLocalPath(c)
+        if (r.ok && r.resolved) {
+          newTask.value.projectPath = r.resolved
+          rememberProjectPath(r.resolved)
+          ElMessage.success('已匹配并填入路径（后端已校验目录存在）')
+          return
+        }
+      } catch {
+        /* try next candidate */
+      }
+    }
+    await ElMessageBox.alert(
+      `已选定文件夹「${name}」。未能根据最近路径或父目录自动拼出在后端机器上存在的目录。\n\n请在本机终端进入该目录后执行 pwd（Mac/Linux）复制输出，或从 Finder / 资源管理器复制绝对路径，粘贴到上方「路径」框。\n\n（路径必须与运行后端的机器一致。可在「父目录」中填写上级路径以便下次自动拼接。）`,
+      '请填写绝对路径',
+      { confirmButtonText: '知道了' },
+    )
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return
+    ElMessage.error(`选择目录失败: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
 const healthStatus = ref<Record<string, unknown>>({})
 
 const activeObsTab = ref('traces')
@@ -353,6 +559,9 @@ const newTask = ref({
   source: 'web',
   template: 'full',
   autoRun: true,
+  projectMode: 'none' as 'none' | 'git' | 'local',
+  repoUrl: '',
+  projectPath: '',
 })
 
 const stages = [
@@ -472,7 +681,28 @@ async function handleCreateTask() {
       description: newTask.value.description,
       source: newTask.value.source,
       template: newTask.value.template || undefined,
+      repo_url: newTask.value.projectMode === 'git' ? newTask.value.repoUrl || undefined : undefined,
+      project_path: newTask.value.projectMode === 'local' ? newTask.value.projectPath || undefined : undefined,
     })
+
+    if (newTask.value.projectMode === 'local' && newTask.value.projectPath?.trim()) {
+      rememberProjectPath(newTask.value.projectPath.trim())
+    }
+
+    const files = [...pendingFiles.value]
+    for (const f of files) {
+      try {
+        await uploadTaskAttachment(task.id, f)
+      } catch (err) {
+        ElMessage.warning(
+          `附件「${f.name}」上传失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+    pendingFiles.value = []
+    uploadRef.value?.clearFiles()
+    await pipelineStore.loadTasks()
+
     showCreateDialog.value = false
 
     if (newTask.value.autoRun) {
@@ -480,7 +710,7 @@ async function handleCreateTask() {
       router.push(`/pipeline/task/${task.id}`)
     }
 
-    newTask.value = { title: '', description: '', source: 'web', template: 'full', autoRun: true }
+    newTask.value = { title: '', description: '', source: 'web', template: 'full', autoRun: true, projectMode: 'none', repoUrl: '', projectPath: '' }
   } catch (e: unknown) {
     ElMessage.error(`创建任务失败: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
@@ -489,6 +719,7 @@ async function handleCreateTask() {
 }
 
 onMounted(async () => {
+  localProjectParent.value = localStorage.getItem(LOCAL_PROJECT_PARENT_KEY) || ''
   pipelineStore.loadTasks()
   pipelineStore.startEventStream()
   try {
@@ -589,17 +820,36 @@ onUnmounted(() => {
   margin-bottom: 32px;
 }
 
+.stage-columns-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 8px;
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+
 .stage-columns {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
   gap: 12px;
+  min-height: 220px;
 }
 
 .stage-column {
+  flex: 0 0 232px;
+  width: 232px;
+  min-width: 232px;
+  max-width: 232px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 14px;
+  display: flex;
+  flex-direction: column;
   min-height: 200px;
 }
 
@@ -614,6 +864,17 @@ onUnmounted(() => {
   margin-bottom: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
+  min-width: 0;
+}
+
+.stage-badge-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.stage-badge-wrap :deep(.el-badge__content) {
+  top: 2px;
+  right: 0;
 }
 
 .stage-dot {
@@ -624,29 +885,43 @@ onUnmounted(() => {
 }
 
 .stage-name {
+  display: block;
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 4px;
 }
 
 .stage-tasks {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  max-height: min(52vh, 520px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .task-card {
+  flex-shrink: 0;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 10px 12px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+  z-index: 0;
 }
 
 .task-card:hover {
   border-color: var(--accent);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 1;
 }
 
 .task-title {
@@ -953,8 +1228,8 @@ onUnmounted(() => {
 /* Template selector */
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
   width: 100%;
 }
 .template-card {
@@ -1055,5 +1330,82 @@ onUnmounted(() => {
   font-weight: 600;
   color: #f59e0b;
   flex-shrink: 0;
+}
+
+.form-tip-small {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted, #909399);
+  line-height: 1.45;
+}
+
+.form-tip-small .inline-code {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary, #2a2a3a);
+  color: var(--text-secondary, #a0a0b0);
+}
+
+.local-path-field {
+  margin-top: 4px;
+}
+
+.local-path-inner {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  border: 1px solid var(--border-color, #2a2a3a);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-secondary, #16161c);
+}
+
+.path-prepend {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 13px;
+  color: var(--text-muted, #909399);
+  background: var(--bg-tertiary, #1e1e28);
+  border-right: 1px solid var(--border-color, #2a2a3a);
+}
+
+.path-autocomplete {
+  flex: 1;
+  min-width: 0;
+}
+
+.path-autocomplete :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0;
+  background: transparent;
+}
+
+.local-project-parent-input {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.local-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+</style>
+
+<style>
+/* el-dialog teleports to body — must be unscoped */
+.create-task-dialog.el-dialog {
+  width: min(92vw, 760px) !important;
+  max-width: 760px;
+}
+.create-task-dialog .el-dialog__body {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
 }
 </style>

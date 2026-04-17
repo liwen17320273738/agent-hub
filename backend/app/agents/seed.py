@@ -22,36 +22,92 @@ logger = logging.getLogger(__name__)
 # These map to TOOL_REGISTRY keys in services/tools/registry.py
 
 AGENT_TOOLS = {
-    "wayne-ceo": ["web_search", "file_read", "file_list", "deerflow_delegate"],
-    "wayne-cto": ["file_read", "file_list", "bash", "web_search", "git_diff", "git_log", "deerflow_delegate"],
-    "wayne-product": ["web_search", "file_read", "file_write", "file_list", "deerflow_delegate"],
+    "wayne-ceo": [
+        "web_search", "browser_open", "browser_extract",
+        "file_read", "file_list",
+        "delegate_to_agent",
+        "deerflow_delegate",
+    ],
+    "wayne-cto": [
+        "file_read", "file_list", "bash",
+        "web_search", "browser_open", "browser_extract",
+        "git_diff", "git_log",
+        "codebase_map", "codebase_search", "codebase_read_chunk",
+        "code_semantic_search",
+        "delegate_to_agent", "agent_publish", "agent_wait_for",
+        "deerflow_delegate",
+    ],
+    "wayne-product": [
+        "web_search", "browser_open", "browser_extract",
+        "file_read", "file_write", "file_list",
+        "delegate_to_agent",
+        "deerflow_delegate",
+    ],
     "wayne-developer": [
         "file_read", "file_write", "file_list", "str_replace", "bash",
         "git_status", "git_add", "git_commit", "git_diff", "git_log",
         "git_checkout", "git_push", "git_create_pr", "write_file",
         "build", "install_deps", "run_tests",
+        "codebase_map", "codebase_search", "codebase_read_chunk",
+        "code_semantic_search",
+        "delegate_to_agent", "agent_publish", "agent_wait_for",
         "deerflow_delegate",
     ],
     "wayne-qa": [
         "file_read", "file_list", "bash",
         "test_execute", "test_detect", "run_tests",
         "git_diff", "git_log",
+        "browser_open", "browser_screenshot", "browser_click_flow",
+        "codebase_map", "codebase_search", "codebase_read_chunk",
+        "code_semantic_search",
+        "delegate_to_agent", "agent_publish", "agent_wait_for",
         "deerflow_delegate",
     ],
-    "wayne-designer": ["web_search", "file_read", "file_write", "file_list", "deerflow_delegate"],
+    "wayne-designer": [
+        "web_search", "browser_open", "browser_screenshot", "browser_extract",
+        "file_read", "file_write", "file_list",
+        "deerflow_delegate",
+    ],
     "wayne-devops": [
         "file_read", "file_write", "file_list", "bash",
         "git_status", "git_add", "git_commit", "git_push",
         "build", "install_deps", "run_tests",
+        "delegate_to_agent",
         "deerflow_delegate",
     ],
-    "wayne-security": ["file_read", "file_list", "bash", "web_search", "git_diff", "deerflow_delegate"],
-    "wayne-acceptance": ["file_read", "file_list", "web_search", "test_execute", "deerflow_delegate"],
-    "wayne-data": ["file_read", "file_write", "bash", "web_search", "deerflow_delegate"],
-    "wayne-marketing": ["web_search", "file_write", "deerflow_delegate"],
-    "wayne-finance": ["web_search", "file_read", "deerflow_delegate"],
-    "wayne-legal": ["web_search", "file_read", "deerflow_delegate"],
-    "openclaw": ["web_search"],
+    "wayne-security": [
+        "file_read", "file_list", "bash",
+        "web_search", "browser_open",
+        "git_diff", "codebase_search", "code_semantic_search",
+        "deerflow_delegate",
+    ],
+    "wayne-acceptance": [
+        "file_read", "file_list", "web_search",
+        "test_execute", "browser_open", "browser_screenshot",
+        "codebase_search", "code_semantic_search",
+        "deerflow_delegate",
+    ],
+    "wayne-data": [
+        "file_read", "file_write", "bash",
+        "web_search", "browser_open", "browser_extract",
+        "deerflow_delegate",
+    ],
+    "wayne-marketing": [
+        "web_search", "browser_open", "browser_extract",
+        "file_write",
+        "deerflow_delegate",
+    ],
+    "wayne-finance": [
+        "web_search", "browser_open", "browser_extract",
+        "file_read",
+        "deerflow_delegate",
+    ],
+    "wayne-legal": [
+        "web_search", "browser_open", "browser_extract",
+        "file_read",
+        "deerflow_delegate",
+    ],
+    "openclaw": ["web_search", "browser_open"],
 }
 
 # ── Skill bindings per agent ─────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { PipelineTask, PipelineEvent } from '@/agents/types'
+import type { PipelineTask, PipelineEvent, TaskArtifact } from '@/agents/types'
 import {
   localFetchTasks,
   localFetchTask,
@@ -56,6 +56,19 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+function mapArtifacts(raw: any[] | undefined): TaskArtifact[] {
+  if (!raw?.length) return []
+  return raw.map((a: any) => ({
+    id: String(a.id),
+    type: String(a.artifact_type ?? a.type ?? ''),
+    name: String(a.name ?? ''),
+    content: String(a.content ?? ''),
+    stageId: String(a.stage_id ?? a.stageId ?? ''),
+    metadata: (a.metadata_extra ?? a.metadata ?? {}) as Record<string, unknown>,
+    createdAt: a.created_at ? new Date(a.created_at).getTime() : Date.now(),
+  }))
+}
+
 function mapTask(raw: any): PipelineTask {
   return {
     id: raw.id,
@@ -87,8 +100,10 @@ function mapTask(raw: any): PipelineTask {
       gateScore: s.gate_score ?? s.gateScore ?? null,
       gateDetails: s.gate_details ?? s.gateDetails ?? null,
     })),
-    artifacts: raw.artifacts ?? [],
+    artifacts: mapArtifacts(raw.artifacts),
     template: raw.template ?? null,
+    repoUrl: raw.repo_url ?? raw.repoUrl ?? null,
+    projectPath: raw.project_path ?? raw.projectPath ?? null,
     qualityGateConfig: raw.quality_gate_config ?? raw.qualityGateConfig ?? null,
     overallQualityScore: raw.overall_quality_score ?? raw.overallQualityScore ?? null,
     createdBy: raw.created_by ?? raw.createdBy ?? '',
@@ -147,11 +162,66 @@ export async function compileDeliverables(taskId: string): Promise<{
   return apiFetch(`/delivery-docs/compile/${taskId}`, { method: 'POST' })
 }
 
+export function attachmentDownloadUrl(taskId: string, artifactId: string): string {
+  return `${getBaseUrl()}/pipeline/tasks/${taskId}/attachments/${artifactId}/file`
+}
+
+export async function uploadTaskAttachment(taskId: string, file: File): Promise<PipelineTask> {
+  const token = getAuthToken()
+  const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
+  const form = new FormData()
+  form.append('file', file)
+  const headers: Record<string, string> = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+
+  const res = await fetch(`${getBaseUrl()}/pipeline/tasks/${taskId}/attachments/upload`, {
+    method: 'POST',
+    credentials: isEnterprise ? 'include' : 'same-origin',
+    headers,
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(
+      (Array.isArray(body.detail) ? body.detail[0]?.msg : body.detail) ||
+        body.error ||
+        `HTTP ${res.status}`,
+    )
+  }
+  const data = await res.json()
+  return mapTask(data.task)
+}
+
+export async function downloadTaskAttachment(
+  taskId: string,
+  artifactId: string,
+  filename: string,
+): Promise<void> {
+  const token = getAuthToken()
+  const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
+  const res = await fetch(attachmentDownloadUrl(taskId, artifactId), {
+    credentials: isEnterprise ? 'include' : 'same-origin',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    throw new Error(`下载失败 HTTP ${res.status}`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename || 'download'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function createTask(payload: {
   title: string
   description?: string
   source?: string
   template?: string
+  repo_url?: string
+  project_path?: string
 }): Promise<PipelineTask> {
   if (!(await checkServer())) return localCreateTask(payload)
 
@@ -264,6 +334,15 @@ export async function resumeAfterBuild(
   return apiFetch(`/pipeline/tasks/${taskId}/resume-after-build`, {
     method: 'POST',
   })
+}
+
+export async function validateLocalPath(path: string): Promise<{
+  ok: boolean
+  resolved: string | null
+  detail: string | null
+}> {
+  const q = encodeURIComponent(path)
+  return apiFetch(`/pipeline/utils/validate-local-path?path=${q}`)
 }
 
 export async function fetchPipelineHealth(): Promise<{
@@ -520,6 +599,67 @@ export async function resumePipeline(
     method: 'POST',
     body: JSON.stringify({ from_stage: fromStage || null, force_continue: forceContinue || false }),
   })
+}
+
+/**
+ * Resume the DAG-based pipeline from its last checkpoint. Distinct from
+ * `resumePipeline`, which targets the linear engine.
+ *
+ * Use this after a stage failed with `on_failure: rollback`, or after a
+ * `human_gate` paused the run with status `awaiting_approval`. The backend
+ * will:
+ *   1. Treat `awaiting_approval` stages as approved (idempotent).
+ *   2. Restore DONE stages from the checkpoint (and any newer DB updates).
+ *   3. Re-execute everything from the first non-DONE stage.
+ */
+export async function resumeDagPipeline(
+  taskId: string,
+): Promise<{ ok: boolean; taskId: string; resumedFromCheckpoint: boolean; template: string }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/resume-dag`, { method: 'POST' })
+}
+
+// ===== RCA report (Wave 5) =====
+
+export interface RcaStage {
+  stage_id: string
+  label: string
+  owner_role: string
+  status: string
+  retry_count: number
+  max_retries: number
+  last_error: string
+  verify_status?: string | null
+  output_preview: string
+}
+
+export interface RcaReport {
+  ok: boolean
+  task_id: string
+  task_title: string
+  task_status: string
+  has_failure: boolean
+  stages: RcaStage[]
+  failed_stages: RcaStage[]
+  spans_examined: number
+  audits_examined: number
+  bus_msgs_examined: number
+  generated_at: string
+  summary?: string
+  root_cause?: string | null
+  contributing_factors?: string[]
+  recommended_actions?: string[]
+  severity?: string
+  blast_radius?: string
+  evidence?: string
+  llm_error?: string
+  llm_raw?: string
+}
+
+export async function getTaskRca(
+  taskId: string,
+  useLlm = true,
+): Promise<RcaReport> {
+  return apiFetch(`/pipeline/tasks/${taskId}/rca?use_llm=${useLlm ? 'true' : 'false'}`)
 }
 
 // ===== Audit Log =====

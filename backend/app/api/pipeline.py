@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Annotated, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from sqlalchemy import select
@@ -29,6 +31,13 @@ def _parse_task_id(task_id: str) -> uuid.UUID:
     except ValueError:
         raise HTTPException(status_code=400, detail="无效的任务 ID 格式")
 
+
+def _parse_artifact_id(artifact_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(artifact_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的附件 ID")
+
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
@@ -37,6 +46,8 @@ class CreateTaskRequest(BaseModel):
     description: str = ""
     source: str = "web"
     template: Optional[str] = None
+    repo_url: Optional[str] = None
+    project_path: Optional[str] = None
 
 
 class AdvanceRequest(BaseModel):
@@ -73,6 +84,29 @@ def _apply_org_filter(stmt, user: Optional[User]):
     elif user is None:
         stmt = stmt.where(PipelineTask.org_id.is_(None))
     return stmt
+
+
+@router.get("/utils/validate-local-path")
+async def validate_local_path(
+    path: str,
+    _user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+):
+    """Resolve and verify a directory path on the machine running the backend.
+
+    Browsers cannot expose full filesystem paths from directory pickers; the
+    UI uses this endpoint to confirm candidate paths built from folder names.
+    """
+    raw = (path or "").strip()
+    if not raw:
+        return {"ok": False, "resolved": None, "detail": "路径为空"}
+    expanded = os.path.expanduser(raw)
+    try:
+        resolved = os.path.realpath(expanded)
+    except OSError as e:
+        return {"ok": False, "resolved": None, "detail": str(e)}
+    if not os.path.isdir(resolved):
+        return {"ok": False, "resolved": resolved, "detail": "路径不存在或不是目录"}
+    return {"ok": True, "resolved": resolved, "detail": None}
 
 
 @router.get("/tasks")
@@ -138,11 +172,27 @@ async def create_task(
 
     first_stage = stages_list[0]["stage_id"] if stages_list else "planning"
 
+    project_path = None
+    if body.repo_url:
+        from ..services.project_binding import clone_and_bind
+        try:
+            project_path = await clone_and_bind(body.repo_url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    elif body.project_path:
+        from ..services.project_binding import validate_and_bind
+        try:
+            project_path = validate_and_bind(body.project_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     task = PipelineTask(
         title=body.title,
         description=body.description,
         source=body.source,
         template=body.template,
+        repo_url=body.repo_url,
+        project_path=project_path or body.project_path,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
         current_stage_id=first_stage,
@@ -263,6 +313,58 @@ async def add_artifact(
         .where(PipelineTask.id == task.id)
     )
     return {"task": result.scalar_one()}
+
+
+@router.post("/tasks/{task_id}/attachments/upload")
+async def upload_task_attachment(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+):
+    """Upload an image or file; stored as PipelineArtifact (upload_image / upload_file)."""
+    task = await _get_task_or_404(db, task_id, user)
+    from ..services.pipeline_attachments import save_upload_to_artifact
+
+    await save_upload_to_artifact(db, task, file)
+    await db.commit()
+
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
+        .where(PipelineTask.id == task.id)
+    )
+    return {"task": result.scalar_one()}
+
+
+@router.get("/tasks/{task_id}/attachments/{artifact_id}/file")
+async def download_task_attachment(
+    task_id: str,
+    artifact_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    aid = _parse_artifact_id(artifact_id)
+    r = await db.execute(
+        select(PipelineArtifact).where(
+            PipelineArtifact.id == aid,
+            PipelineArtifact.task_id == task.id,
+        )
+    )
+    art = r.scalar_one_or_none()
+    if not art:
+        raise HTTPException(status_code=404, detail="附件不存在")
+    meta = art.metadata_extra or {}
+    path = meta.get("storage_path")
+    if not path:
+        raise HTTPException(status_code=404, detail="无文件内容")
+    from ..services.pipeline_attachments import resolve_storage_path_or_404
+
+    fp = resolve_storage_path_or_404(path)
+    mime = meta.get("mime") or "application/octet-stream"
+    name = meta.get("original_filename") or art.name
+    return FileResponse(fp, media_type=mime, filename=name)
 
 
 class UpdateTaskRequest(BaseModel):
@@ -409,6 +511,7 @@ async def run_single_stage(
 
     tid = str(task.id)
     t_title, t_desc = task.title, task.description
+    t_proj_path = task.project_path
 
     async def _run(bg_db: AsyncSession):
         from ..services.pipeline_engine import execute_stage
@@ -423,6 +526,7 @@ async def run_single_stage(
             task_description=t_desc,
             stage_id=stage_id,
             previous_outputs=previous_outputs,
+            project_path=t_proj_path,
         )
 
         if result.get("ok"):
@@ -464,6 +568,7 @@ async def auto_run_pipeline(
     """
     task = await _get_task_or_404(db, task_id, user, load_relations=False)
     tid, title, desc = str(task.id), task.title, task.description
+    proj_path = task.project_path
 
     async def _run(bg_db: AsyncSession):
         from ..services.pipeline_engine import execute_full_pipeline
@@ -473,6 +578,7 @@ async def auto_run_pipeline(
             task_title=title,
             task_description=desc,
             force_continue=True,
+            project_path=proj_path,
         )
 
     asyncio.create_task(_run_in_background(_run, f"auto-run:{tid[:8]}"))
@@ -567,9 +673,96 @@ async def dag_run(
         task_description=task.description,
         template=body.template,
         complexity=body.complexity,
+        project_path=task.project_path,
     )
     await db.commit()
     return {"ok": dag_result.get("ok", False), "taskId": str(task.id), **dag_result}
+
+
+@router.post("/tasks/{task_id}/resume-dag")
+async def resume_task_dag(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Resume a paused/failed/awaiting-approval DAG pipeline from its last checkpoint.
+
+    This is the DAG-side counterpart to the linear ``/resume`` endpoint
+    (see ``resume_pipeline`` below). It hands off to
+    ``execute_dag_pipeline(resume=True)``, which restores DONE stages
+    from the checkpoint artifact and picks up at the first non-DONE
+    stage — including stages that were paused by a human gate.
+    """
+    task = await _get_task_or_404(db, task_id, user, load_relations=True)
+
+    # If a stage is sitting in `awaiting_approval` from a human gate, the
+    # caller is implicitly approving it by resuming. Flip it to `done` so
+    # the checkpoint loader treats it as completed and the next stage runs.
+    # An explicit `/approve` call from the UI would already have done this,
+    # but resuming should be idempotent either way.
+    for s in task.stages:
+        if s.status == "awaiting_approval":
+            s.status = "done"
+            s.completed_at = datetime.utcnow()
+    if task.stages:
+        await db.flush()
+
+    from ..services.pipeline_checkpoint import load_checkpoint
+    ckpt = await load_checkpoint(db, str(task.id))
+    template = (ckpt.get("template") if ckpt else None) or task.template or "full"
+
+    from ..services.dag_orchestrator import execute_dag_pipeline
+    dag_result = await execute_dag_pipeline(
+        db,
+        task_id=str(task.id),
+        task_title=task.title,
+        task_description=task.description,
+        template=template,
+        project_path=task.project_path,
+        resume=True,
+    )
+    await db.commit()
+    return {
+        "ok": dag_result.get("ok", False),
+        "taskId": str(task.id),
+        "resumedFromCheckpoint": bool(ckpt),
+        "template": template,
+        **dag_result,
+    }
+
+
+@router.get("/tasks/{task_id}/rca")
+async def get_task_rca(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    use_llm: bool = True,
+):
+    """Generate a structured RCA report for the task by aggregating stage
+    errors, span errors, audit events, and inter-agent bus messages.
+    Falls back to a deterministic summary when ``use_llm=false`` or when
+    no LLM key is configured.
+    """
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    from ..services.rca_reporter import generate_rca
+
+    report = await generate_rca(db, task_id=str(task.id), use_llm=use_llm)
+    if not report.get("ok"):
+        raise HTTPException(status_code=400, detail=report.get("error") or "RCA failed")
+    return report
+
+
+@router.get("/tasks/{task_id}/checkpoint")
+async def get_task_checkpoint(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Inspect the last DAG checkpoint (if any) for a task."""
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    from ..services.pipeline_checkpoint import load_checkpoint
+    ckpt = await load_checkpoint(db, str(task.id))
+    return {"taskId": str(task.id), "checkpoint": ckpt}
 
 
 @router.get("/templates")
@@ -655,6 +848,8 @@ class E2ERequest(BaseModel):
     description: str = ""
     auto_deploy: bool = True
     dag_template: str = "full"
+    repo_url: Optional[str] = None
+    project_path: Optional[str] = None
 
 
 @router.post("/e2e")
@@ -669,10 +864,26 @@ async def run_end_to_end(
     """
     from ..services.collaboration import PIPELINE_STAGES
 
+    e2e_project_path = None
+    if body.repo_url:
+        from ..services.project_binding import clone_and_bind
+        try:
+            e2e_project_path = await clone_and_bind(body.repo_url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    elif body.project_path:
+        from ..services.project_binding import validate_and_bind
+        try:
+            e2e_project_path = validate_and_bind(body.project_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     task = PipelineTask(
         title=body.title,
         description=body.description,
         source="api-e2e",
+        repo_url=body.repo_url,
+        project_path=e2e_project_path or body.project_path,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
         current_stage_id="planning",
@@ -704,6 +915,7 @@ async def run_end_to_end(
         task_description=body.description,
         auto_deploy=body.auto_deploy,
         dag_template=body.dag_template,
+        existing_project_dir=e2e_project_path,
     )
 
     return {
@@ -1051,6 +1263,7 @@ async def resume_pipeline(
                 stages=remaining_stages,
                 force_continue=body.force_continue,
                 prior_outputs=captured_outputs,
+                project_path=task.project_path,
             )
             await session.commit()
 

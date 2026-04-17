@@ -1,6 +1,7 @@
 """Feedback Loop — process user feedback and trigger Agent iteration (DB-backed)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -11,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..sse import emit_event
 from ...models.observability import FeedbackRecord
-from ...database import async_session
+from ...models.pipeline import PipelineTask
+from ...database import async_session, async_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +156,7 @@ class FeedbackLoop:
             item.resolved_at = datetime.utcnow().isoformat()
             item.resolution = "approved_for_deployment"
             await _update_feedback_status(feedback_id, "resolved", "approved_for_deployment", item.iteration_count)
+            asyncio.create_task(_apply_feedback_in_background(item, action="approve"))
             return {
                 "ok": True,
                 "action": "deploy",
@@ -163,7 +166,9 @@ class FeedbackLoop:
 
         if item.feedback_type in ("reject", "revision"):
             stages_to_rerun = self._determine_stages_to_rerun(item.content)
-
+            asyncio.create_task(_apply_feedback_in_background(
+                item, action="iterate", stages=stages_to_rerun,
+            ))
             return {
                 "ok": True,
                 "action": "iterate",
@@ -175,6 +180,9 @@ class FeedbackLoop:
             }
 
         if item.feedback_type == "bug_report":
+            asyncio.create_task(_apply_feedback_in_background(
+                item, action="fix", stages=["development", "testing"],
+            ))
             return {
                 "ok": True,
                 "action": "fix",
@@ -297,3 +305,182 @@ class FeedbackLoop:
 
 
 feedback_loop = FeedbackLoop()
+
+
+async def _apply_feedback_in_background(
+    item: "FeedbackItem",
+    *,
+    action: str,
+    stages: Optional[List[str]] = None,
+) -> None:
+    """Spawn the actual iteration / approval work on a fresh DB session.
+
+    Concurrency: only one e2e iteration may run per task at a time.
+    Additional feedback that arrives while a run is in progress is queued
+    and merged into the next iteration after the current one finishes.
+
+    - approve  → notify completion (no re-run needed).
+    - iterate  → merge feedback into description and re-run e2e on the same
+                 project_dir; codegen/build/deploy will pick up the changes.
+    - fix      → same as iterate but biased toward development/testing stages.
+    """
+    from ..e2e_orchestrator import run_full_e2e
+    from ..notify import notify_task_event
+    from ..feedback_lock import (
+        acquire_lock, release_lock, enqueue_pending, drain_pending,
+    )
+
+    task_id = item.task_id
+    initial_payload = {
+        "feedback_id": item.id,
+        "action": action,
+        "stages": stages or [],
+        "content": item.content,
+        "iteration_count": item.iteration_count,
+    }
+
+    if action == "approve":
+        try:
+            async with async_session_factory() as db:
+                async with db.begin():
+                    task = await db.get(PipelineTask, _to_uuid(task_id))
+                    if task is not None:
+                        await notify_task_event(
+                            task, event="completed",
+                            message="用户已确认，结果保留为最终版本",
+                        )
+            await _update_feedback_status(
+                item.id, "resolved", "approved_for_deployment",
+                item.iteration_count,
+            )
+        except Exception as e:
+            logger.exception(f"[feedback] approve failed: {e}")
+        return
+
+    if not await acquire_lock(task_id, owner=item.id):
+        queued = await enqueue_pending(task_id, initial_payload)
+        try:
+            async with async_session_factory() as db:
+                async with db.begin():
+                    task = await db.get(PipelineTask, _to_uuid(task_id))
+                    if task is not None:
+                        await notify_task_event(
+                            task, event="feedback_ack",
+                            message=f"上一轮还在处理，本次反馈已加入队列（第 {queued} 条）",
+                            extras={"动作": action},
+                        )
+        except Exception as e:
+            logger.warning(f"[feedback] queued-notify failed: {e}")
+        await emit_event("feedback:queued", {
+            "taskId": task_id, "feedbackId": item.id, "queueLength": queued,
+        })
+        return
+
+    pending: List[Dict[str, Any]] = [initial_payload]
+    try:
+        while pending:
+            await _run_one_iteration(task_id, pending)
+            pending = await drain_pending(task_id)
+            if pending:
+                await emit_event("feedback:drain", {
+                    "taskId": task_id, "count": len(pending),
+                })
+    except Exception as e:
+        logger.exception(f"[feedback] background apply failed: {e}")
+        try:
+            await _update_feedback_status(item.id, "failed", str(e)[:300],
+                                          item.iteration_count)
+        except Exception:
+            pass
+    finally:
+        await release_lock(task_id, owner=item.id)
+
+
+async def _run_one_iteration(task_id: str, payloads: List[Dict[str, Any]]) -> None:
+    """Run a single e2e pass, merging all queued feedback payloads."""
+    from ..e2e_orchestrator import run_full_e2e
+    from ..notify import notify_task_event
+
+    primary = payloads[0]
+    primary_id = primary["feedback_id"]
+    iteration_count = primary.get("iteration_count", 1)
+    actions = sorted({p["action"] for p in payloads})
+    stages_union: List[str] = []
+    for p in payloads:
+        for s in (p.get("stages") or []):
+            if s not in stages_union:
+                stages_union.append(s)
+
+    merged_feedback_lines: List[str] = []
+    for p in payloads:
+        merged_feedback_lines.append(
+            f"- [{p['action']}] {p.get('content', '')}"
+        )
+    merged_feedback = "\n".join(merged_feedback_lines)
+
+    async with async_session_factory() as db:
+        async with db.begin():
+            task = await db.get(PipelineTask, _to_uuid(task_id))
+            if task is None:
+                logger.warning(f"[feedback] task not found for {task_id}")
+                return
+
+            await notify_task_event(
+                task, event="iterating",
+                message=f"已合并 {len(payloads)} 条反馈，开始重新处理",
+                extras={"动作": ", ".join(actions), "轮次": iteration_count},
+            )
+
+            stage_hint = ", ".join(stages_union)
+            merged_description = (
+                f"{task.description or ''}\n\n"
+                f"## 用户反馈（第 {iteration_count} 轮，{', '.join(actions)}）\n"
+                f"{merged_feedback}\n\n"
+                f"涉及阶段：{stage_hint or '自动判定'}"
+            )
+
+            project_path = task.project_path or ""
+
+            await emit_event("feedback:apply-start", {
+                "taskId": task_id,
+                "feedbackId": primary_id,
+                "actions": actions,
+                "stages": stages_union,
+                "mergedCount": len(payloads),
+            })
+
+            result = await run_full_e2e(
+                db,
+                task_id=task_id,
+                task_title=task.title or "",
+                task_description=merged_description,
+                auto_deploy=True,
+                dag_template="full",
+                existing_project_dir=project_path or None,
+            )
+
+    final_status = "resolved" if result.get("ok") else "failed"
+    for p in payloads:
+        try:
+            await _update_feedback_status(
+                p["feedback_id"], final_status,
+                f"{p['action']}: ok={result.get('ok')} url={result.get('url', '')}",
+                p.get("iteration_count", 1),
+            )
+        except Exception as e:
+            logger.warning(f"[feedback] update status failed for {p['feedback_id']}: {e}")
+
+    await emit_event("feedback:apply-done", {
+        "taskId": task_id,
+        "feedbackId": primary_id,
+        "ok": result.get("ok"),
+        "url": result.get("url", ""),
+        "mergedCount": len(payloads),
+    })
+
+
+def _to_uuid(task_id: str):
+    try:
+        return uuid.UUID(task_id)
+    except (ValueError, TypeError):
+        return task_id

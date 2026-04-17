@@ -4,6 +4,7 @@ Supports both blocking and streaming modes for all providers.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -93,6 +94,43 @@ def _get_api_key(provider: str) -> str:
     return keys.get(provider, settings.llm_api_key)
 
 
+def _first_user_index_in_conversation(conversation: List[Dict[str, Any]]) -> int:
+    for idx, m in enumerate(conversation):
+        if m.get("role") == "user":
+            return idx
+    return -1
+
+
+def _first_user_index_in_messages(messages: List[Dict[str, Any]]) -> int:
+    for idx, m in enumerate(messages):
+        if m.get("role") == "user":
+            return idx
+    return -1
+
+
+def _messages_openai_multimodal(
+    messages: List[Dict[str, Any]],
+    image_attachments: List[Tuple[str, str]],
+) -> List[Dict[str, Any]]:
+    """OpenAI-compatible vision: merge images into the first user message (main task; data URLs)."""
+    out = copy.deepcopy(messages)
+    li = _first_user_index_in_messages(out)
+    if li < 0:
+        return out
+    u = out[li]
+    raw = u.get("content", "")
+    if isinstance(raw, list):
+        return out
+    parts: List[Dict[str, Any]] = [{"type": "text", "text": str(raw)}]
+    for mime, b64 in image_attachments:
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "auto"},
+        })
+    u["content"] = parts
+    return out
+
+
 def _extract_system_and_messages(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
     system = "\n\n".join(system_parts).strip()
@@ -111,7 +149,13 @@ def _extract_system_and_messages(messages: List[Dict[str, Any]]) -> Tuple[str, L
     return system, conversation
 
 
-def _build_anthropic_body(model: str, messages: List[Dict[str, Any]], temperature: float, max_tokens: int) -> Dict[str, Any]:
+def _build_anthropic_body(
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: float,
+    max_tokens: int,
+    user_images: Optional[List[Tuple[str, str]]] = None,
+) -> Dict[str, Any]:
     system, conversation = _extract_system_and_messages(messages)
     anthropic_messages = []
     for m in conversation:
@@ -148,6 +192,28 @@ def _build_anthropic_body(model: str, messages: List[Dict[str, Any]], temperatur
                 "role": role,
                 "content": [{"type": "text", "text": str(m.get("content", ""))}],
             })
+    if user_images:
+        merged = False
+        for m in anthropic_messages:
+            if m["role"] != "user" or merged:
+                continue
+            content = m.get("content")
+            if not isinstance(content, list):
+                continue
+            img_blocks = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": b64,
+                    },
+                }
+                for mime, b64 in user_images
+            ]
+            m["content"] = img_blocks + content
+            merged = True
+            break
     body: Dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
@@ -159,13 +225,28 @@ def _build_anthropic_body(model: str, messages: List[Dict[str, Any]], temperatur
     return body
 
 
-def _build_gemini_body(messages: List[Dict[str, Any]], temperature: float, max_tokens: int) -> Dict[str, Any]:
+def _build_gemini_body(
+    messages: List[Dict[str, Any]],
+    temperature: float,
+    max_tokens: int,
+    user_images: Optional[List[Tuple[str, str]]] = None,
+) -> Dict[str, Any]:
     system, conversation = _extract_system_and_messages(messages)
+    idx_user = _first_user_index_in_conversation(conversation)
+    contents: List[Dict[str, Any]] = []
+    for i, m in enumerate(conversation):
+        role_g = "model" if m["role"] == "assistant" else "user"
+        text = str(m.get("content", ""))
+        if role_g == "user" and user_images and i == idx_user:
+            parts: List[Dict[str, Any]] = [{"text": text}]
+            for mime, b64 in user_images:
+                mt = "image/jpeg" if mime == "image/jpg" else mime
+                parts.append({"inlineData": {"mimeType": mt, "data": b64}})
+            contents.append({"role": role_g, "parts": parts})
+        else:
+            contents.append({"role": role_g, "parts": [{"text": text}]})
     body: Dict[str, Any] = {
-        "contents": [
-            {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
-            for m in conversation
-        ],
+        "contents": contents,
         "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
     }
     if system:
@@ -212,8 +293,16 @@ async def chat_completion(
     api_url: str = "",
     tools: Optional[List[Dict[str, Any]]] = None,
     tool_choice: Optional[str] = None,
+    image_attachments: Optional[List[Tuple[str, str]]] = None,
+    anthropic_image_attachments: Optional[List[Tuple[str, str]]] = None,
 ) -> Dict[str, Any]:
-    """Non-streaming chat completion (aggregates full response)."""
+    """Non-streaming chat completion (aggregates full response).
+
+    image_attachments: list of (mime_type, base64_raw) for the last user turn.
+    Supported: anthropic (native), google (inlineData), openai-compatible (image_url data URLs).
+    anthropic_image_attachments is deprecated; use image_attachments.
+    """
+    imgs = image_attachments if image_attachments is not None else anthropic_image_attachments
     try:
         api_url = _validate_api_url(api_url)
     except ValueError as e:
@@ -231,11 +320,23 @@ async def chat_completion(
             if provider == "anthropic":
                 url = api_url or PROVIDER_ENDPOINTS["anthropic"]
                 headers = {"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
-                body = _build_anthropic_body(model, messages, temperature, max_tokens)
+                body = _build_anthropic_body(model, messages, temperature, max_tokens, user_images=imgs)
                 if tools:
                     body["tools"] = _convert_tools_to_anthropic(tools)
                 resp = await client.post(url, headers=headers, json=body)
                 latency_ms = int((time.monotonic() - started) * 1000)
+                if resp.status_code != 200 and imgs:
+                    logger.warning(
+                        "[llm] Anthropic multimodal failed (%s), retrying text-only",
+                        resp.status_code,
+                    )
+                    body = _build_anthropic_body(
+                        model, messages, temperature, max_tokens, user_images=None,
+                    )
+                    if tools:
+                        body["tools"] = _convert_tools_to_anthropic(tools)
+                    resp = await client.post(url, headers=headers, json=body)
+                    latency_ms = int((time.monotonic() - started) * 1000)
                 if resp.status_code != 200:
                     return {"error": resp.text[:2000], "status": resp.status_code, "latency_ms": latency_ms}
                 data = resp.json()
@@ -253,9 +354,17 @@ async def chat_completion(
                 base = (api_url or PROVIDER_ENDPOINTS["google"]).rstrip("/")
                 url = f"{base}/{model}:generateContent"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-                body = _build_gemini_body(messages, temperature, max_tokens)
+                body = _build_gemini_body(messages, temperature, max_tokens, user_images=imgs)
                 resp = await client.post(url, headers=headers, json=body)
                 latency_ms = int((time.monotonic() - started) * 1000)
+                if resp.status_code != 200 and imgs:
+                    logger.warning(
+                        "[llm] Gemini multimodal failed (%s), retrying text-only",
+                        resp.status_code,
+                    )
+                    body = _build_gemini_body(messages, temperature, max_tokens, user_images=None)
+                    resp = await client.post(url, headers=headers, json=body)
+                    latency_ms = int((time.monotonic() - started) * 1000)
                 if resp.status_code != 200:
                     return {"error": resp.text[:2000], "status": resp.status_code, "latency_ms": latency_ms}
                 data = resp.json()
@@ -265,12 +374,13 @@ async def chat_completion(
                     "provider": provider, "model": model, "latency_ms": latency_ms,
                 }
 
-            # OpenAI-compatible (OpenAI, DeepSeek, Zhipu, Qwen)
+            # OpenAI-compatible (OpenAI, DeepSeek, Zhipu, Qwen, etc.)
             url = api_url or PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openai"])
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            oa_messages = _messages_openai_multimodal(messages, imgs) if imgs else messages
             body: Dict[str, Any] = {
                 "model": model,
-                "messages": messages,
+                "messages": oa_messages,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "stream": False,
@@ -281,6 +391,14 @@ async def chat_completion(
                     body["tool_choice"] = tool_choice
             resp = await client.post(url, headers=headers, json=body)
             latency_ms = int((time.monotonic() - started) * 1000)
+            if resp.status_code != 200 and imgs:
+                logger.warning(
+                    "[llm] OpenAI-compatible vision failed (%s), retrying text-only",
+                    resp.status_code,
+                )
+                body["messages"] = messages
+                resp = await client.post(url, headers=headers, json=body)
+                latency_ms = int((time.monotonic() - started) * 1000)
             if resp.status_code != 200:
                 return {"error": resp.text[:2000], "status": resp.status_code, "latency_ms": latency_ms}
             data = resp.json()
@@ -320,8 +438,11 @@ async def chat_completion_stream(
     temperature: float = 0.7,
     max_tokens: int = 4096,
     api_url: str = "",
+    image_attachments: Optional[List[Tuple[str, str]]] = None,
+    anthropic_image_attachments: Optional[List[Tuple[str, str]]] = None,
 ) -> AsyncIterator[str]:
     """Streaming chat completion — yields SSE-compatible data chunks."""
+    imgs = image_attachments if image_attachments is not None else anthropic_image_attachments
     try:
         api_url = _validate_api_url(api_url)
     except ValueError as e:
@@ -340,9 +461,38 @@ async def chat_completion_stream(
             if provider == "anthropic":
                 url = api_url or PROVIDER_ENDPOINTS["anthropic"]
                 headers = {"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"}
-                body = _build_anthropic_body(model, messages, temperature, max_tokens)
+                body = _build_anthropic_body(model, messages, temperature, max_tokens, user_images=imgs)
                 body["stream"] = True
                 async with client.stream("POST", url, headers=headers, json=body) as resp:
+                    if resp.status_code != 200 and imgs:
+                        logger.warning(
+                            "[llm] Anthropic stream multimodal failed (%s), retry text-only",
+                            resp.status_code,
+                        )
+                        body = _build_anthropic_body(
+                            model, messages, temperature, max_tokens, user_images=None,
+                        )
+                        body["stream"] = True
+                        async with client.stream("POST", url, headers=headers, json=body) as resp2:
+                            if resp2.status_code != 200:
+                                text = await resp2.aread()
+                                yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
+                                return
+                            async for line in resp2.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                payload = line[6:]
+                                if payload.strip() == "[DONE]":
+                                    break
+                                try:
+                                    event = json.loads(payload)
+                                    delta = event.get("delta", {})
+                                    if delta.get("type") == "text_delta":
+                                        yield f"data: {json.dumps({'content': delta.get('text', ''), 'provider': provider})}\n\n"
+                                except json.JSONDecodeError:
+                                    pass
+                            yield "data: [DONE]\n\n"
+                            return
                     if resp.status_code != 200:
                         text = await resp.aread()
                         yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
@@ -367,8 +517,33 @@ async def chat_completion_stream(
                 base = (api_url or PROVIDER_ENDPOINTS["google"]).rstrip("/")
                 url = f"{base}/{model}:streamGenerateContent?alt=sse"
                 headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-                body = _build_gemini_body(messages, temperature, max_tokens)
+                body = _build_gemini_body(messages, temperature, max_tokens, user_images=imgs)
                 async with client.stream("POST", url, headers=headers, json=body) as resp:
+                    if resp.status_code != 200 and imgs:
+                        logger.warning(
+                            "[llm] Gemini stream multimodal failed (%s), retry text-only",
+                            resp.status_code,
+                        )
+                        body = _build_gemini_body(messages, temperature, max_tokens, user_images=None)
+                        async with client.stream("POST", url, headers=headers, json=body) as resp2:
+                            if resp2.status_code != 200:
+                                text = await resp2.aread()
+                                yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
+                                return
+                            async for line in resp2.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                payload = line[6:]
+                                try:
+                                    event = json.loads(payload)
+                                    parts = event.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                                    text = "".join(p.get("text", "") for p in parts)
+                                    if text:
+                                        yield f"data: {json.dumps({'content': text, 'provider': provider})}\n\n"
+                                except json.JSONDecodeError:
+                                    pass
+                            yield "data: [DONE]\n\n"
+                            return
                     if resp.status_code != 200:
                         text = await resp.aread()
                         yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
@@ -391,14 +566,41 @@ async def chat_completion_stream(
             # OpenAI-compatible streaming
             url = api_url or PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openai"])
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+            oa_msgs = _messages_openai_multimodal(messages, imgs) if imgs else messages
             body = {
                 "model": model,
-                "messages": messages,
+                "messages": oa_msgs,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
                 "stream": True,
             }
             async with client.stream("POST", url, headers=headers, json=body) as resp:
+                if resp.status_code != 200 and imgs:
+                    logger.warning(
+                        "[llm] OpenAI-compatible stream vision failed (%s), retry text-only",
+                        resp.status_code,
+                    )
+                    body["messages"] = messages
+                    async with client.stream("POST", url, headers=headers, json=body) as resp2:
+                        if resp2.status_code != 200:
+                            text = await resp2.aread()
+                            yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
+                            return
+                        async for line in resp2.aiter_lines():
+                            if line.startswith("data: "):
+                                payload = line[6:]
+                                if payload.strip() == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(payload)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    c = delta.get("content", "")
+                                    if c:
+                                        yield f"data: {json.dumps({'content': c, 'provider': provider})}\n\n"
+                                except json.JSONDecodeError:
+                                    pass
+                        yield "data: [DONE]\n\n"
+                        return
                 if resp.status_code != 200:
                     text = await resp.aread()
                     yield f"data: {json.dumps({'error': text.decode()[:1000]})}\n\n"
@@ -446,3 +648,109 @@ def _extract_anthropic_tool_calls(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 },
             })
     return result
+
+
+# ─────────────────────────────────────────────────────────────────
+# Embeddings (OpenAI-compatible /v1/embeddings).
+#
+# Provider routing reuses the same key-discovery as chat_completion. We map
+# `provider → embeddings_endpoint` so a misconfigured chat-completions URL
+# doesn't accidentally get reused for embeddings (different schemas).
+# ─────────────────────────────────────────────────────────────────
+
+EMBEDDING_ENDPOINTS: Dict[str, str] = {
+    "openai":   "https://api.openai.com/v1/embeddings",
+    "deepseek": "https://api.deepseek.com/v1/embeddings",
+    "zhipu":    "https://open.bigmodel.cn/api/paas/v4/embeddings",
+    "qwen":     "https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
+}
+
+DEFAULT_EMBEDDING_MODELS: Dict[str, str] = {
+    "openai":   "text-embedding-3-small",
+    "deepseek": "deepseek-embedding",
+    "zhipu":    "embedding-2",
+    "qwen":     "text-embedding-v2",
+}
+
+
+async def create_embeddings(
+    inputs: List[str],
+    *,
+    model: str = "",
+    provider: str = "",
+    batch_size: int = 64,
+    timeout: float = 60.0,
+) -> Dict[str, Any]:
+    """Embed a list of texts; returns {ok, vectors[][], dim, provider, model, usage}.
+
+    On any failure, returns {ok: False, error: "..."} — callers should treat
+    embeddings as best-effort and fall back to literal search.
+    """
+    if not inputs:
+        return {"ok": True, "vectors": [], "dim": 0, "provider": "", "model": ""}
+
+    chosen_provider = (provider or "").lower()
+    if not chosen_provider:
+        keys = settings.get_provider_keys()
+        for cand in ("openai", "deepseek", "zhipu", "qwen"):
+            if keys.get(cand):
+                chosen_provider = cand
+                break
+    if not chosen_provider:
+        return {"ok": False, "error": "no embeddings-capable provider configured"}
+
+    api_key = _get_api_key(chosen_provider)
+    if not api_key:
+        return {"ok": False, "error": f"no api key for provider {chosen_provider}"}
+
+    chosen_model = model or DEFAULT_EMBEDDING_MODELS.get(chosen_provider, "text-embedding-3-small")
+    url = EMBEDDING_ENDPOINTS.get(chosen_provider)
+    if not url:
+        return {"ok": False, "error": f"provider {chosen_provider} has no embeddings endpoint mapped"}
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
+    all_vectors: List[List[float]] = []
+    total_tokens = 0
+    started = time.monotonic()
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for offset in range(0, len(inputs), batch_size):
+                batch = inputs[offset:offset + batch_size]
+                resp = await client.post(
+                    url, headers=headers,
+                    json={"model": chosen_model, "input": batch},
+                )
+                if resp.status_code != 200:
+                    return {
+                        "ok": False,
+                        "error": f"http {resp.status_code}: {resp.text[:300]}",
+                        "provider": chosen_provider, "model": chosen_model,
+                    }
+                data = resp.json()
+                items = data.get("data") or []
+                items.sort(key=lambda x: x.get("index", 0))
+                for item in items:
+                    vec = item.get("embedding") or []
+                    if not isinstance(vec, list):
+                        continue
+                    all_vectors.append([float(x) for x in vec])
+                usage = data.get("usage") or {}
+                total_tokens += int(usage.get("total_tokens") or 0)
+    except Exception as e:
+        return {"ok": False, "error": f"embeddings call failed: {e}"}
+
+    dim = len(all_vectors[0]) if all_vectors else 0
+    return {
+        "ok": True,
+        "provider": chosen_provider,
+        "model": chosen_model,
+        "vectors": all_vectors,
+        "dim": dim,
+        "usage": {"total_tokens": total_tokens},
+        "elapsed_ms": int((time.monotonic() - started) * 1000),
+    }

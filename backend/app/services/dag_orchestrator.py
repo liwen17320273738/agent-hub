@@ -40,7 +40,20 @@ class StageStatus(str, Enum):
 
 
 class DAGStage:
-    """A single stage in the execution DAG."""
+    """A single stage in the execution DAG.
+
+    Wave-4 fields (``max_retries``, ``on_failure``, ``human_gate``) are
+    declarative metadata that mirror the per-stage columns in
+    ``pipeline_stages`` and are honoured by ``execute_dag_pipeline``:
+
+    * ``max_retries`` — re-run a failed stage up to N times before
+      applying ``on_failure``. Default 0 = no auto-retry.
+    * ``on_failure`` — what to do when retries are exhausted.
+      ``"halt"`` (default), ``"rollback"``, or ``"skip"``.
+    * ``human_gate`` — when True, the stage pauses the DAG after
+      completing successfully (status ``awaiting_approval``) until a
+      reviewer approves via ``POST /pipeline/tasks/{id}/stages/{sid}/approve``.
+    """
 
     def __init__(
         self,
@@ -49,6 +62,10 @@ class DAGStage:
         role: str,
         depends_on: Optional[List[str]] = None,
         skip_condition: Optional[str] = None,
+        *,
+        max_retries: int = 0,
+        on_failure: str = "halt",
+        human_gate: bool = False,
     ):
         self.stage_id = stage_id
         self.label = label
@@ -58,6 +75,10 @@ class DAGStage:
         self.status = StageStatus.PENDING
         self.output: Optional[str] = None
         self.error: Optional[str] = None
+        self.max_retries = int(max_retries)
+        self.on_failure = on_failure if on_failure in ("halt", "rollback", "skip") else "halt"
+        self.human_gate = bool(human_gate)
+        self.retry_count = 0
 
 
 PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
@@ -220,6 +241,38 @@ def _extract_rejection_target(content: str) -> Optional[str]:
     return "planning"
 
 
+async def _persist_stage_state(
+    db: AsyncSession,
+    task_id: str,
+    stage: "DAGStage",
+    *,
+    db_status: Optional[str] = None,
+) -> None:
+    """Mirror in-memory DAG state to the matching ``pipeline_stages`` row.
+
+    Lets the UI / approve API observe retry counts, last_error, and the
+    ``awaiting_approval`` status without waiting for end-of-pipeline sync.
+    Best-effort: failures are logged and swallowed.
+    """
+    try:
+        result = await db.execute(
+            select(PipelineStage).where(
+                PipelineStage.task_id == uuid.UUID(task_id),
+                PipelineStage.stage_id == stage.stage_id,
+            )
+        )
+        row = result.scalar_one_or_none()
+        if not row:
+            return
+        if db_status:
+            row.status = db_status
+        row.retry_count = stage.retry_count
+        row.last_error = (stage.error or "")[:5000] if stage.error else None
+        await db.flush()
+    except Exception as e:
+        logger.debug(f"[dag] persist_stage_state failed for {stage.stage_id}: {e}")
+
+
 def _reset_to_stage(stages: List[DAGStage], target_stage_id: str) -> None:
     """Reset a stage and all stages that depend on it back to PENDING."""
     target_idx = next(
@@ -288,25 +341,106 @@ async def execute_dag_pipeline(
     task_description: str,
     template: str = "full",
     complexity: Optional[str] = None,
+    project_path: Optional[str] = None,
+    resume: bool = False,
 ) -> Dict[str, Any]:
     """Execute a pipeline using DAG-based scheduling.
-    
+
     Stages without dependencies run in parallel.
+
+    If `resume=True` and a checkpoint exists for this task, stages already
+    marked DONE are skipped (their outputs are restored), and the run picks
+    up from the first non-DONE stage.
     """
     template_stages = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full"])
     stages = [
-        DAGStage(s.stage_id, s.label, s.role, list(s.depends_on), s.skip_condition)
+        DAGStage(
+            s.stage_id, s.label, s.role,
+            list(s.depends_on), s.skip_condition,
+            max_retries=getattr(s, "max_retries", 0),
+            on_failure=getattr(s, "on_failure", "halt"),
+            human_gate=getattr(s, "human_gate", False),
+        )
         for s in template_stages
     ]
+
+    # When the matching DB row exists with overrides, prefer those — lets
+    # operators tweak retry/gate per-task without redeploying.
+    db_stage_overrides: Dict[str, Dict[str, Any]] = {}
+    try:
+        result = await db.execute(
+            select(PipelineStage).where(PipelineStage.task_id == uuid.UUID(task_id))
+        )
+        for row in result.scalars().all():
+            db_stage_overrides[row.stage_id] = {
+                "max_retries": int(row.max_retries or 0),
+                "on_failure": row.on_failure or "halt",
+                "human_gate": bool(row.human_gate),
+                "retry_count": int(row.retry_count or 0),
+            }
+    except Exception as e:
+        logger.debug(f"[dag] no per-stage overrides loaded: {e}")
+    for stg in stages:
+        ov = db_stage_overrides.get(stg.stage_id)
+        if not ov:
+            continue
+        if ov["max_retries"]:
+            stg.max_retries = ov["max_retries"]
+        if ov["on_failure"]:
+            stg.on_failure = ov["on_failure"]
+        stg.human_gate = stg.human_gate or ov["human_gate"]
+        stg.retry_count = ov["retry_count"]
+
+    from .pipeline_checkpoint import load_checkpoint, save_checkpoint
+    outputs: Dict[str, str] = {}
+    resumed_from = None
+    if resume:
+        ckpt = await load_checkpoint(db, task_id)
+        saved_outputs: Dict[str, str] = (ckpt or {}).get("outputs") or {}
+        saved_states = {
+            s.get("stage_id"): s
+            for s in ((ckpt or {}).get("stage_states") or [])
+            if isinstance(s, dict)
+        }
+
+        # Merge live DB state — covers the case where the user approved a
+        # human-gate stage (or manually edited a row) after the last
+        # checkpoint was written.
+        try:
+            db_rows = await db.execute(
+                select(PipelineStage).where(PipelineStage.task_id == uuid.UUID(task_id))
+            )
+            for row in db_rows.scalars().all():
+                if row.status == "done" and row.output:
+                    saved_outputs.setdefault(row.stage_id, row.output)
+                    saved_states.setdefault(
+                        row.stage_id,
+                        {"stage_id": row.stage_id, "status": StageStatus.DONE.value},
+                    )
+        except Exception as e:
+            logger.debug(f"[dag] resume: could not merge DB state: {e}")
+
+        for stg in stages:
+            state = saved_states.get(stg.stage_id) or {}
+            if state.get("status") == StageStatus.DONE.value and saved_outputs.get(stg.stage_id):
+                stg.status = StageStatus.DONE
+                stg.output = saved_outputs[stg.stage_id]
+                outputs[stg.stage_id] = stg.output
+        resumed_from = next(
+            (s.stage_id for s in stages if s.status != StageStatus.DONE),
+            None,
+        )
 
     trace = await start_trace(task_id, task_title)
     await emit_event("pipeline:dag-start", {
         "taskId": task_id, "title": task_title,
         "template": template, "stageCount": len(stages),
+        "resumed": bool(resume and resumed_from),
+        "resumedFrom": resumed_from,
+        "skippedStages": [s.stage_id for s in stages if s.status == StageStatus.DONE],
     })
 
     results: List[Dict[str, Any]] = []
-    outputs: Dict[str, str] = {}
     max_iterations = len(stages) * 2  # cap to prevent infinite rejection loops
     iteration = 0
 
@@ -338,6 +472,7 @@ async def execute_dag_pipeline(
                 previous_outputs=outputs,
                 trace=trace,
                 complexity=complexity,
+                project_path=project_path,
             )
 
             if stage_result.get("ok"):
@@ -426,13 +561,78 @@ async def execute_dag_pipeline(
                             "taskId": task_id, "from": "reviewing", "to": target,
                             "reason": "Review rejected, returning to earlier stage",
                         })
+
+                # ── Wave 4: human approval gate ──────────────────────
+                # When the stage definition (or DB override) marks
+                # `human_gate=True`, pause the DAG after success. The
+                # frontend / API can flip the stage back to DONE via the
+                # existing /approve endpoint and then call /resume-dag.
+                if stage.status == StageStatus.DONE and stage.human_gate:
+                    stage.status = StageStatus.BLOCKED  # treated as paused
+                    stage_result["ok"] = False  # so the outer loop breaks
+                    stage_result["awaiting_approval"] = True
+                    await _persist_stage_state(
+                        db, task_id, stage,
+                        db_status="awaiting_approval",
+                    )
+                    await emit_event("stage:awaiting-approval", {
+                        "taskId": task_id, "stageId": stage.stage_id,
+                        "label": stage.label, "role": stage.role,
+                        "reason": "human_gate",
+                    })
             else:
+                # ── Wave 4: retry budget + on_failure policy ────────
+                err = stage_result.get("error", "Unknown error")
+                stage.error = err
+
+                # Auto-retry within budget (in-process, same iteration).
+                if stage.retry_count < stage.max_retries:
+                    stage.retry_count += 1
+                    await _persist_stage_state(
+                        db, task_id, stage, db_status="active",
+                    )
+                    await emit_event("stage:retry", {
+                        "taskId": task_id, "stageId": stage.stage_id,
+                        "attempt": stage.retry_count,
+                        "maxRetries": stage.max_retries,
+                        "lastError": err[:500],
+                    })
+                    # Recurse once via a tail call — keeps the surrounding
+                    # gather logic intact and bounded by max_retries.
+                    return await _run_stage(stage)
+
                 stage.status = StageStatus.FAILED
-                stage.error = stage_result.get("error", "Unknown error")
+                await _persist_stage_state(
+                    db, task_id, stage, db_status="error",
+                )
                 await emit_event("stage:error", {
                     "taskId": task_id, "stageId": stage.stage_id,
-                    "error": stage.error,
+                    "error": err,
+                    "retryCount": stage.retry_count,
+                    "onFailure": stage.on_failure,
                 })
+
+                if stage.on_failure == "rollback":
+                    # Reset this stage + downstream to PENDING and pause
+                    # the pipeline so a human can decide what to do next.
+                    _reset_to_stage(stages, stage.stage_id)
+                    stage.status = StageStatus.BLOCKED
+                    stage_result["ok"] = False
+                    stage_result["rollback"] = True
+                    await emit_event("pipeline:rollback", {
+                        "taskId": task_id, "stageId": stage.stage_id,
+                        "from": stage.stage_id,
+                        "reason": err[:200],
+                    })
+                elif stage.on_failure == "skip":
+                    stage.status = StageStatus.SKIPPED
+                    stage_result["ok"] = True   # let downstream proceed
+                    stage_result["skipped_after_failure"] = True
+                    await emit_event("stage:skipped", {
+                        "taskId": task_id, "stageId": stage.stage_id,
+                        "reason": "on_failure=skip after retries exhausted",
+                    })
+                # else: halt — outer loop sees ok=False and breaks (current behavior)
 
             return {"stageId": stage.stage_id, **stage_result}
 
@@ -454,6 +654,21 @@ async def execute_dag_pipeline(
 
             if any(not r.get("ok") for r in results[-len(ready):] if isinstance(r, dict)):
                 break
+
+        try:
+            await save_checkpoint(
+                db,
+                task_id=task_id,
+                template=template,
+                stage_states=[
+                    {"stage_id": s.stage_id, "status": s.status.value, "error": s.error}
+                    for s in stages
+                ],
+                outputs=outputs,
+                iteration=iteration,
+            )
+        except Exception as ckpt_err:
+            logger.debug(f"[dag] checkpoint save failed: {ckpt_err}")
 
     all_ok = all(r.get("ok", False) for r in results if isinstance(r, dict))
     blocked_stage = next((s for s in stages if s.status == StageStatus.BLOCKED), None)
@@ -487,7 +702,10 @@ async def execute_dag_pipeline(
                         db_stage.status = "done"
                         db_stage.completed_at = datetime.utcnow()
                     elif stage.status == StageStatus.BLOCKED:
-                        db_stage.status = "blocked"
+                        # Preserve "awaiting_approval" written by the
+                        # human-gate hook — don't downgrade it to "blocked".
+                        if db_stage.status != "awaiting_approval":
+                            db_stage.status = "blocked"
                         db_stage.completed_at = None
 
                 artifact = PipelineArtifact(

@@ -59,6 +59,36 @@
           <span>AI 军团流水线</span>
         </router-link>
 
+        <router-link to="/agents-console" class="nav-item" active-class="active">
+          <el-icon><User /></el-icon>
+          <span>专家工作台</span>
+        </router-link>
+
+        <router-link to="/mcp-servers" class="nav-item" active-class="active">
+          <el-icon><Link /></el-icon>
+          <span>MCP 服务器</span>
+        </router-link>
+
+        <router-link to="/eval-lab" class="nav-item" active-class="active">
+          <el-icon><DataLine /></el-icon>
+          <span>评测实验室</span>
+        </router-link>
+
+        <router-link to="/plan-inbox" class="nav-item" active-class="active">
+          <el-icon><Files /></el-icon>
+          <span>计划收件箱</span>
+        </router-link>
+
+        <router-link to="/codebase-lab" class="nav-item" active-class="active">
+          <el-icon><Reading /></el-icon>
+          <span>代码索引</span>
+        </router-link>
+
+        <router-link to="/insights/digest" class="nav-item" active-class="active">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>Agent 周报</span>
+        </router-link>
+
         <router-link to="/skills" class="nav-item" active-class="active">
           <el-icon><SetUp /></el-icon>
           <span>技能中心</span>

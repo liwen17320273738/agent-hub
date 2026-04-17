@@ -46,6 +46,8 @@ export interface PipelineTask {
   status: 'active' | 'paused' | 'done' | 'cancelled'
   currentStageId: string
   template?: string | null
+  repoUrl?: string | null
+  projectPath?: string | null
   stages: PipelineStageState[]
   artifacts: TaskArtifact[]
   qualityGateConfig?: Record<string, unknown> | null
@@ -87,6 +89,7 @@ export interface TaskArtifact {
   name: string
   content: string
   stageId: string
+  metadata?: Record<string, unknown>
   createdAt: number
 }
 

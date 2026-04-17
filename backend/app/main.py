@@ -37,6 +37,11 @@ from .api import (
     deploy,
     interaction,
     delivery_docs,
+    mcps,
+    eval as eval_api,
+    plans as plans_api,
+    codebase as codebase_api,
+    agent_bus as agent_bus_api,
 )
 
 logging.basicConfig(
@@ -72,6 +77,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Database tables ensured via create_all (dev/SQLite mode).")
     else:
         from sqlalchemy import text
+        from .compat import enable_pgvector
+
+        # Probe pgvector availability on EVERY startup (not just first-run).
+        # Without this, VectorType columns silently use TEXT mode whenever an
+        # existing-tables DB is reattached, even if the extension is installed.
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            enable_pgvector(True)
+            logger.info("pgvector extension enabled.")
+        except Exception as e:
+            enable_pgvector(False)
+            logger.warning(
+                "pgvector not available (%s) — VectorType falls back to JSON-text. "
+                "For >100k chunks, install the extension and restart.",
+                e,
+            )
+
         try:
             async with engine.begin() as conn:
                 result = await conn.execute(text(
@@ -83,15 +106,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                     "PostgreSQL detected but no tables found. "
                     "Running create_all to bootstrap schema..."
                 )
-                from .compat import enable_pgvector
-                async with engine.begin() as conn:
-                    try:
-                        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-                        enable_pgvector(True)
-                        logger.info("pgvector extension enabled.")
-                    except Exception:
-                        enable_pgvector(False)
-                        logger.warning("pgvector extension not available — vector columns will use TEXT fallback")
                 async with engine.begin() as conn:
                     await conn.run_sync(Base.metadata.create_all)
                 logger.info("Database tables created via create_all (first-run bootstrap).")
@@ -99,8 +113,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 logger.info("PostgreSQL tables exist. Skipping create_all.")
         except Exception as e:
             logger.error(f"DB check failed: {e}. Attempting create_all as fallback...")
-            from .compat import enable_pgvector
-            enable_pgvector(False)
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
@@ -230,6 +242,11 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(deploy.router, prefix="/api")
     application.include_router(interaction.router, prefix="/api")
     application.include_router(delivery_docs.router, prefix="/api")
+    application.include_router(mcps.router, prefix="/api")
+    application.include_router(eval_api.router, prefix="/api")
+    application.include_router(plans_api.router, prefix="/api")
+    application.include_router(codebase_api.router, prefix="/api")
+    application.include_router(agent_bus_api.router, prefix="/api")
 
     # ── Health & Config ──────────────────────────────────────────────────
 

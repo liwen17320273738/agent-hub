@@ -112,18 +112,23 @@ class CodeGenAgent:
         pipeline_outputs: Dict[str, str],
         template_id: Optional[str] = None,
         use_claude_code: bool = True,
+        existing_project_dir: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate project code from pipeline stage outputs.
 
-        Tries Claude Code first, falls back to regex/LLM extraction.
+        If existing_project_dir is set, operates on that directory (no scaffold).
+        Otherwise creates a new project in the sandbox.
         """
-        project_dir = os.path.join(self.workspace, _slugify(task_title))
-        os.makedirs(project_dir, exist_ok=True)
-
-        if template_id:
-            scaffold_result = scaffold_project(template_id, task_title, project_dir)
-            if not scaffold_result.get("ok"):
-                return scaffold_result
+        if existing_project_dir and os.path.isdir(existing_project_dir):
+            project_dir = existing_project_dir
+            logger.info(f"[codegen] Using existing project: {project_dir}")
+        else:
+            project_dir = os.path.join(self.workspace, _slugify(task_title))
+            os.makedirs(project_dir, exist_ok=True)
+            if template_id:
+                scaffold_result = scaffold_project(template_id, task_title, project_dir)
+                if not scaffold_result.get("ok"):
+                    return scaffold_result
 
         if use_claude_code:
             result = await self._generate_via_claude_code(

@@ -24,7 +24,11 @@ export function buildPipelineContext(task: PipelineTask): string {
   if (task.artifacts?.length) {
     parts.push(`\n【交付产物】`)
     for (const artifact of task.artifacts.slice(-3)) {
-      parts.push(`- [${artifact.type}] ${artifact.name}: ${artifact.content.slice(0, 500)}`)
+      const preview =
+        artifact.type === 'upload_image' || artifact.type === 'upload_file'
+          ? `(文件附件，mime=${artifact.metadata?.mime ?? 'unknown'})`
+          : (artifact.content || '').slice(0, 500)
+      parts.push(`- [${artifact.type}] ${artifact.name}: ${preview}`)
     }
   }
 

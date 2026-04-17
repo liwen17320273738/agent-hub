@@ -36,12 +36,39 @@ from .sse import emit_event
 logger = logging.getLogger(__name__)
 
 _AGENT_KEY_TO_SEED_ID = {
-    "ceo-agent": "wayne-ceo",
-    "architect-agent": "wayne-cto",
-    "developer-agent": "wayne-developer",
-    "qa-agent": "wayne-qa",
-    "devops-agent": "wayne-devops",
+    "ceo-agent":         "wayne-ceo",
+    "architect-agent":   "wayne-cto",
+    "developer-agent":   "wayne-developer",
+    "qa-agent":          "wayne-qa",
+    "devops-agent":      "wayne-devops",
+    "product-agent":     "wayne-product",
+    "designer-agent":    "wayne-designer",
+    "security-agent":    "wayne-security",
+    "acceptance-agent":  "wayne-acceptance",
+    "data-agent":        "wayne-data",
+    "marketing-agent":   "wayne-marketing",
+    "finance-agent":     "wayne-finance",
+    "legal-agent":       "wayne-legal",
 }
+
+_DELEGATE_HINT = """
+
+## 协作机制 — 你不是一个人在战斗
+你的工具箱里有一个 `delegate_to_agent(role, task, context?)`，可以**主动召唤专家**：
+- `security` → 安全审查、漏洞分析、合规建议
+- `designer` → UI/UX 视觉与交互方案
+- `data` → 数据建模、SQL、指标设计
+- `legal` → 合规、隐私、条款
+- `marketing` → 文案、定位、获客
+- `finance` → 成本、ROI、定价
+- `acceptance` → 验收复核
+
+**何时该 delegate**：
+1. 问题超出你的核心专长（不要自己硬猜）
+2. 关键决策需要第二意见
+3. 跨领域设计（如"做支付功能" → 同时 delegate security + legal + finance）
+
+不要重复 delegate 同一专家超过 1 次；每次 delegate 都要给出**具体的 task 描述**和必要 context。"""
 
 # ── Peer Review Configuration ───────────────────────────────────────────
 # After a stage completes, the configured reviewer agent evaluates the output.
@@ -393,6 +420,7 @@ async def execute_stage(
     trace: Optional[PipelineTrace] = None,
     available_providers: Optional[List[str]] = None,
     complexity: Optional[str] = None,
+    project_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Execute a single pipeline stage with all 6 maturation layers.
@@ -414,7 +442,7 @@ async def execute_stage(
     })
 
     role = stage_conf["role"]
-    system_prompt = stage_conf["system"]
+    system_prompt = stage_conf["system"] + _DELEGATE_HINT
 
     if trace is None:
         trace = await start_trace(task_id, task_title)
@@ -473,6 +501,19 @@ async def execute_stage(
         system_prompt += skill_context
 
     user_message = _build_user_message(task_title, task_description, stage_id, previous_outputs)
+
+    if project_path:
+        from .project_binding import get_project_context
+        project_ctx = get_project_context(project_path)
+        if project_ctx:
+            user_message += f"\n\n## 已有项目代码库\n\n{project_ctx}"
+
+    from .pipeline_attachments import attachment_prompt_extras
+
+    att_text, att_images = await attachment_prompt_extras(db, task_id)
+    if att_text:
+        user_message += att_text
+
     if history_context:
         system_prompt += f"\n\n{history_context}"
 
@@ -517,9 +558,14 @@ async def execute_stage(
                 model_preference={"execution": model},
                 max_steps=5,
                 temperature=0.7,
+                task_id=task_id,
             )
             runtime_result = await runtime.execute(
-                db, task=user_message, context=previous_outputs,
+                db,
+                task=user_message,
+                context=previous_outputs,
+                image_attachments=att_images if att_images else None,
+                task_id=task_id,
             )
             if not runtime_result.get("ok"):
                 raise RuntimeError(runtime_result.get("error", "AgentRuntime failed"))
@@ -536,6 +582,7 @@ async def execute_stage(
                 model=model,
                 messages=messages,
                 api_url=api_url,
+                image_attachments=att_images if att_images else None,
             )
             if llm_result.get("error"):
                 raise RuntimeError(f"LLM error: {llm_result['error']}")
@@ -644,6 +691,7 @@ async def execute_full_pipeline(
     complexity: Optional[str] = None,
     force_continue: bool = False,
     prior_outputs: Optional[Dict[str, str]] = None,
+    project_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Execute a full pipeline with all maturation layers.
@@ -711,6 +759,7 @@ async def execute_full_pipeline(
             trace=trace,
             available_providers=available_providers,
             complexity=complexity,
+            project_path=project_path,
         )
 
         results.append({"stage_id": stage_id, **result})

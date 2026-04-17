@@ -140,6 +140,36 @@ async def get_audit_log_endpoint(
     return {"entries": [e.dict() for e in entries]}
 
 
+# --- Weekly Digest ---
+
+@router.get("/digest")
+async def get_weekly_digest(
+    since_days: int = Query(7, ge=1, le=60),
+    prev_days: Optional[int] = Query(None, ge=1, le=120),
+    pass_rate_drop: float = Query(0.10, ge=0.0, le=1.0),
+    score_drop: float = Query(0.10, ge=0.0, le=1.0),
+    latency_increase: float = Query(0.50, ge=0.0, le=10.0),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """Compare the most recent ``since_days`` window against the prior
+    ``prev_days`` window for every agent role and surface regressions.
+
+    Cheap to call (read-only DB scan); intended for a "weekly digest"
+    UI panel and as a building block for future scheduled jobs.
+    """
+    from ..services.weekly_digest import compute_digest
+
+    return await compute_digest(
+        db,
+        since_days=since_days,
+        prev_days=prev_days,
+        pass_rate_drop=pass_rate_drop,
+        score_drop=score_drop,
+        latency_increase=latency_increase,
+    )
+
+
 # --- Memory Search ---
 
 @router.get("/memory/search")

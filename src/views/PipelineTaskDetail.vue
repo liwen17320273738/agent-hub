@@ -17,8 +17,10 @@
         </div>
       </div>
       <p v-if="task.description" class="task-description">{{ task.description }}</p>
-      <div v-if="task.template" class="task-meta-row">
-        <el-tag size="small" type="info">模板: {{ task.template }}</el-tag>
+      <div v-if="task.template || task.repoUrl || task.projectPath" class="task-meta-row">
+        <el-tag v-if="task.template" size="small" type="info">模板: {{ task.template }}</el-tag>
+        <el-tag v-if="task.repoUrl" size="small" type="success">Git: {{ task.repoUrl }}</el-tag>
+        <el-tag v-if="task.projectPath" size="small" type="warning">本地: {{ task.projectPath }}</el-tag>
       </div>
     </header>
 
@@ -216,10 +218,31 @@
         <p>Pipeline 在阶段「{{ task.currentStageId }}」暂停，可能需要人工审批或审阅反馈已达上限。</p>
         <div class="action-buttons">
           <el-button type="success" size="large" @click="handleResume(false)" :loading="resuming">
-            <el-icon><CaretRight /></el-icon> 恢复执行
+            <el-icon><CaretRight /></el-icon> 恢复执行（线性）
+          </el-button>
+          <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
+            <el-icon><Refresh /></el-icon> 续跑 DAG（断点续传）
           </el-button>
           <el-button size="large" @click="handleResume(true)" :loading="resuming">
             <el-icon><RefreshRight /></el-icon> 强制继续（跳过审阅）
+          </el-button>
+        </div>
+      </div>
+    </section>
+
+    <section class="task-actions" v-else-if="task.status === 'failed'">
+      <h2 class="section-title">Pipeline 已失败</h2>
+      <div class="paused-info">
+        <p>
+          上次执行在阶段「{{ task.currentStageId }}」失败。可以从最近的检查点续跑，
+          已完成的阶段会被跳过。
+        </p>
+        <div class="action-buttons">
+          <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
+            <el-icon><Refresh /></el-icon> 从检查点续跑
+          </el-button>
+          <el-button size="large" @click="openRcaDialog" :loading="rcaLoading">
+            <el-icon><WarningFilled /></el-icon> 生成 RCA 报告
           </el-button>
         </div>
       </div>
@@ -371,12 +394,25 @@
       <div v-if="compiledContent" class="compiled-preview" v-html="renderMarkdown(compiledContent)"></div>
     </section>
 
-    <section class="task-artifacts" v-if="task.artifacts?.length">
-      <h2 class="section-title">
-        交付产物
-        <el-tag size="small" type="info" style="margin-left: 8px">{{ task.artifacts.length }}</el-tag>
-      </h2>
-      <div class="artifact-list">
+    <section class="task-artifacts">
+      <div class="artifacts-header-row">
+        <h2 class="section-title">
+          交付产物
+          <el-tag v-if="task.artifacts?.length" size="small" type="info" style="margin-left: 8px">{{ task.artifacts.length }}</el-tag>
+        </h2>
+        <el-upload
+          class="artifact-upload-inline"
+          :show-file-list="false"
+          :http-request="handleArtifactUpload"
+          multiple
+        >
+          <el-button size="small" type="primary" :loading="uploadingArtifacts">上传附件</el-button>
+        </el-upload>
+      </div>
+      <p v-if="!task.artifacts?.length" class="artifact-empty-hint">
+        暂无产物。可上传参考图、需求说明、接口文档等；各阶段会随模型能力发送多模态或文本上下文。
+      </p>
+      <div v-else class="artifact-list">
         <div
           v-for="artifact in task.artifacts"
           :key="artifact.id"
@@ -390,14 +426,25 @@
             <el-tag size="small" type="info">{{ artifact.stageId }}</el-tag>
           </div>
           <div class="artifact-body">
-            <div
-              v-if="expandedArtifacts.has(artifact.id)"
-              class="artifact-content-full"
-              v-html="renderMarkdown(artifact.content)"
-            ></div>
-            <pre v-else class="artifact-content-preview">{{ artifact.content.slice(0, 300) }}{{ artifact.content.length > 300 ? '...' : '' }}</pre>
+            <template v-if="artifactHasBinary(artifact)">
+              <p class="artifact-file-meta">
+                {{ artifactMimeLabel(artifact) }}
+                <span v-if="artifact.type === 'upload_image'" class="text-muted-inline"> · 图片</span>
+              </p>
+              <el-button size="small" @click="downloadArtifactFile(artifact)">下载原文件</el-button>
+            </template>
+            <template v-else-if="artifact.content">
+              <div
+                v-if="expandedArtifacts.has(artifact.id)"
+                class="artifact-content-full"
+                v-html="renderMarkdown(artifact.content)"
+              ></div>
+              <pre v-else class="artifact-content-preview">{{ (artifact.content || '').slice(0, 300) }}{{ (artifact.content || '').length > 300 ? '...' : '' }}</pre>
+            </template>
+            <p v-else class="text-muted-inline">无文本预览</p>
           </div>
           <el-button
+            v-if="artifact.content && !artifactHasBinary(artifact)"
             text
             size="small"
             @click="toggleArtifact(artifact.id)"
@@ -408,6 +455,50 @@
         </div>
       </div>
     </section>
+
+    <el-dialog v-model="rcaDialog" title="RCA 根因分析报告" width="780px" :close-on-click-modal="false">
+      <div v-if="rcaLoading" class="rca-loading">
+        <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
+        <p>正在收集 stage 错误 + span + audit + bus 消息，并请求 LLM 综合分析…</p>
+      </div>
+      <div v-else-if="!rcaReport" class="rca-empty">未生成报告</div>
+      <div v-else class="rca-report">
+        <div class="rca-header">
+          <el-tag :type="rcaSeverityType(rcaReport.severity)">{{ rcaReport.severity || 'medium' }}</el-tag>
+          <span class="rca-radius" v-if="rcaReport.blast_radius">影响面：{{ rcaReport.blast_radius }}</span>
+          <span class="rca-time">生成于 {{ rcaReport.generated_at }}</span>
+        </div>
+        <h3>摘要</h3>
+        <p class="rca-summary">{{ rcaReport.summary || '（无）' }}</p>
+        <h3>根本原因</h3>
+        <pre class="rca-block">{{ rcaReport.root_cause || '（未确定）' }}</pre>
+        <h3 v-if="(rcaReport.contributing_factors || []).length">关联因素</h3>
+        <ul v-if="(rcaReport.contributing_factors || []).length">
+          <li v-for="(f, i) in rcaReport.contributing_factors" :key="i">{{ f }}</li>
+        </ul>
+        <h3 v-if="(rcaReport.recommended_actions || []).length">建议行动</h3>
+        <ol v-if="(rcaReport.recommended_actions || []).length">
+          <li v-for="(a, i) in rcaReport.recommended_actions" :key="i">{{ a }}</li>
+        </ol>
+        <details class="rca-details">
+          <summary>失败 Stage（{{ rcaReport.failed_stages?.length || 0 }}）</summary>
+          <div v-for="(s, idx) in rcaReport.failed_stages" :key="idx" class="rca-stage">
+            <strong>{{ s.stage_id }}</strong> · {{ s.owner_role }} · {{ s.status }}
+            （重试 {{ s.retry_count }}/{{ s.max_retries }}）
+            <pre v-if="s.last_error">{{ s.last_error }}</pre>
+          </div>
+        </details>
+        <details class="rca-details" v-if="rcaReport.evidence">
+          <summary>原始证据（{{ rcaReport.spans_examined }} spans · {{ rcaReport.audits_examined }} audits · {{ rcaReport.bus_msgs_examined }} bus msgs）</summary>
+          <pre class="rca-evidence">{{ rcaReport.evidence }}</pre>
+        </details>
+        <p v-if="rcaReport.llm_error" class="rca-warn">⚠ LLM 调用未成功：{{ rcaReport.llm_error }}</p>
+      </div>
+      <template #footer>
+        <el-button @click="rcaDialog = false">关闭</el-button>
+        <el-button type="primary" @click="openRcaDialog" :loading="rcaLoading">重新生成</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="showRejectDialog" title="打回任务" width="400px">
       <el-form label-position="top">
@@ -449,17 +540,22 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
-  ChatDotSquare, Document, Download, Loading, RefreshRight, Right, Unlock,
-  VideoPlay, View, Warning,
+  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Unlock,
+  VideoPlay, View, Warning, WarningFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
   smartRunPipeline, subscribePipelineEvents,
-  approveStage as apiApproveStage, resumePipeline,
+  approveStage as apiApproveStage, resumePipeline, resumeDagPipeline,
   compileDeliverables, fetchQualityReport, overrideQualityGate,
+  uploadTaskAttachment, downloadTaskAttachment,
+  getTaskRca,
 } from '@/services/pipelineApi'
+import type { RcaReport } from '@/services/pipelineApi'
+import type { TaskArtifact } from '@/agents/types'
+import type { UploadRequestOptions } from 'element-plus'
 import type { QualityReport } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
@@ -475,8 +571,12 @@ const autoRunning = ref(false)
 const smartRunning = ref(false)
 const stageRunning = ref(false)
 const resuming = ref(false)
+const resumingDag = ref(false)
+const rcaDialog = ref(false)
+const rcaLoading = ref(false)
+const rcaReport = ref<RcaReport | null>(null)
 const anyExecutionRunning = computed(() =>
-  autoRunning.value || smartRunning.value || stageRunning.value || resuming.value
+  autoRunning.value || smartRunning.value || stageRunning.value || resuming.value || resumingDag.value
 )
 const subtasks = ref<SubtaskInfo[]>([])
 const processingStage = ref<string | null>(null)
@@ -544,8 +644,50 @@ function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'inf
 }
 
 function artifactTagType(type: string) {
-  const map: Record<string, string> = { document: 'primary', code: 'success', test: 'warning' }
+  const map: Record<string, string> = {
+    document: 'primary',
+    code: 'success',
+    test: 'warning',
+    upload_image: 'success',
+    upload_file: 'warning',
+    codegen: 'info',
+  }
   return (map[type] || 'info') as '' | 'success' | 'warning' | 'info' | 'danger'
+}
+
+const uploadingArtifacts = ref(false)
+
+function artifactHasBinary(a: TaskArtifact) {
+  return a.type === 'upload_image' || a.type === 'upload_file'
+}
+
+function artifactMimeLabel(a: TaskArtifact) {
+  return String(a.metadata?.mime ?? '未知类型')
+}
+
+async function handleArtifactUpload(options: UploadRequestOptions) {
+  if (!task.value) return
+  uploadingArtifacts.value = true
+  try {
+    await uploadTaskAttachment(task.value.id, options.file as File)
+    await loadTask()
+    ElMessage.success(`已上传 ${options.file.name}`)
+    options.onSuccess?.({} as never)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+    options.onError?.(e as Error)
+  } finally {
+    uploadingArtifacts.value = false
+  }
+}
+
+async function downloadArtifactFile(a: TaskArtifact) {
+  if (!task.value) return
+  try {
+    await downloadTaskAttachment(task.value.id, a.id, a.name)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  }
 }
 
 async function handleCompile() {
@@ -656,6 +798,16 @@ function formatEventName(event: string) {
     'stage:approval-granted': '✅ 人工审批通过',
     'stage:approval-denied': '❌ 人工审批驳回',
     'pipeline:resumed': '▶️ Pipeline 恢复执行',
+    'pipeline:dag-resumed': '▶️ DAG 续跑',
+    'pipeline:dag-start': '🚀 DAG 启动',
+    'pipeline:dag-batch': '⚡ DAG 批次',
+    'pipeline:dag-completed': '🎉 DAG 完成',
+    'pipeline:dag-branch': '🔀 DAG 分支重置',
+    'pipeline:rollback': '⏪ 阶段回滚',
+    'stage:retry': '🔁 阶段重试',
+    'stage:skipped': '⏭️ 阶段跳过',
+    'agent:bus-message': '📨 Agent 消息',
+    'pipeline:rca-generated': '🩺 RCA 报告',
   }
   return map[event] || event
 }
@@ -912,6 +1064,59 @@ async function handleResume(forceContinue = false) {
     ElMessage.error(`恢复失败: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     resuming.value = false
+  }
+}
+
+function rcaSeverityType(severity?: string): 'success' | 'info' | 'warning' | 'danger' {
+  switch ((severity || '').toLowerCase()) {
+    case 'low': return 'success'
+    case 'medium': return 'warning'
+    case 'high': return 'danger'
+    case 'critical': return 'danger'
+    default: return 'info'
+  }
+}
+
+async function openRcaDialog() {
+  if (!task.value) return
+  rcaDialog.value = true
+  rcaLoading.value = true
+  try {
+    const r = await getTaskRca(String(task.value.id), true)
+    rcaReport.value = r
+    addLog('pipeline:rca-generated', {
+      severity: r.severity,
+      stages_failed: r.failed_stages?.length || 0,
+    })
+  } catch (e: unknown) {
+    ElMessage.error(`RCA 生成失败: ${e instanceof Error ? e.message : String(e)}`)
+    rcaDialog.value = false
+  } finally {
+    rcaLoading.value = false
+  }
+}
+
+async function handleResumeDag() {
+  if (!task.value) return
+  resumingDag.value = true
+  try {
+    const res = await resumeDagPipeline(String(task.value.id))
+    addLog('pipeline:dag-resumed', {
+      fromCheckpoint: res.resumedFromCheckpoint,
+      template: res.template,
+    })
+    ElMessage.success(
+      res.ok
+        ? `DAG 续跑完成（template=${res.template}${
+            res.resumedFromCheckpoint ? '，从检查点恢复' : '，无检查点'
+          }）`
+        : 'DAG 续跑结束但未全部完成，可再点续跑或查看日志',
+    )
+    await loadTask()
+  } catch (e: unknown) {
+    ElMessage.error(`DAG 续跑失败: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    resumingDag.value = false
   }
 }
 
@@ -1397,6 +1602,37 @@ watch(() => route.params.id, () => {
 
 .task-artifacts { margin-bottom: 32px; }
 
+.artifacts-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.artifact-upload-inline {
+  flex-shrink: 0;
+}
+
+.artifact-empty-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.artifact-file-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.text-muted-inline {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .artifact-list {
   display: flex;
   flex-direction: column;
@@ -1756,5 +1992,72 @@ watch(() => route.params.id, () => {
   font-size: 11px;
   color: var(--text-muted);
   min-width: 70px;
+}
+.rca-loading,
+.rca-empty {
+  text-align: center;
+  padding: 32px 12px;
+  color: var(--text-muted);
+}
+.rca-report h3 {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.rca-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.rca-summary {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+.rca-block,
+.rca-evidence {
+  background: var(--card-bg, #1c1c20);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+.rca-stage {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: var(--card-bg, #1c1c20);
+  border-radius: 4px;
+  font-size: 12px;
+}
+.rca-stage pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ff7875;
+}
+.rca-details {
+  margin-top: 14px;
+}
+.rca-details > summary {
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.rca-warn {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: rgba(255, 196, 0, 0.08);
+  color: #ffd666;
+  border-radius: 4px;
+  font-size: 12px;
 }
 </style>

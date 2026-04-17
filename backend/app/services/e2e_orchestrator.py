@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from ..models.pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from .sse import emit_event
+from .notify import notify_task_event
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ async def run_full_e2e(
     task_description: str,
     auto_deploy: bool = True,
     dag_template: str = "full",
+    existing_project_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Execute the FULL end-to-end flow:
 
@@ -87,11 +89,42 @@ async def run_full_e2e(
         "phases": {},
     }
 
+    db_task = await db.get(PipelineTask, _parse_uuid(task_id))
+
+    async def _notify(event: str, **payload):
+        if db_task is None:
+            return
+        try:
+            result = await notify_task_event(db_task, event=event, **payload)
+            await emit_event("notify:sent", {
+                "taskId": task_id, "event": event, **result.to_dict(),
+            })
+        except Exception as e:
+            logger.warning(f"[e2e] notify {event} failed: {e}")
+
+    # Inject existing project context into description so all pipeline agents see it
+    effective_description = task_description
+    if existing_project_dir:
+        from .project_binding import get_project_context
+        project_ctx = get_project_context(existing_project_dir)
+        if project_ctx:
+            effective_description = (
+                f"{task_description}\n\n"
+                f"## 已有项目上下文（基于现有代码库修改）\n\n{project_ctx}"
+            )
+
     await emit_event("e2e:start", {
         "taskId": task_id,
         "title": task_title,
         "autoDeploy": auto_deploy,
+        "existingProject": bool(existing_project_dir),
     })
+
+    await _notify(
+        "started",
+        message="正在分析需求并规划实现方案",
+        extras={"自动部署": "是" if auto_deploy else "否"},
+    )
 
     # ── Phase 1: Design Pipeline (planning + architecture only) ─────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "running"})
@@ -102,8 +135,9 @@ async def run_full_e2e(
         db,
         task_id=task_id,
         task_title=task_title,
-        task_description=task_description,
+        task_description=effective_description,
         template=dag_template,
+        project_path=existing_project_dir,
     )
 
     e2e_result["phases"]["design_pipeline"] = {
@@ -117,9 +151,16 @@ async def run_full_e2e(
         e2e_result["stopped_at"] = "design_pipeline"
         e2e_result["error"] = "Design pipeline failed"
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "design-pipeline"})
+        await _notify("failed", message="设计阶段失败，请在控制台查看详情",
+                      extras={"阶段": "design-pipeline"})
         return e2e_result
 
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "done"})
+    await _notify(
+        "progress",
+        message="需求与架构设计完成，开始生成代码",
+        extras={"已完成阶段": pipeline_result.get("summary", {}).get("stagesCompleted", 0)},
+    )
 
     outputs: Dict[str, str] = {}
     for stage_result in pipeline_result.get("results", []):
@@ -142,8 +183,9 @@ async def run_full_e2e(
         task_id=task_id,
         task_title=task_title,
         pipeline_outputs=outputs,
-        template_id=template_id,
+        template_id=template_id if not existing_project_dir else None,
         use_claude_code=True,
+        existing_project_dir=existing_project_dir,
     )
 
     e2e_result["phases"]["codegen"] = {
@@ -159,6 +201,14 @@ async def run_full_e2e(
         e2e_result["stopped_at"] = "codegen"
         e2e_result["error"] = codegen_result.get("error", "Code generation failed")
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "codegen"})
+        await _notify(
+            "failed",
+            message="代码生成失败",
+            extras={
+                "引擎": codegen_result.get("engine", "unknown"),
+                "错误": (codegen_result.get("error", "") or "")[:200],
+            },
+        )
         return e2e_result
 
     project_dir = codegen_result["project_dir"]
@@ -225,6 +275,11 @@ async def run_full_e2e(
         e2e_result["stopped_at"] = "build_test"
         e2e_result["error"] = build_test_result.get("error", "Build failed")
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "build-test"})
+        await _notify(
+            "failed",
+            message="构建/测试失败，自动修复重试已用尽",
+            extras={"重试次数": build_test_result.get("attempts", 0)},
+        )
         return e2e_result
 
     await emit_event("e2e:phase", {
@@ -270,17 +325,37 @@ async def run_full_e2e(
 
     # ── Phase 5: Preview + Notify ───────────────────────────────────
     preview_url = deploy_result.get("url", "")
+    preview_result: Dict[str, Any] = {"ok": True, "skipped": not preview_url}
+
     if preview_url:
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "running"})
 
-        from .interaction.preview import PreviewService
-        preview_svc = PreviewService()
-        preview_result = await preview_svc.capture_and_notify(
-            task_id=task_id,
-            preview_url=preview_url,
-        )
+        try:
+            from .interaction.preview import PreviewService
+            preview_svc = PreviewService()
+            screenshot_dir = "/tmp/agent-hub-previews"
+            os.makedirs(screenshot_dir, exist_ok=True)
+            screenshot_path = os.path.join(screenshot_dir, f"{task_id}.png")
+            shot = await preview_svc.capture_screenshot(
+                url=preview_url, output_path=screenshot_path,
+            )
+            preview_result = {"ok": True, "screenshotOk": bool(shot.get("ok")),
+                              "screenshotPath": screenshot_path if shot.get("ok") else ""}
+        except Exception as e:
+            logger.warning(f"[e2e] screenshot failed: {e}")
+            preview_result = {"ok": True, "screenshotOk": False, "error": str(e)}
+
         e2e_result["phases"]["preview"] = preview_result
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "done"})
+
+        await _notify(
+            "preview",
+            message="预览已就绪，回复「通过」即上线，或「修改：xxx」反馈",
+            url=preview_url,
+            extras={"平台": deploy_result.get("platform", "")},
+        )
+    else:
+        e2e_result["phases"]["preview"] = preview_result
 
     # ── Done ────────────────────────────────────────────────────────
     all_ok = all(
@@ -290,7 +365,6 @@ async def run_full_e2e(
     e2e_result["ok"] = all_ok
     e2e_result["url"] = preview_url
 
-    db_task = await db.get(PipelineTask, _parse_uuid(task_id))
     if db_task and all_ok:
         db_task.status = "done"
         await db.flush()
@@ -302,6 +376,14 @@ async def run_full_e2e(
         "engine": codegen_result.get("engine", "unknown"),
         "phases": {k: v.get("ok", False) for k, v in e2e_result["phases"].items()},
     })
+
+    if all_ok:
+        await _notify(
+            "completed",
+            message="项目已上线，开始体验吧",
+            url=preview_url,
+            extras={"代码生成": codegen_result.get("engine", "unknown")},
+        )
 
     return e2e_result
 

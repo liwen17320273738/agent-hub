@@ -61,6 +61,36 @@ const router = createRouter({
       component: () => import('@/views/SkillsView.vue'),
     },
     {
+      path: '/agents-console',
+      name: 'agents-console',
+      component: () => import('@/views/AgentsConsole.vue'),
+    },
+    {
+      path: '/mcp-servers',
+      name: 'mcp-servers',
+      component: () => import('@/views/McpServers.vue'),
+    },
+    {
+      path: '/eval-lab',
+      name: 'eval-lab',
+      component: () => import('@/views/EvalLab.vue'),
+    },
+    {
+      path: '/plan-inbox',
+      name: 'plan-inbox',
+      component: () => import('@/views/PlanInbox.vue'),
+    },
+    {
+      path: '/codebase-lab',
+      name: 'codebase-lab',
+      component: () => import('@/views/CodebaseLab.vue'),
+    },
+    {
+      path: '/insights/digest',
+      name: 'insights-digest',
+      component: () => import('@/views/InsightsDigest.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       meta: { public: true },

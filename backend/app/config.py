@@ -58,6 +58,40 @@ class Settings(BaseSettings):
 
     # Pipeline
     pipeline_api_key: str = ""
+    pipeline_upload_dir: str = ""
+    pipeline_upload_max_mb: int = 15
+
+    # Git clone allowlist (comma-separated hostnames). Empty = use defaults.
+    git_allowed_hosts: str = "github.com,gitee.com,gitlab.com,bitbucket.org,codeup.aliyun.com"
+
+    # Sandbox isolation
+    sandbox_use_docker: bool = False         # set to True in prod to run bash/build inside container
+    sandbox_docker_image: str = "agent-hub/sandbox:latest"   # overridable; falls back to python:3.11-slim if missing
+    sandbox_docker_network: str = "none"     # "none" / "bridge" / a named network
+    sandbox_docker_memory: str = "1g"        # docker --memory limit
+    sandbox_docker_cpus: str = "1"           # docker --cpus limit
+    sandbox_docker_timeout: int = 1800       # hard ceiling for any single container exec (seconds)
+    sandbox_strict_bash: bool = True         # stricter command pattern blocking even outside docker
+
+    # Long-task / phase budget
+    phase_timeout_seconds: int = 1800        # default per-phase wall clock (was hard-coded 600)
+    phase_max_timeout_seconds: int = 7200    # absolute upper bound a stage may request
+
+    # Browser (Playwright) tool
+    browser_enabled: bool = True             # registry will skip if Playwright not importable
+    browser_max_pages: int = 5
+    browser_default_timeout_ms: int = 30000
+
+    # Codebase index
+    codebase_index_max_files: int = 5000
+    codebase_index_max_file_kb: int = 200    # skip files bigger than this when indexing
+
+    # Plan/Act dual-mode for IM gateway
+    # When True: clarifier-success → planner produces a short plan → wait for IM
+    #            user to reply 通过/开干/approve before executing.
+    # When False (default): clarifier-success creates and dispatches the task
+    #            immediately (legacy behavior).
+    gateway_plan_mode: bool = False
 
     # Rate limiting
     rate_limit_per_minute: int = 60
@@ -69,7 +103,21 @@ class Settings(BaseSettings):
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
     feishu_verification_token: str = ""
-    qq_bot_endpoint: str = ""
+    feishu_encrypt_key: str = ""    # Feishu Event v2 AES key (set in 开放平台 → 事件订阅 → 加密策略)
+    feishu_group_webhook: str = ""  # custom robot webhook (fallback when IM API unavailable)
+    qq_bot_endpoint: str = ""        # OneBot v11 HTTP API base url, e.g. http://127.0.0.1:5700
+    qq_bot_access_token: str = ""    # OneBot bridge access token (used both for inbound and outbound)
+
+    # Slack — supports two outbound modes (auto-fallback in this order):
+    #   1) Bot Token (preferred): chat.postMessage to a user/channel ID
+    #   2) Incoming Webhook: posts to a fixed channel
+    # And one inbound mode:
+    #   - Events API + interactivity → /api/gateway/slack/webhook
+    #     (signing_secret used to verify the X-Slack-Signature)
+    slack_bot_token: str = ""           # xoxb-... (Bot User OAuth Token)
+    slack_signing_secret: str = ""      # used to verify inbound events + interactivity
+    slack_default_channel: str = ""     # fallback channel id when receive_id is empty
+    slack_incoming_webhook: str = ""    # https://hooks.slack.com/services/...
 
     # Deploy platforms
     vercel_token: str = ""

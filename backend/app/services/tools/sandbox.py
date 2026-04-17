@@ -15,6 +15,7 @@ from typing import List, Optional
 _DEFAULT_SANDBOX_ROOT = "/tmp/agent-hub-sandbox"
 _sandbox_root: Optional[str] = None
 _max_file_size: int = 10 * 1024 * 1024  # 10 MB
+_extra_allowed_dirs: List[str] = []
 
 
 def configure_sandbox(
@@ -27,8 +28,19 @@ def configure_sandbox(
     _sandbox_root = root or _DEFAULT_SANDBOX_ROOT
     _max_file_size = max_file_size
 
+    if allowed_dirs:
+        for d in allowed_dirs:
+            add_allowed_dir(d)
+
     os.makedirs(_sandbox_root, exist_ok=True)
     return _sandbox_root
+
+
+def add_allowed_dir(path: str) -> None:
+    """Register an additional directory outside sandbox as allowed."""
+    resolved = str(Path(path).resolve())
+    if resolved not in _extra_allowed_dirs:
+        _extra_allowed_dirs.append(resolved)
 
 
 def get_sandbox_root() -> str:
@@ -41,7 +53,8 @@ def get_sandbox_root() -> str:
 def resolve_safe_path(path: str) -> str:
     """Resolve a path relative to sandbox root, preventing escape.
 
-    Raises ValueError if the resolved path is outside the sandbox.
+    Allows paths inside the sandbox root OR any extra allowed directory.
+    Raises ValueError if the resolved path is outside all allowed roots.
     """
     root = Path(get_sandbox_root()).resolve()
     if os.path.isabs(path):
@@ -51,10 +64,18 @@ def resolve_safe_path(path: str) -> str:
 
     try:
         resolved.relative_to(root)
+        return str(resolved)
     except ValueError:
-        raise ValueError(f"Path traversal denied: {path} resolves outside sandbox")
+        pass
 
-    return str(resolved)
+    for allowed in _extra_allowed_dirs:
+        try:
+            resolved.relative_to(Path(allowed).resolve())
+            return str(resolved)
+        except ValueError:
+            continue
+
+    raise ValueError(f"Path traversal denied: {path} resolves outside sandbox and allowed dirs")
 
 
 def check_file_size(path: str) -> None:

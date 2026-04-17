@@ -6,8 +6,13 @@ from .model_provider import ModelProvider, TokenUsage
 from .pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from .memory import TaskMemory, LearnedPattern
 from .observability import TraceRecord, SpanRecord, AuditLog, ApprovalRecord, FeedbackRecord
+from .eval import EvalDataset, EvalCase, EvalRun, EvalResult
+from .code_chunk import CodeChunk
+from .agent_message import AgentMessage
 
 __all__ = [
+    "AgentMessage",
+    "CodeChunk",
     "Org",
     "User",
     "Conversation",
