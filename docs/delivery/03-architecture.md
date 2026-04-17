@@ -1,232 +1,245 @@
-# Todo App 技术方案
+
+# DAG测试平台技术方案
 
 ## 1. 技术选型
 
-### 前端
-- **Vue 3 + TypeScript**
-  - 理由：Vue 3 提供了 Composition API，增强了代码复用性和可维护性；TypeScript 提供类型安全，减少运行时错误
-  - 对比：React 学习曲线陡峭，Angular 过于庞大，Vue 更适合中小型项目
-
-### 后端
-- **FastAPI**
-  - 理由：高性能（基于 Starlette 和 Pydantic），自动生成 API 文档，内置数据验证，支持异步处理
-  - 对比：Django 过于重量级，Flask 功能相对简单，FastAPI 在性能和易用性之间取得平衡
-
-### 数据库
-- **PostgreSQL**
-  - 理由：关系型数据库，支持复杂查询，事务安全，扩展性强，有良好的 JSON 支持
-  - 对比：MySQL 更流行但功能相对有限，MongoDB 作为 NoSQL 不适合结构化数据存储
-
-### 缓存
-- **Redis**
-  - 理由：高性能内存数据存储，支持多种数据结构，适合缓存和会话管理
-  - 对比：Memcached 功能相对简单，Redis 提供更多高级特性
-
-### 消息队列
-- **Celery + Redis**
-  - 理由：Celery 是流行的分布式任务队列，Redis 作为消息代理，适合处理异步任务如发送提醒邮件
-  - 对比：RabbitMQ 更复杂但功能更全面，Redis + Celery 轻量级且易于集成
-
-### 部署
-- **Docker + Docker Compose**
-  - 理由：容器化部署，确保环境一致性，简化部署流程
-  - 对比：Kubernetes 过于复杂，Docker Compose 适合中小型项目
-
-### 认证
-- **JWT (JSON Web Tokens)**
-  - 理由：无状态认证，适合 RESTful API，易于扩展
-  - 对比：Session-based 认证需要服务器维护状态，不适合分布式系统
+| 层次 | 技术 | 选择理由 | 替代方案 |
+|------|------|----------|----------|
+| 前端 | React 18 + TypeScript | 现代化UI框架，组件化开发，类型安全 | Vue.js, Angular |
+| 前端UI | Ant Design | 企业级UI组件库，丰富的图表组件，符合数据可视化需求 | Material-UI, Element UI |
+| 前端状态管理 | Redux Toolkit | 标准化状态管理，适合复杂应用，良好的开发工具支持 | MobX, Zustand |
+| 后端 | Node.js + Express.js | 轻量级，适合构建RESTful API，事件驱动模型，适合DAG执行 | Python + Flask, Java + Spring Boot |
+| 后端类型 | TypeScript | 提供类型安全，减少运行时错误，提高代码质量 | JavaScript, Flow |
+| 数据库 | PostgreSQL | 强大的关系型数据库，支持复杂查询和事务，适合存储DAG结构 | MySQL, MongoDB |
+| ORM | Prisma | 现代化的数据库ORM，提供类型安全的数据库访问，支持数据库迁移 | TypeORM, Sequelize |
+| 缓存 | Redis | 高性能内存数据库，用于缓存和任务队列，提高系统性能 | Memcached |
+| 任务队列 | BullMQ | 基于Redis的队列系统，适合处理DAG执行任务 | Bee-Queue, RabbitMQ |
+| 前端构建 | Vite | 快速的前端构建工具，提供热更新和优化的开发体验 | Webpack, Rollup |
+| 测试框架 | Jest + React Testing Library | 单元测试和集成测试框架，与React生态集成良好 | Mocha + Chai, Cypress |
 
 ## 2. 系统架构图
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend (Vue 3)                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Login     │  │   Tasks     │  │  Categories │            │
-│  │  Component  │  │  Component  │  │  Component  │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Profile   │  │   Tags      │  │  Reminders  │            │
-│  │  Component  │  │  Component  │  │  Component  │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    前端层 (React)                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ DAG编辑器   │  │ DAG执行器   │  │ 结果可视化  │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
                               │
-                              │ HTTPS/TLS
+                              │ HTTP/HTTPS
                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Backend (FastAPI)                          │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Auth      │  │   Tasks     │  │  Categories │            │
-│  │   Router    │  │   Router    │  │   Router    │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │   Tags      │  │   Reminders │  │   Users     │            │
-│  │   Router    │  │   Router    │  │   Router    │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-│                              │                                 │
-│                              ▼                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   Business Logic                         │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                              │                                 │
-│                              ▼                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │               Data Access Layer (ORM)                    │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                              │                                 │
-│                              ▼                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    后端层 (Node.js + Express)                │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ API路由     │  │ DAG引擎     │  │ 日志服务   │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
                               │
-                              │
-┌─────────────────────────────────────────────────────────────────┐
-│                      Data Layer                                │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐            │
-│  │ PostgreSQL  │  │    Redis    │  │   Files     │            │
-│  │   (Main)    │  │   (Cache)   │  │ (Backups)   │            │
-│  └─────────────┘  └─────────────┘  └─────────────┘            │
-└─────────────────────────────────────────────────────────────────┘
+                              │ 数据库连接
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    数据层                                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ PostgreSQL  │  │   Redis     │  │ BullMQ队列 │         │
+│  │ (主数据)    │  │ (缓存/队列) │  │ (任务队列)  │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 3. 数据模型
+### 组件职责说明
 
-### ER 图（文字描述）
+- **前端层**：负责用户界面交互，包括DAG编辑器、执行控制和结果展示
+- **后端层**：处理业务逻辑，包括API路由、DAG执行引擎和日志服务
+- **数据层**：负责数据持久化、缓存和任务队列管理
+
+### 数据流和通信方式
+
+1. **前端到后端**：通过RESTful API进行通信，使用HTTPS加密
+2. **后端到数据库**：通过Prisma ORM进行数据库操作
+3. **DAG执行**：通过BullMQ队列系统管理任务执行
+4. **缓存机制**：使用Redis缓存热点数据和临时结果
+
+## 3. 数据模型设计
+
+### 核心实体关系
 
 ```
-[User] 1--< [Task] >--1 [Category]
-  |           |
-  |           |--< [Tag] >--1 [TagType]
-  |
-  1--< [Reminder] --1 [Task]
+User (用户)
+├── Project (项目) ───┬──> DAG (DAG)
+│                   │     ├──> Node (节点)
+│                   │     └──> Edge (边)
+│                   └──> TestExecution (测试执行)
+│                       ├──> TestResult (测试结果)
+│                       └──> TestLog (测试日志)
+└──> Permission (权限)
 ```
 
-### 核心表结构
+### 核心表结构和字段
 
-#### 用户表 (users)
+#### 用户表 (User)
 ```sql
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    full_name VARCHAR(100),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE
-);
+- id: UUID (主键)
+- username: String (唯一)
+- email: String (唯一)
+- password_hash: String
+- created_at: DateTime
+- updated_at: DateTime
 ```
 
-#### 任务表 (tasks)
+#### 项目表 (Project)
 ```sql
-CREATE TABLE tasks (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(200) NOT NULL,
-    description TEXT,
-    status VARCHAR(20) DEFAULT 'pending',
-    priority VARCHAR(20) DEFAULT 'medium',
-    due_date TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    category_id INTEGER REFERENCES categories(id)
-);
+- id: UUID (主键)
+- name: String
+- description: Text
+- user_id: UUID (外键，关联User)
+- created_at: DateTime
+- updated_at: DateTime
 ```
 
-#### 分类表 (categories)
+#### DAG表 (DAG)
 ```sql
-CREATE TABLE categories (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(50) NOT NULL,
-    color VARCHAR(7) DEFAULT '#3F51B5',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+- id: UUID (主键)
+- name: String
+- description: Text
+- project_id: UUID (外键，关联Project)
+- graph_data: JSON (存储DAG结构数据)
+- created_at: DateTime
+- updated_at: DateTime
 ```
 
-#### 标签表 (tags)
+#### 节点表 (Node)
 ```sql
-CREATE TABLE tags (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(50) NOT NULL,
-    color VARCHAR(7) DEFAULT '#4CAF50',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+- id: UUID (主键)
+- dag_id: UUID (外键，关联DAG)
+- name: String
+- node_type: String (节点类型：transform, extract, load, etc.)
+- config: JSON (节点配置)
+- position_x: Float (节点位置X坐标)
+- position_y: Float (节点位置Y坐标)
+- created_at: DateTime
+- updated_at: DateTime
 ```
 
-#### 任务标签关联表 (task_tags)
+#### 边表 (Edge)
 ```sql
-CREATE TABLE task_tags (
-    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    PRIMARY KEY (task_id, tag_id)
-);
+- id: UUID (主键)
+- source_node_id: UUID (外键，关联源节点)
+- target_node_id: UUID (外键，关联目标节点)
+- created_at: DateTime
 ```
 
-#### 提醒表 (reminders)
+#### 测试执行表 (TestExecution)
 ```sql
-CREATE TABLE reminders (
-    id SERIAL PRIMARY KEY,
-    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    reminder_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    is_sent BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
+- id: UUID (主键)
+- dag_id: UUID (外键，关联DAG)
+- status: String (状态：pending, running, success, failed)
+- start_time: DateTime
+- end_time: DateTime
+- created_by: UUID (外键，关联User)
 ```
+
+#### 测试结果表 (TestResult)
+```sql
+- id: UUID (主键)
+- execution_id: UUID (外键，关联TestExecution)
+- node_id: UUID (外键，关联Node)
+- status: String (状态：success, failed)
+- execution_time: Float (执行时间，秒)
+- error_message: Text
+- created_at: DateTime
+```
+
+#### 测试日志表 (TestLog)
+```sql
+- id: UUID (主键)
+- execution_id: UUID (外键，关联TestExecution)
+- node_id: UUID (外键，关联Node)
+- log_level: String (日志级别：info, warn, error)
+- message: Text
+- timestamp: DateTime
+```
+
+### 存储选型
+
+- **PostgreSQL**：存储结构化数据，如用户、项目、DAG结构、测试结果等
+- **Redis**：缓存热点数据，存储临时执行状态，管理任务队列
+- **BullMQ**：基于Redis的任务队列系统，处理DAG执行任务
+
+### 数据一致性策略
+
+- 使用数据库事务确保关键操作的原子性
+- 采用乐观锁机制处理并发更新
+- 通过事件溯源模式记录DAG执行状态变更
 
 ## 4. API 设计
 
-### 认证相关
+### RESTful API 路由表
 
+#### 用户认证
 | Method | Path | 描述 | 请求/响应示例 |
 |--------|------|------|--------------|
-| POST | /api/auth/register | 用户注册 | 请求: `{ "username": "john_doe", "email": "john@example.com", "password": "password123", "full_name": "John Doe" }`<br>响应: `{ "id": 1, "username": "john_doe", "email": "john@example.com", "full_name": "John Doe" }` |
-| POST | /api/auth/login | 用户登录 | 请求: `{ "username": "john_doe", "password": "password123" }`<br>响应: `{ "access_token": "eyJhbGciOiJIUzI1NiIs...", "token_type": "bearer" }` |
-| GET | /api/auth/me | 获取当前用户信息 | 响应: `{ "id": 1, "username": "john_doe", "email": "john@example.com", "full_name": "John Doe" }` |
+| POST | /api/auth/register | 用户注册 | 请求: `{username, email, password}`<br>响应: `{user, token}` |
+| POST | /api/auth/login | 用户登录 | 请求: `{email, password}`<br>响应: `{user, token}` |
+| POST | /api/auth/logout | 用户登出 | 请求: `{token}`<br>响应: `{success}` |
+| GET | /api/auth/me | 获取当前用户信息 | 请求: `Authorization: Bearer <token>`<br>响应: `{user}` |
 
-### 任务相关
-
+#### 项目管理
 | Method | Path | 描述 | 请求/响应示例 |
 |--------|------|------|--------------|
-| GET | /api/tasks | 获取任务列表 | 响应: `[{ "id": 1, "title": "完成项目报告", "description": "需要在本周五前完成", "status": "pending", "priority": "high", "due_date": "2023-12-15T18:00:00Z" }]` |
-| POST | /api/tasks | 创建新任务 | 请求: `{ "title": "完成项目报告", "description": "需要在本周五前完成", "priority": "high", "due_date": "2023-12-15T18:00:00Z" }`<br>响应: `{ "id": 1, "title": "完成项目报告", "description": "需要在本周五前完成", "status": "pending", "priority": "high", "due_date": "2023-12-15T18:00:00Z" }` |
-| PUT | /api/tasks/{id} | 更新任务 | 请求: `{ "title": "完成项目报告（更新版）", "status": "in_progress" }`<br>响应: `{ "id": 1, "title": "完成项目报告（更新版）", "description": "需要在本周五前完成", "status": "in_progress", "priority": "high", "due_date": "2023-12-15T18:00:00Z" }` |
-| DELETE | /api/tasks/{id} | 删除任务 | 响应: `{ "message": "任务已成功删除" }` |
-| POST | /api/tasks/batch-delete | 批量删除任务 | 请求: `{ "task_ids": [1, 2, 3] }`<br>响应: `{ "message": "已删除3个任务" }` |
-| PUT | /api/tasks/{id}/complete | 标记任务为完成 | 响应: `{ "id": 1, "status": "completed", "completed_at": "2023-12-10T14:30:00Z" }` |
+| GET | /api/projects | 获取项目列表 | 请求: `Authorization: Bearer <token>`<br>响应: `[{id, name, description, created_at}, ...]` |
+| POST | /api/projects | 创建新项目 | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, description}`<br>响应: `{project}` |
+| GET | /api/projects/:id | 获取项目详情 | 请求: `Authorization: Bearer <token>`<br>响应: `{project}` |
+| PUT | /api/projects/:id | 更新项目 | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, description}`<br>响应: `{project}` |
+| DELETE | /api/projects/:id | 删除项目 | 请求: `Authorization: Bearer <token>`<br>响应: `{success}` |
 
-### 分类相关
-
+#### DAG管理
 | Method | Path | 描述 | 请求/响应示例 |
 |--------|------|------|--------------|
-| GET | /api/categories | 获取分类列表 | 响应: `[{ "id": 1, "name": "工作", "color": "#3F51B5" }, { "id": 2, "name": "个人", "color": "#4CAF50" }]` |
-| POST | /api/categories | 创建新分类 | 请求: `{ "name": "学习", "color": "#FF9800" }`<br>响应: `{ "id": 3, "name": "学习", "color": "#FF9800" }` |
-| PUT | /api/categories/{id} | 更新分类 | 请求: `{ "name": "职业发展", "color": "#9C27B0" }`<br>响应: `{ "id": 3, "name": "职业发展", "color": "#9C27B0" }` |
-| DELETE | /api/categories/{id} | 删除分类 | 响应: `{ "message": "分类已成功删除" }` |
+| GET | /api/projects/:projectId/dags | 获取DAG列表 | 请求: `Authorization: Bearer <token>`<br>响应: `[{id, name, description, created_at}, ...]` |
+| POST | /api/projects/:projectId/dags | 创建新DAG | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, description, graph_data}`<br>响应: `{dag}` |
+| GET | /api/dags/:id | 获取DAG详情 | 请求: `Authorization: Bearer <token>`<br>响应: `{dag, nodes, edges}` |
+| PUT | /api/dags/:id | 更新DAG | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, description, graph_data}`<br>响应: `{dag}` |
+| DELETE | /api/dags/:id | 删除DAG | 请求: `Authorization: Bearer <token>`<br>响应: `{success}` |
 
-### 标签相关
-
+#### 节点管理
 | Method | Path | 描述 | 请求/响应示例 |
 |--------|------|------|--------------|
-| GET | /api/tags | 获取标签列表 | 响应: `[{ "id": 1, "name": "紧急", "color": "#F44336" }, { "id": 2, "name": "重要", "color": "#FF9800" }]` |
-| POST | /api/tags | 创建新标签 | 请求: `{ "name": "会议", "color": "#2196F3" }`<br>响应: `{ "id": 3, "name": "会议", "color": "#2196F3" }` |
-| PUT | /api/tags/{id} | 更新标签 | 请求: `{ "name": "团队会议", "color": "#3F51B5" }`<br>响应: `{ "id": 3, "name": "团队会议", "color": "#3F51B5" }` |
-| DELETE | /api/tags/{id} | 删除标签 | 响应: `{ "message": "标签已成功删除" }` |
-| POST | /api/tasks/{id}/tags | 为任务添加标签 | 请求: `{ "tag_ids": [1, 2] }`<br>响应: `{ "message": "标签已成功添加到任务" }` |
-| DELETE | /api/tasks/{id}/tags/{tag_id} | 从任务移除标签 | 响应: `{ "message": "标签已从任务中移除" }` |
+| GET | /api/dags/:dagId/nodes | 获取节点列表 | 请求: `Authorization: Bearer <token>`<br>响应: `[{id, name, node_type, config, position_x, position_y}, ...]` |
+| POST | /api/dags/:dagId/nodes | 创建新节点 | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, node_type, config, position_x, position_y}`<br>响应: `{node}` |
+| GET | /api/nodes/:id | 获取节点详情 | 请求: `Authorization: Bearer <token>`<br>响应: `{node}` |
+| PUT | /api/nodes/:id | 更新节点 | 请求: `Authorization: Bearer <token>`<br>请求体: `{name, node_type, config, position_x, position_y}`<br>响应: `{node}` |
+| DELETE | /api/nodes/:id | 删除节点 | 请求: `Authorization: Bearer <token>`<br>响应: `{success}` |
 
-### 提醒相关
-
+#### 边管理
 | Method | Path | 描述 | 请求/响应示例 |
 |--------|------|------|--------------|
-| GET | /api/reminders | 获取提醒列表 | 响应: `[{ "id": 1, "task_id": 1, "reminder_time": "2023-12-14T09:00:00Z", "is_sent": false }]` |
-| POST | /api/tasks/{id}/reminders | 为任务创建提醒 | 请求: `{ "reminder_time": "2023-12-14T09:00:00Z" }`<br>响应: `{ "id": 1, "task_id": 1, "reminder_time": "2023-12-14T09:00:00Z", "is_sent": false }` |
-| DELETE | /api/reminders/{id} | 删除提醒 | 响应: `{ "message": "提醒已成功删除" }` |
+| GET | /api/dags/:dagId/edges | 获取边列表 | 请求: `Authorization: Bearer <token>`<br>响应: `[{id, source_node_id, target_node_id}, ...]` |
+| POST | /api/dags/:dagId/edges | 创建新边 | 请求: `Authorization: Bearer <token>`<br>请求体: `{source_node_id, target_node_id}`<br>响应: `{edge}` |
+| DELETE | /api/edges/:id | 删除边 | 请求: `Authorization: Bearer <token>`<br>响应: `{success}` |
+
+#### DAG测试执行
+| Method | Path | 描述 | 请求/响应示例 |
+|--------|------|------|--------------|
+| POST | /api/dags/:id/execute | 执行DAG测试 | 请求: `Authorization: Bearer <token>`<br>请求体: `{config}`<br>响应: `{execution_id}` |
+| GET | /api/executions/:id | 获取执行状态 | 请求: `Authorization: Bearer <token>`<br>响应: `{execution, status, progress}` |
+| GET | /api/executions/:id/results | 获取测试结果 | 请求: `Authorization: Bearer <token>`<br>响应: `[{node_id, status, execution_time, error_message}, ...]` |
+| GET | /api/executions/:id/logs | 获取测试日志 | 请求: `Authorization: Bearer <token>`<br>响应: `[{log_level, message, timestamp}, ...]` |
+
+#### 分页
+所有列表API支持分页参数：
+- `page`: 页码 (默认: 1)
+- `limit`: 每页数量 (默认: 10, 最大: 100)
+
+#### 错误码
+| 错误码 | 描述 |
+|--------|------|
+| 400 | 请求参数错误 |
+| 401 | 未认证 |
+| 403 | 权限不足 |
+| 404 | 资源不存在 |
+| 409 | 资源冲突 |
+| 500 | 服务器内部错误 |
 
 ## 5. 前端架构
 
@@ -234,91 +247,114 @@ CREATE TABLE reminders (
 
 ```
 App
-├── Auth
-│   ├── Login
-│   └── Register
-├── Dashboard
-│   ├── Header
-│   ├── Sidebar
-│   └── Main
-│       ├── TaskList
-│       │   ├── TaskItem
-│       │   │   ├── TaskPriority
-│       │   │   ├── TaskStatus
-│       │   │   └── TaskActions
-│       │   ├── TaskForm
-│       │   └── TaskFilter
-│       ├── TaskDetail
-│       │   ├── TaskDetailHeader
-│       │   ├── TaskDetailContent
-│       │   ├── TaskDetailForm
-│       │   └── TaskDetailReminders
-│       ├── CategoryList
-│       │   ├── CategoryItem
-│       │   └── CategoryForm
-│       ├── TagList
-│       │   ├── TagItem
-│       │   └── TagForm
-│       └── Profile
-└── Error
+├── Layout (布局组件)
+│   ├── Header (头部导航)
+│   ├── Sidebar (侧边栏导航)
+│   └── Main (主内容区)
+├── Auth (认证相关页面)
+│   ├── Login (登录页面)
+│   └── Register (注册页面)
+├── Dashboard (仪表板)
+│   ├── ProjectList (项目列表)
+│   ├── ProjectDetail (项目详情)
+│   └── DAGList (DAG列表)
+├── DAGEditor (DAG编辑器)
+│   ├── Canvas (画布组件)
+│   ├── NodePalette (节点面板)
+│   ├── PropertiesPanel (属性面板)
+│   └── Toolbar (工具栏)
+├── DAGExecutor (DAG执行器)
+│   ├── ExecutionControl (执行控制)
+│   ├── ExecutionProgress (执行进度)
+│   └── ExecutionLogs (执行日志)
+├── Visualization (结果可视化)
+│   ├── GraphVisualization (图形可视化)
+│   ├── ResultTable (结果表格)
+│   └── PerformanceChart (性能图表)
+└── Settings (设置页面)
+    ├── UserProfile (用户资料)
+    └── SystemSettings (系统设置)
 ```
 
 ### 路由表
 
 | 路径 | 组件 | 描述 |
 |------|------|------|
-| / | Dashboard | 主仪表盘 |
+| / | Dashboard | 仪表板，显示项目概览 |
 | /login | Login | 登录页面 |
 | /register | Register | 注册页面 |
-| /tasks | TaskList | 任务列表 |
-| /tasks/:id | TaskDetail | 任务详情 |
-| /categories | CategoryList | 分类管理 |
-| /tags | TagList | 标签管理 |
-| /profile | Profile | 用户资料 |
+| /projects | ProjectList | 项目列表 |
+| /projects/:id | ProjectDetail | 项目详情 |
+| /projects/:projectId/dags | DAGList | DAG列表 |
+| /dags/:id/edit | DAGEditor | DAG编辑器 |
+| /dags/:id/execute | DAGExecutor | DAG执行器 |
+| /dags/:id/results | Visualization | 结果可视化 |
+| /settings | Settings | 设置页面 |
 
 ### 状态管理方案
 
-使用 Pinia 进行状态管理，主要 store 包括：
+使用Redux Toolkit进行状态管理，主要状态包括：
 
-1. **authStore**: 管理用户认证状态
-   - state: user, token, isAuthenticated
-   - actions: login, logout, fetchUser
+1. **认证状态 (authSlice)**
+   - user: 当前用户信息
+   - token: 认证令牌
+   - isAuthenticated: 是否已认证
 
-2. **tasksStore**: 管理任务相关状态
-   - state: tasks, filters, currentTask
-   - actions: fetchTasks, createTask, updateTask, deleteTask, toggleTaskStatus
+2. **项目状态 (projectSlice)**
+   - projects: 项目列表
+   - currentProject: 当前项目
+   - isLoading: 加载状态
 
-3. **categoriesStore**: 管理分类相关状态
-   - state: categories
-   - actions: fetchCategories, createCategory, updateCategory, deleteCategory
+3. **DAG状态 (dagSlice)**
+   - dags: DAG列表
+   - currentDAG: 当前DAG
+   - nodes: 节点列表
+   - edges: 边列表
+   - selectedNode: 选中的节点
 
-4. **tagsStore**: 管理标签相关状态
-   - state: tags
-   - actions: fetchTags, createTag, updateTag, deleteTag, addTagToTask, removeTagFromTask
+4. **执行状态 (executionSlice)**
+   - executions: 执行历史
+   - currentExecution: 当前执行
+   - executionResults: 执行结果
+   - executionLogs: 执行日志
 
-5. **remindersStore**: 管理提醒相关状态
-   - state: reminders
-   - actions: fetchReminders, createReminder, deleteReminder
+5. **UI状态 (uiSlice)**
+   - theme: 主题 (light/dark)
+   - sidebarOpen: 侧边栏状态
+   - notifications: 通知列表
+
+### 数据获取策略
+
+1. 使用React Query进行服务端状态管理
+2. 实现乐观更新提升用户体验
+3. 使用SWR进行数据预取和缓存
+4. 实现自动重试和错误处理机制
 
 ## 6. 实现路线图
 
-### P0 优先级（核心功能）
+### 阶段 1: 基础架构搭建 (4周)
 
-1. **项目初始化**（1天）
-   - 创建前端 Vue 3 项目
-   - 创建后端 FastAPI 项目
-   - 设置 PostgreSQL 数据库
-   - 配置 Docker 和 Docker Compose
+| 任务 | 工时 | 依赖 |
+|------|------|------|
+| 环境搭建与配置 | 1周 | 无 |
+| 数据库设计 | 1周 | 无 |
+| 后端API框架搭建 | 1周 | 数据库设计 |
+| 前端项目初始化 | 1周 | 无 |
 
-2. **用户认证系统**（3天）
-   - 实现用户注册 API
-   - 实现用户登录 API
-   - 实现 JWT 认证中间件
-   - 前端登录和注册页面
-   - 前端路由守卫
+### 阶段 2: 核心功能开发 (8周)
 
-3. **任务基础功能**（4天）
-   - 设计任务数据模型
-   - 实现任务 CRUD API
-   - 前端任务列表页面
-   - �
+| 任务 | 工时 | 依赖 |
+|------|------|------|
+| 用户认证系统 | 1周 | 基础架构 |
+| 项目管理功能 | 1周 | 用户认证 |
+| DAG基础数据结构 | 1.5周 | 项目管理 |
+| 节点和边管理 | 1.5周 | DAG基础数据结构 |
+| DAG编辑器前端 | 2周 | 节点和边管理 |
+| DAG执行引擎 | 2周 | DAG基础数据结构 |
+| 测试结果收集 | 1周 | DAG执行引擎 |
+
+### 阶段 3: 可视化和优化 (4周)
+
+| 任务 | 工时 | 依赖 |
+|------|------|------|
+| 结果可视化

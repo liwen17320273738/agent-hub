@@ -8,6 +8,7 @@ and pipeline stages.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -87,8 +88,34 @@ def _parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
     }
 
 
+def _scan_skill_dirs(root: Path, skills: Dict[str, Dict[str, Any]], source_type: str = "public") -> int:
+    """Scan a directory of skill folders (each containing SKILL.md) and add to skills dict."""
+    count = 0
+    if not root.is_dir():
+        return 0
+    for skill_dir in sorted(root.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            continue
+        parsed = _parse_skill_md(skill_file)
+        if parsed and parsed["id"] not in skills:
+            parsed["source_type"] = source_type
+            skills[parsed["id"]] = parsed
+            logger.info(f"Loaded skill: {parsed['id']} from {skill_file}")
+            count += 1
+    return count
+
+
 def discover_skills(skills_root: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-    """Scan skills directories and return discovered skill definitions."""
+    """Scan skills directories and return discovered skill definitions.
+
+    Scans:
+    1. {skills_root}/public/ and {skills_root}/custom/ (including symlinks)
+    2. EXTRA_SKILLS_DIRS env var — comma-separated list of additional directories
+       Each entry should point to a directory containing skill subdirs with SKILL.md
+    """
     global _loaded_skills
 
     if skills_root:
@@ -100,34 +127,23 @@ def discover_skills(skills_root: Optional[str] = None) -> Dict[str, Dict[str, An
         ]
         root = next((p for p in candidates if p.exists()), candidates[0])
 
-    if not root.exists():
-        logger.info(f"Skills directory not found: {root}")
-        return {}
-
     skills: Dict[str, Dict[str, Any]] = {}
 
-    for category_dir in ["public", "custom"]:
-        cat_path = root / category_dir
-        if not cat_path.is_dir():
-            continue
+    if root.exists():
+        for category_dir in ["public", "custom"]:
+            _scan_skill_dirs(root / category_dir, skills, source_type=category_dir)
 
-        for skill_dir in sorted(cat_path.iterdir()):
-            if not skill_dir.is_dir():
-                continue
-            skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
-                continue
-
-            parsed = _parse_skill_md(skill_file)
-            if parsed:
-                # Preserve the frontmatter category for DB sync instead of
-                # overwriting with the folder name ("public"/"custom").
-                parsed["source_type"] = category_dir
-                skills[parsed["id"]] = parsed
-                logger.info(f"Loaded skill: {parsed['id']} from {skill_file}")
+    extra_dirs = os.environ.get("EXTRA_SKILLS_DIRS", "")
+    for extra in extra_dirs.split(","):
+        extra = extra.strip()
+        if extra:
+            extra_path = Path(extra)
+            added = _scan_skill_dirs(extra_path, skills, source_type="external")
+            if added:
+                logger.info(f"Loaded {added} external skills from {extra_path}")
 
     _loaded_skills = skills
-    logger.info(f"Discovered {len(skills)} skills from {root}")
+    logger.info(f"Discovered {len(skills)} skills total")
     return skills
 
 

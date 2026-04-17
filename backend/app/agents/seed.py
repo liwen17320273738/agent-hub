@@ -22,32 +22,35 @@ logger = logging.getLogger(__name__)
 # These map to TOOL_REGISTRY keys in services/tools/registry.py
 
 AGENT_TOOLS = {
-    "wayne-ceo": ["web_search", "file_read", "file_list"],
-    "wayne-cto": ["file_read", "file_list", "bash", "web_search", "git_diff", "git_log"],
-    "wayne-product": ["web_search", "file_read", "file_write", "file_list"],
+    "wayne-ceo": ["web_search", "file_read", "file_list", "deerflow_delegate"],
+    "wayne-cto": ["file_read", "file_list", "bash", "web_search", "git_diff", "git_log", "deerflow_delegate"],
+    "wayne-product": ["web_search", "file_read", "file_write", "file_list", "deerflow_delegate"],
     "wayne-developer": [
         "file_read", "file_write", "file_list", "str_replace", "bash",
         "git_status", "git_add", "git_commit", "git_diff", "git_log",
         "git_checkout", "git_push", "git_create_pr", "write_file",
         "build", "install_deps", "run_tests",
+        "deerflow_delegate",
     ],
     "wayne-qa": [
         "file_read", "file_list", "bash",
         "test_execute", "test_detect", "run_tests",
         "git_diff", "git_log",
+        "deerflow_delegate",
     ],
-    "wayne-designer": ["web_search", "file_read", "file_write", "file_list"],
+    "wayne-designer": ["web_search", "file_read", "file_write", "file_list", "deerflow_delegate"],
     "wayne-devops": [
         "file_read", "file_write", "file_list", "bash",
         "git_status", "git_add", "git_commit", "git_push",
         "build", "install_deps", "run_tests",
+        "deerflow_delegate",
     ],
-    "wayne-security": ["file_read", "file_list", "bash", "web_search", "git_diff"],
-    "wayne-acceptance": ["file_read", "file_list", "web_search", "test_execute"],
-    "wayne-data": ["file_read", "file_write", "bash", "web_search"],
-    "wayne-marketing": ["web_search", "file_write"],
-    "wayne-finance": ["web_search", "file_read"],
-    "wayne-legal": ["web_search", "file_read"],
+    "wayne-security": ["file_read", "file_list", "bash", "web_search", "git_diff", "deerflow_delegate"],
+    "wayne-acceptance": ["file_read", "file_list", "web_search", "test_execute", "deerflow_delegate"],
+    "wayne-data": ["file_read", "file_write", "bash", "web_search", "deerflow_delegate"],
+    "wayne-marketing": ["web_search", "file_write", "deerflow_delegate"],
+    "wayne-finance": ["web_search", "file_read", "deerflow_delegate"],
+    "wayne-legal": ["web_search", "file_read", "deerflow_delegate"],
     "openclaw": ["web_search"],
 }
 

@@ -25,6 +25,20 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_WORK_DIRS: List[str] = []
 
+
+def _ensure_sandbox_allowed():
+    """Auto-register the sandbox projects directory so codegen can use Claude Code."""
+    try:
+        from .tools.sandbox import get_sandbox_root
+        projects_dir = os.path.join(get_sandbox_root(), "projects")
+        if projects_dir not in ALLOWED_WORK_DIRS:
+            ALLOWED_WORK_DIRS.append(projects_dir)
+    except Exception:
+        pass
+
+
+_ensure_sandbox_allowed()
+
 _JOB_TTL = 86400  # 24 hours
 
 
@@ -109,7 +123,7 @@ async def execute_claude_code(
         }
 
     claude_bin = os.environ.get("CLAUDE_PATH") or shutil.which("claude") or "claude"
-    args = [claude_bin, "--print", "--output-format", "text"]
+    args = [claude_bin, "-p", "--output-format", "text", "--permission-mode", "auto"]
     if allowed_tools:
         args.extend(["--allowedTools", ",".join(allowed_tools)])
 

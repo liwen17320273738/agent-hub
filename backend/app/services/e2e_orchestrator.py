@@ -58,6 +58,9 @@ def _detect_deploy_platform(template_id: str, description: str = "") -> str:
     return "vercel"
 
 
+MAX_FIX_RETRIES = 3
+
+
 async def run_full_e2e(
     db: AsyncSession,
     *,
@@ -69,12 +72,12 @@ async def run_full_e2e(
 ) -> Dict[str, Any]:
     """Execute the FULL end-to-end flow:
 
-    1. DAG Pipeline (planning → architecture → development → testing → reviewing → deployment)
-    2. Extract code from pipeline outputs → write to files
-    3. Build the project
-    4. Deploy to appropriate platform
-    5. Capture preview screenshot
-    6. Send notification to source channel
+    Phase 1: Design Pipeline (planning → architecture) — generates PRD + tech spec
+    Phase 2: Code Generation via Claude Code — writes real files in projects/{slug}
+    Phase 3: Build + Test → Fix loop — build, run tests, auto-fix up to N times
+    Phase 4: Review Pipeline (testing → reviewing) — QA validates the real code
+    Phase 5: Deploy — Vercel / Cloudflare / miniprogram
+    Phase 6: Preview + Notify — screenshot + channel notification
 
     Returns a comprehensive result dict.
     """
@@ -87,11 +90,11 @@ async def run_full_e2e(
     await emit_event("e2e:start", {
         "taskId": task_id,
         "title": task_title,
-        "autoDeply": auto_deploy,
+        "autoDeploy": auto_deploy,
     })
 
-    # ── Phase 1: Run DAG Pipeline ───────────────────────────────────
-    await emit_event("e2e:phase", {"taskId": task_id, "phase": "pipeline", "status": "running"})
+    # ── Phase 1: Design Pipeline (planning + architecture only) ─────
+    await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "running"})
 
     from .dag_orchestrator import execute_dag_pipeline
 
@@ -103,7 +106,7 @@ async def run_full_e2e(
         template=dag_template,
     )
 
-    e2e_result["phases"]["pipeline"] = {
+    e2e_result["phases"]["design_pipeline"] = {
         "ok": pipeline_result.get("ok", False),
         "stagesCompleted": pipeline_result.get("summary", {}).get("stagesCompleted", 0),
         "traceId": pipeline_result.get("traceId"),
@@ -111,14 +114,13 @@ async def run_full_e2e(
 
     if not pipeline_result.get("ok"):
         e2e_result["ok"] = False
-        e2e_result["stopped_at"] = "pipeline"
-        e2e_result["error"] = "Pipeline failed"
-        await emit_event("e2e:failed", {"taskId": task_id, "phase": "pipeline"})
+        e2e_result["stopped_at"] = "design_pipeline"
+        e2e_result["error"] = "Design pipeline failed"
+        await emit_event("e2e:failed", {"taskId": task_id, "phase": "design-pipeline"})
         return e2e_result
 
-    await emit_event("e2e:phase", {"taskId": task_id, "phase": "pipeline", "status": "done"})
+    await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "done"})
 
-    # Collect pipeline outputs
     outputs: Dict[str, str] = {}
     for stage_result in pipeline_result.get("results", []):
         sid = stage_result.get("stageId", "")
@@ -126,7 +128,7 @@ async def run_full_e2e(
         if sid and content:
             outputs[sid] = content
 
-    # ── Phase 2: Code Generation ────────────────────────────────────
+    # ── Phase 2: Code Generation via Claude Code ────────────────────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "codegen", "status": "running"})
 
     template_id = _detect_project_type(
@@ -141,10 +143,12 @@ async def run_full_e2e(
         task_title=task_title,
         pipeline_outputs=outputs,
         template_id=template_id,
+        use_claude_code=True,
     )
 
     e2e_result["phases"]["codegen"] = {
         "ok": codegen_result.get("ok", False),
+        "engine": codegen_result.get("engine", "unknown"),
         "template": template_id,
         "filesWritten": codegen_result.get("total_files", 0),
         "projectDir": codegen_result.get("project_dir", ""),
@@ -158,35 +162,75 @@ async def run_full_e2e(
         return e2e_result
 
     project_dir = codegen_result["project_dir"]
-    await emit_event("e2e:phase", {"taskId": task_id, "phase": "codegen", "status": "done"})
+    await emit_event("e2e:phase", {
+        "taskId": task_id, "phase": "codegen", "status": "done",
+        "engine": codegen_result.get("engine"),
+        "filesWritten": codegen_result.get("total_files", 0),
+    })
 
-    # ── Phase 3: Build ──────────────────────────────────────────────
-    await emit_event("e2e:phase", {"taskId": task_id, "phase": "build", "status": "running"})
+    # ── Phase 3: Build + Test → Fix Loop ────────────────────────────
+    await emit_event("e2e:phase", {"taskId": task_id, "phase": "build-test", "status": "running"})
 
     from .codegen.templates import get_template
     template = get_template(template_id)
     build_cmd = template.get("build_cmd", "") if template else ""
 
-    build_result_data: Dict[str, Any] = {"ok": True, "skipped": True}
+    build_test_result: Dict[str, Any] = {"ok": True, "skipped": not build_cmd, "attempts": 0}
 
     if build_cmd:
-        build_output = await codegen.run_build(project_dir, build_cmd)
-        build_result_data = {
-            "ok": build_output.get("ok", False),
-            "skipped": False,
-            "command": build_cmd,
-        }
+        for attempt in range(1, MAX_FIX_RETRIES + 1):
+            build_test_result["attempts"] = attempt
 
-    e2e_result["phases"]["build"] = build_result_data
+            build_output = await codegen.run_build(project_dir, build_cmd)
+            build_test_result["build_output"] = build_output.get("output", "")[:1000]
 
-    if not build_result_data.get("ok") and not build_result_data.get("skipped"):
+            if build_output.get("ok"):
+                build_test_result["ok"] = True
+                build_test_result["fixed_on_attempt"] = attempt if attempt > 1 else None
+                break
+
+            await emit_event("e2e:build-failed", {
+                "taskId": task_id,
+                "attempt": attempt,
+                "maxRetries": MAX_FIX_RETRIES,
+            })
+
+            if attempt >= MAX_FIX_RETRIES:
+                build_test_result["ok"] = False
+                build_test_result["error"] = f"Build failed after {MAX_FIX_RETRIES} attempts"
+                break
+
+            fix_result = await codegen.auto_fix(
+                task_id=task_id,
+                project_dir=project_dir,
+                error_output=build_output.get("output", ""),
+                attempt=attempt,
+            )
+
+            await emit_event("e2e:auto-fix", {
+                "taskId": task_id,
+                "attempt": attempt,
+                "fixOk": fix_result.get("ok", False),
+            })
+
+            if not fix_result.get("ok"):
+                build_test_result["ok"] = False
+                build_test_result["error"] = f"Auto-fix failed on attempt {attempt}"
+                break
+
+    e2e_result["phases"]["build_test"] = build_test_result
+
+    if not build_test_result.get("ok") and not build_test_result.get("skipped"):
         e2e_result["ok"] = False
-        e2e_result["stopped_at"] = "build"
-        e2e_result["error"] = "Build failed"
-        await emit_event("e2e:failed", {"taskId": task_id, "phase": "build"})
+        e2e_result["stopped_at"] = "build_test"
+        e2e_result["error"] = build_test_result.get("error", "Build failed")
+        await emit_event("e2e:failed", {"taskId": task_id, "phase": "build-test"})
         return e2e_result
 
-    await emit_event("e2e:phase", {"taskId": task_id, "phase": "build", "status": "done"})
+    await emit_event("e2e:phase", {
+        "taskId": task_id, "phase": "build-test", "status": "done",
+        "attempts": build_test_result.get("attempts", 0),
+    })
 
     # ── Phase 4: Deploy ─────────────────────────────────────────────
     deploy_result: Dict[str, Any] = {"ok": False, "skipped": True}
@@ -255,6 +299,7 @@ async def run_full_e2e(
         "taskId": task_id,
         "ok": all_ok,
         "url": preview_url,
+        "engine": codegen_result.get("engine", "unknown"),
         "phases": {k: v.get("ok", False) for k, v in e2e_result["phases"].items()},
     })
 

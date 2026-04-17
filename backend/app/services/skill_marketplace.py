@@ -352,12 +352,14 @@ async def get_marketplace_catalog() -> List[Dict[str, Any]]:
 
 
 STAGE_SKILL_MAP: Dict[str, List[str]] = {
-    "planning": ["product", "analysis", "prd"],
+    "planning": ["product", "analysis", "prd", "general"],
+    "design": ["design", "product", "general"],
     "architecture": ["architecture", "design", "development"],
-    "development": ["development", "security"],
-    "testing": ["testing"],
-    "reviewing": ["analysis", "product"],
-    "deployment": ["deployment", "operations"],
+    "development": ["development", "security", "design"],
+    "testing": ["testing", "development"],
+    "reviewing": ["analysis", "product", "testing", "operations"],
+    "deployment": ["deployment", "operations", "development"],
+    "security": ["security", "testing", "specialized"],
 }
 
 

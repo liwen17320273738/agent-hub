@@ -233,7 +233,7 @@
           size="large"
           @click="handleSmartRun"
           :loading="smartRunning"
-          :disabled="task.currentStageId === 'done'"
+          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !smartRunning)"
         >
           <span style="margin-right:4px">🧠</span>
           Lead Agent 智能执行
@@ -241,7 +241,7 @@
         <el-button
           @click="handleAutoRun"
           :loading="autoRunning"
-          :disabled="task.currentStageId === 'done'"
+          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !autoRunning)"
         >
           <el-icon><VideoPlay /></el-icon>
           经典全自动执行
@@ -250,14 +250,14 @@
           type="primary"
           @click="handleRunCurrentStage"
           :loading="stageRunning"
-          :disabled="task.currentStageId === 'done'"
+          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !stageRunning)"
         >
           <el-icon><CaretRight /></el-icon>
           AI 执行当前阶段
         </el-button>
         <el-button
           @click="handleAdvance"
-          :disabled="task.currentStageId === 'done'"
+          :disabled="task.currentStageId === 'done' || anyExecutionRunning"
         >
           <el-icon><Right /></el-icon>
           手动跳过
@@ -265,7 +265,7 @@
         <el-button
           type="warning"
           @click="showRejectDialog = true"
-          :disabled="task.currentStageId === 'planning'"
+          :disabled="task.currentStageId === 'planning' || anyExecutionRunning"
         >
           <el-icon><Back /></el-icon>
           打回
@@ -274,6 +274,7 @@
           v-if="task.currentStageId === 'development'"
           @click="handleResume(false)"
           :loading="resuming"
+          :disabled="anyExecutionRunning && !resuming"
         >
           <el-icon><RefreshRight /></el-icon>
           确认构建完成 & 继续
@@ -474,6 +475,9 @@ const autoRunning = ref(false)
 const smartRunning = ref(false)
 const stageRunning = ref(false)
 const resuming = ref(false)
+const anyExecutionRunning = computed(() =>
+  autoRunning.value || smartRunning.value || stageRunning.value || resuming.value
+)
 const subtasks = ref<SubtaskInfo[]>([])
 const processingStage = ref<string | null>(null)
 const showRejectDialog = ref(false)

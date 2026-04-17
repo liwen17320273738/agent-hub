@@ -20,6 +20,7 @@ from .test_runner import (
     detect_test_runner,
     format_test_report,
 )
+from .deerflow_tool import deerflow_delegate, deerflow_list_skills, deerflow_list_models
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,37 @@ TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {
         },
         "permissions": ["execute"],
         "handler": run_tests,
+    },
+    # --- DeerFlow delegation tools ---
+    "deerflow_delegate": {
+        "name": "deerflow_delegate",
+        "description": "Delegate a research/analysis/coding task to DeerFlow's multi-agent system. Returns DeerFlow's response. Use for deep research, complex analysis, or tasks requiring web browsing and code execution.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Task or question to send to DeerFlow"},
+                "mode": {"type": "string", "description": "Execution mode: flash (fast), standard, pro (planning), ultra (sub-agents). Default: pro"},
+                "thread_id": {"type": "string", "description": "Optional: continue an existing DeerFlow conversation"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 300)"},
+            },
+            "required": ["message"],
+        },
+        "permissions": ["network"],
+        "handler": deerflow_delegate,
+    },
+    "deerflow_skills": {
+        "name": "deerflow_skills",
+        "description": "List available skills from the connected DeerFlow instance",
+        "parameters": {"type": "object", "properties": {}},
+        "permissions": ["network"],
+        "handler": deerflow_list_skills,
+    },
+    "deerflow_models": {
+        "name": "deerflow_models",
+        "description": "List available models from the connected DeerFlow instance",
+        "parameters": {"type": "object", "properties": {}},
+        "permissions": ["network"],
+        "handler": deerflow_list_models,
     },
     # --- Advanced test tools (structured results with parsed output) ---
     "test_execute": {

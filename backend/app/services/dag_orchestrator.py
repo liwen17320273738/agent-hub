@@ -347,7 +347,7 @@ async def execute_dag_pipeline(
 
                 # --- Quality Gate Evaluation (DAG path) ---
                 try:
-                    from .quality_gates import evaluate_quality_gate, GateStatus
+                    from .quality_gates import evaluate_quality_gate
                     from .self_verify import StageVerification, VerifyStatus, VerifyResult
 
                     verification = stage_result.get("verification", {})
@@ -404,12 +404,19 @@ async def execute_dag_pipeline(
                         stage_result["ok"] = False
                         stage_result["gate_blocked"] = True
                         stage_result["gate_result"] = gate_result.dict()
+                        await emit_event("pipeline:auto-paused", {
+                            "taskId": task_id,
+                            "stoppedAt": stage.stage_id,
+                            "reason": f"质量门禁未通过: {gate_result.block_reason or '评分过低'}",
+                            "gateScore": gate_result.overall_score,
+                        })
                 except Exception as gate_err:
                     logger.warning(f"[dag] Quality gate evaluation failed for {stage.stage_id}: {gate_err}")
 
-                await emit_event("stage:completed", {
-                    "taskId": task_id, "stageId": stage.stage_id,
-                })
+                if stage.status == StageStatus.DONE:
+                    await emit_event("stage:completed", {
+                        "taskId": task_id, "stageId": stage.stage_id,
+                    })
 
                 if stage.stage_id == "reviewing" and "REJECTED" in stage.output:
                     target = _extract_rejection_target(stage.output)
@@ -449,7 +456,12 @@ async def execute_dag_pipeline(
                 break
 
     all_ok = all(r.get("ok", False) for r in results if isinstance(r, dict))
-    await complete_trace(trace.trace_id, status="completed" if all_ok else "failed")
+    blocked_stage = next((s for s in stages if s.status == StageStatus.BLOCKED), None)
+    failed_stage = next((s for s in stages if s.status == StageStatus.FAILED), None)
+    if blocked_stage:
+        await complete_trace(trace.trace_id, status="paused")
+    else:
+        await complete_trace(trace.trace_id, status="completed" if all_ok else "failed")
 
     await emit_event("pipeline:dag-completed", {
         "taskId": task_id,
@@ -471,8 +483,12 @@ async def execute_dag_pipeline(
                 )
                 if db_stage:
                     db_stage.output = stage.output
-                    db_stage.status = "done"
-                    db_stage.completed_at = datetime.utcnow()
+                    if stage.status == StageStatus.DONE:
+                        db_stage.status = "done"
+                        db_stage.completed_at = datetime.utcnow()
+                    elif stage.status == StageStatus.BLOCKED:
+                        db_stage.status = "blocked"
+                        db_stage.completed_at = None
 
                 artifact = PipelineArtifact(
                     task_id=db_task.id,
@@ -485,6 +501,13 @@ async def execute_dag_pipeline(
 
         if all_ok:
             db_task.status = "done"
+            db_task.current_stage_id = "done"
+        elif blocked_stage:
+            db_task.status = "paused"
+            db_task.current_stage_id = blocked_stage.stage_id
+        elif failed_stage:
+            db_task.status = "failed"
+            db_task.current_stage_id = failed_stage.stage_id
         gate_scores = [
             s.gate_score for s in db_task.stages if s.gate_score is not None
         ]
