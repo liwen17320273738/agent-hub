@@ -18,6 +18,7 @@ Why IVFFlat (and not HNSW):
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 revision = "1b2c3d4e5f6a"
@@ -33,14 +34,18 @@ def upgrade() -> None:
 
     # Probe pgvector availability — without it the column is TEXT and an
     # IVFFlat index would fail. Skip silently in that case.
+    # Must use SAVEPOINT: a failed CREATE EXTENSION aborts the outer txn.
+    op.execute(text("SAVEPOINT sp_ivfflat_probe"))
     try:
-        bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
-        ext = bind.execute(
-            sa.text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
-        ).first()
-        if not ext:
-            return
+        bind.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     except Exception:
+        op.execute(text("ROLLBACK TO SAVEPOINT sp_ivfflat_probe"))
+        return
+    else:
+        op.execute(text("RELEASE SAVEPOINT sp_ivfflat_probe"))
+
+    ext = bind.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")).first()
+    if not ext:
         return
 
     # Detect actual column type — when the pre-existing column is TEXT (the

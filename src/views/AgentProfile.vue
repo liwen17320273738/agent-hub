@@ -6,7 +6,7 @@
     <!-- Hero -->
     <header class="profile-hero">
       <div class="hero-icon" :style="{ background: agent.color + '18', color: agent.color }">
-        <el-icon :size="48"><component :is="agent.icon" /></el-icon>
+        <el-icon :size="48"><component :is="resolveAgentIcon(agent.icon)" /></el-icon>
       </div>
       <div class="hero-info">
         <div class="hero-top">
@@ -206,6 +206,7 @@ import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAgentStore } from '@/stores/agents'
 import type { AgentProfile as AgentProfileType } from '@/stores/agents'
+import { resolveAgentIcon } from '@/utils/agentIcon'
 
 const route = useRoute()
 const agentStore = useAgentStore()

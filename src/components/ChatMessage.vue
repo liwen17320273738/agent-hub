@@ -3,7 +3,7 @@
     <div class="message-container">
       <div class="avatar" v-if="message.role === 'assistant'">
         <el-icon :size="18" :style="{ color: agent?.color }">
-          <component :is="agent?.icon || 'ChatDotRound'" />
+          <component :is="resolveAgentIcon(agent?.icon || 'ChatDotRound')" />
         </el-icon>
       </div>
       <div class="avatar user-avatar" v-else>
@@ -47,6 +47,7 @@ import { computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ChatMessage } from '@/agents/types'
 import type { AgentConfig } from '@/agents/types'
+import { resolveAgentIcon } from '@/utils/agentIcon'
 
 defineEmits<{
   regenerate: []

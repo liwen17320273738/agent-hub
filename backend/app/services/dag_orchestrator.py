@@ -84,18 +84,20 @@ class DAGStage:
 PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
     "full": [
         DAGStage("planning", "需求规划", "product-manager"),
-        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
-        DAGStage("development", "开发实现", "developer", depends_on=["architecture"]),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning", "design"]),
+        DAGStage("development", "开发实现", "developer", depends_on=["architecture", "design"]),
         DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "审查验收", "acceptance", depends_on=["testing"]),
         DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"]),
     ],
     "parallel_design": [
         DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
         DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
-        DAGStage("development", "开发实现", "developer", depends_on=["planning", "architecture"]),
+        DAGStage("development", "开发实现", "developer", depends_on=["design", "architecture"]),
         DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "审查验收", "acceptance", depends_on=["testing"]),
     ],
     "simple": [
         DAGStage("planning", "需求规划", "product-manager"),
@@ -104,22 +106,24 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
     ],
     "review_only": [
         DAGStage("testing", "测试验证", "qa-lead"),
-        DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "审查验收", "acceptance", depends_on=["testing"]),
     ],
     "adaptive": [
         DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"], skip_condition="simple_task"),
         DAGStage("architecture", "架构设计", "architect", depends_on=["planning"], skip_condition="simple_task"),
-        DAGStage("development", "开发实现", "developer", depends_on=["planning", "architecture"]),
+        DAGStage("development", "开发实现", "developer", depends_on=["planning"]),
         DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "审查验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "审查验收", "acceptance", depends_on=["testing"]),
         DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"], skip_condition="approved"),
     ],
     "web_app": [
         DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "界面 & 组件设计", "designer", depends_on=["planning"]),
         DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
-        DAGStage("development", "前后端开发", "developer", depends_on=["architecture"]),
+        DAGStage("development", "前后端开发", "developer", depends_on=["design", "architecture"]),
         DAGStage("testing", "端到端测试", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "产品验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "产品验收", "acceptance", depends_on=["testing"]),
         DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"]),
     ],
     "api_service": [
@@ -134,7 +138,7 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
         DAGStage("architecture", "数据架构设计", "architect", depends_on=["planning"]),
         DAGStage("development", "ETL / 管道开发", "developer", depends_on=["architecture"]),
         DAGStage("testing", "数据质量验证", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "数据治理审查", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "数据治理审查", "acceptance", depends_on=["testing"]),
     ],
     "bug_fix": [
         DAGStage("planning", "问题分析 & 定位", "product-manager"),
@@ -146,24 +150,74 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
         DAGStage("architecture", "服务架构 & API 契约", "architect", depends_on=["planning"]),
         DAGStage("development", "服务实现", "developer", depends_on=["architecture"]),
         DAGStage("testing", "单元 + 集成 + 契约测试", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "服务验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("reviewing", "服务验收", "acceptance", depends_on=["testing"]),
         DAGStage("deployment", "容器化部署", "devops", depends_on=["reviewing"]),
     ],
     "fullstack_saas": [
         DAGStage("planning", "产品需求 & 商业模式", "product-manager"),
+        DAGStage("design", "界面 & 组件设计", "designer", depends_on=["planning"]),
         DAGStage("architecture", "全栈架构 & 技术选型", "architect", depends_on=["planning"]),
-        DAGStage("development", "前后端实现", "developer", depends_on=["architecture"]),
+        DAGStage("development", "前后端实现", "developer", depends_on=["design", "architecture"]),
         DAGStage("testing", "全链路测试", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "产品验收 & 安全审查", "orchestrator", depends_on=["testing"]),
+        DAGStage("security-review", "安全审计", "security", depends_on=["development"]),
+        DAGStage("reviewing", "产品验收", "acceptance", depends_on=["testing", "security-review"]),
         DAGStage("deployment", "云端部署 & CI/CD", "devops", depends_on=["reviewing"]),
     ],
     "mobile_app": [
         DAGStage("planning", "移动端需求分析", "product-manager"),
-        DAGStage("architecture", "移动架构 & UI 规范", "architect", depends_on=["planning"]),
-        DAGStage("development", "移动端开发", "developer", depends_on=["architecture"]),
+        DAGStage("design", "移动端 UI 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "移动架构 & API", "architect", depends_on=["planning"]),
+        DAGStage("development", "移动端开发", "developer", depends_on=["design", "architecture"]),
         DAGStage("testing", "多设备测试 & 性能", "qa-lead", depends_on=["development"]),
-        DAGStage("reviewing", "App 验收", "orchestrator", depends_on=["testing"]),
+        DAGStage("security-review", "安全审计", "security", depends_on=["development"]),
+        DAGStage("reviewing", "App 验收", "acceptance", depends_on=["testing", "security-review"]),
         DAGStage("deployment", "商店发布 & 灰度", "devops", depends_on=["reviewing"]),
+    ],
+    # —— 新增: Enterprise / Growth / Fintech 模板，把孤儿 agent 接进来 —— #
+    "enterprise": [
+        # 全角色阵容：planning → design + arch → dev → testing/security/legal 并发 →
+        # acceptance → deployment。适合 to-B 严格合规场景。
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
+        DAGStage("development", "开发实现", "developer", depends_on=["design", "architecture"]),
+        DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
+        DAGStage("security-review", "安全审计", "security", depends_on=["development"]),
+        DAGStage("legal-review", "合规审查", "legal", depends_on=["planning", "architecture"]),
+        DAGStage("reviewing", "最终验收", "acceptance",
+                 depends_on=["testing", "security-review", "legal-review"]),
+        DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"]),
+    ],
+    "growth_product": [
+        # 增长向：在常规链路里追加 data-modeling + marketing-launch。
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
+        DAGStage("data-modeling", "指标与埋点设计", "data", depends_on=["planning", "design"]),
+        DAGStage("development", "开发实现", "developer",
+                 depends_on=["design", "architecture", "data-modeling"]),
+        DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
+        DAGStage("reviewing", "产品验收", "acceptance", depends_on=["testing"]),
+        DAGStage("deployment", "部署上线", "devops", depends_on=["reviewing"]),
+        DAGStage("marketing-launch", "上线营销包", "marketing",
+                 depends_on=["reviewing"]),
+    ],
+    "fintech": [
+        # 金融/支付：security + legal + finance 全部强制，acceptance 收口。
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
+        DAGStage("finance-review", "商业可持续性评估", "finance",
+                 depends_on=["planning", "architecture"]),
+        DAGStage("development", "开发实现", "developer",
+                 depends_on=["design", "architecture", "finance-review"]),
+        DAGStage("testing", "测试验证", "qa-lead", depends_on=["development"]),
+        DAGStage("security-review", "安全审计", "security", depends_on=["development"]),
+        DAGStage("legal-review", "合规审查", "legal",
+                 depends_on=["planning", "architecture", "security-review"]),
+        DAGStage("reviewing", "最终验收", "acceptance",
+                 depends_on=["testing", "security-review", "legal-review"]),
+        DAGStage("deployment", "灰度部署", "devops", depends_on=["reviewing"]),
     ],
 }
 
@@ -180,6 +234,9 @@ TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
     "microservice": {"label": "微服务", "description": "服务边界→API 契约→实现→契约测试→容器化", "icon": "🔗"},
     "fullstack_saas": {"label": "全栈 SaaS", "description": "完整 SaaS 产品开发：需求→全栈→测试→安全审查→云部署", "icon": "☁️"},
     "mobile_app": {"label": "移动应用", "description": "移动端产品：需求→UI 架构→开发→多设备测试→商店发布", "icon": "📱"},
+    "enterprise": {"label": "企业级 / 严格合规", "description": "to-B 全角色阵容：design + 安全审计 + 法务合规 + 验收 + 部署", "icon": "🏛️"},
+    "growth_product": {"label": "增长型产品", "description": "在常规链路上追加数据指标设计与上线营销包", "icon": "📈"},
+    "fintech": {"label": "金融 / 支付", "description": "金融级合规：财务评估 + 安全审计 + 法务审查 + 灰度部署", "icon": "💳"},
 }
 
 
@@ -232,9 +289,19 @@ def _should_skip(condition: str, outputs: Dict[str, str]) -> bool:
 
 
 def _extract_rejection_target(content: str) -> Optional[str]:
-    """Extract target stage from rejection content."""
+    """Extract target stage from rejection content.
+
+    Honors the explicit ``REJECT_TO: <stage_id>`` marker emitted by the
+    acceptance-agent first; falls back to fuzzy keyword scan.
+    """
     import re
-    for stage_id in ("planning", "architecture", "development", "testing"):
+    explicit = re.search(r"REJECT_TO\s*[:：]\s*([\w\-]+)", content, re.IGNORECASE)
+    if explicit:
+        return explicit.group(1).lower()
+    for stage_id in (
+        "planning", "design", "architecture", "development", "testing",
+        "security-review", "legal-review", "data-modeling",
+    ):
         match = re.search(rf'(返回|back to|重新|redo)\s*{stage_id}', content, re.IGNORECASE)
         if match:
             return stage_id

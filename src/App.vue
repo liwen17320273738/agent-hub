@@ -114,7 +114,7 @@
           active-class="active"
         >
           <el-icon :style="{ color: agent.color }">
-            <component :is="agent.icon" />
+            <component :is="resolveAgentIcon(agent.icon)" />
           </el-icon>
           <span>{{ agent.name }}</span>
         </router-link>
@@ -128,7 +128,7 @@
           active-class="active"
         >
           <el-icon :style="{ color: agent.color }">
-            <component :is="agent.icon" />
+            <component :is="resolveAgentIcon(agent.icon)" />
           </el-icon>
           <span>{{ agent.name }}</span>
         </router-link>
@@ -161,6 +161,7 @@ import { computed, ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import { Connection, Operation, SetUp, SwitchButton } from '@element-plus/icons-vue'
+import { resolveAgentIcon } from '@/utils/agentIcon'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'

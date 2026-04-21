@@ -84,7 +84,11 @@ STAGE_TIER_OVERRIDE: Dict[str, ModelTier] = {
     "architecture": ModelTier.PLANNING,
     "development": ModelTier.EXECUTION,
     "testing": ModelTier.EXECUTION,
-    "security-review": ModelTier.EXECUTION,
+    "security-review": ModelTier.PLANNING,   # security must reason hard
+    "legal-review": ModelTier.PLANNING,      # legal must reason hard
+    "data-modeling": ModelTier.EXECUTION,
+    "marketing-launch": ModelTier.ROUTINE,
+    "finance-review": ModelTier.EXECUTION,
     "reviewing": ModelTier.PLANNING,
     "acceptance": ModelTier.PLANNING,
     "deployment": ModelTier.EXECUTION,

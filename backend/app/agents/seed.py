@@ -135,7 +135,7 @@ DEFAULT_AGENTS: list[dict] = [
         "id": "wayne-ceo",
         "name": "CEO / 总控",
         "title": "CEO & Orchestrator",
-        "icon": "Crown",
+        "icon": "Trophy",
         "color": "#7c5cff",
         "description": "战略决策、任务编排、阶段审批、资源调度、跨团队协调",
         "category": "core",
@@ -937,10 +937,18 @@ DEFAULT_SKILLS: list[dict] = [
 ]
 
 
+# Element Plus icons-vue has no "Crown"; older DB rows may still reference it.
+_DEPRECATED_AGENT_ICONS: dict[str, str] = {"Crown": "Trophy"}
+
+
 async def seed_agents(db: AsyncSession) -> None:
     for agent_data in DEFAULT_AGENTS:
         existing = await db.get(AgentDefinition, agent_data["id"])
         if existing:
+            fix_icon = _DEPRECATED_AGENT_ICONS.get(existing.icon or "")
+            if fix_icon:
+                existing.icon = fix_icon
+                logger.info(f"[seed] Updated icon for agent {agent_data['id']}: -> {fix_icon}")
             new_caps = agent_data.get("capabilities", {})
             old_caps = existing.capabilities or {}
             if new_caps and new_caps != old_caps:

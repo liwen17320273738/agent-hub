@@ -24,6 +24,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ...config import settings
+from ..safety import sanitize_external_content
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +102,10 @@ async def browser_open(params: Dict[str, Any]) -> str:
         status = response.status if response else 0
         title = await page.title()
         text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-        return (
-            f"[browser_open] status={status} title={title!r}\n\n"
-            + _truncate(text or "", text_limit)
+        body, _scan = sanitize_external_content(
+            text or "", source="browser_open", source_url=url, max_chars=text_limit,
         )
+        return f"[browser_open] status={status} title={title!r}\n\n{body}"
     finally:
         await _close(triple)
 
@@ -162,7 +163,13 @@ async def browser_extract(params: Dict[str, Any]) -> str:
             txt = txt.strip()
             if txt:
                 results.append(txt)
-        return f"[browser_extract] selector={selector} matched={len(elements)} returned={len(results)}\n\n" + "\n---\n".join(results)
+        body, _scan = sanitize_external_content(
+            "\n---\n".join(results), source="browser_extract", source_url=url,
+        )
+        return (
+            f"[browser_extract] selector={selector} "
+            f"matched={len(elements)} returned={len(results)}\n\n{body}"
+        )
     finally:
         await _close(triple)
 
@@ -195,10 +202,18 @@ async def browser_click_flow(params: Dict[str, Any]) -> str:
             try:
                 el = await page.wait_for_selector(extract_selector, timeout=8000)
                 txt = (await el.inner_text()) if el else ""
-                return f"[browser_click_flow] post-click selector={extract_selector}\n\n" + _truncate(txt or "", text_limit)
+                wrapped, _scan = sanitize_external_content(
+                    txt or "", source="browser_click_flow",
+                    source_url=page.url, max_chars=text_limit,
+                )
+                return f"[browser_click_flow] post-click selector={extract_selector}\n\n{wrapped}"
             except Exception as e:
                 return f"[browser_click_flow] click ok, but extract selector {extract_selector!r} failed: {e}"
         body = await page.evaluate("() => document.body ? document.body.innerText : ''")
-        return f"[browser_click_flow] post-click url={page.url}\n\n" + _truncate(body or "", text_limit)
+        wrapped, _scan = sanitize_external_content(
+            body or "", source="browser_click_flow",
+            source_url=page.url, max_chars=text_limit,
+        )
+        return f"[browser_click_flow] post-click url={page.url}\n\n{wrapped}"
     finally:
         await _close(triple)

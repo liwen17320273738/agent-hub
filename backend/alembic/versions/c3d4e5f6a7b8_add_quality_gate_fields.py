@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 revision: str = 'c3d4e5f6a7b8'
@@ -18,10 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('pipeline_tasks', sa.Column('template', sa.String(50), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('verify_status', sa.String(10), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('verify_checks', sa.JSON(), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('quality_score', sa.Float(), nullable=True))
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(text("ALTER TABLE pipeline_tasks ADD COLUMN IF NOT EXISTS template VARCHAR(50)"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS verify_status VARCHAR(10)"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS verify_checks JSON"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS quality_score DOUBLE PRECISION"))
+    else:
+        op.add_column('pipeline_tasks', sa.Column('template', sa.String(50), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('verify_status', sa.String(10), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('verify_checks', sa.JSON(), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('quality_score', sa.Float(), nullable=True))
 
 
 def downgrade() -> None:

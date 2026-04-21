@@ -34,9 +34,18 @@ AGENT_TEAM = {
         "name": "CEO Agent（总指挥）",
         "icon": "👔",
         "expertise": "30年产品战略 + 团队管理",
-        "responsibilities": ["需求分析", "PRD撰写", "项目评审", "验收决策", "团队协调"],
-        "stages": ["planning", "reviewing"],
+        "responsibilities": ["需求分析", "PRD撰写", "项目评审", "团队协调"],
+        "stages": ["planning"],
         "tier": "planning",
+    },
+    "designer-agent": {
+        "id": "designer-agent",
+        "name": "UI/UX 设计师 Agent",
+        "icon": "🎨",
+        "expertise": "30年设计经验，曾任 Apple、Google",
+        "responsibilities": ["设计 Token", "页面布局", "组件规范", "交互流程", "无障碍"],
+        "stages": ["design"],
+        "tier": "execution",
     },
     "architect-agent": {
         "id": "architect-agent",
@@ -61,9 +70,18 @@ AGENT_TEAM = {
         "name": "测试 Agent",
         "icon": "🧪",
         "expertise": "30年质量保障",
-        "responsibilities": ["测试设计", "自动化测试", "安全测试", "性能测试", "验收测试"],
+        "responsibilities": ["测试设计", "自动化测试", "安全测试", "性能测试", "回归测试"],
         "stages": ["testing"],
         "tier": "execution",
+    },
+    "acceptance-agent": {
+        "id": "acceptance-agent",
+        "name": "验收官 Agent",
+        "icon": "🛂",
+        "expertise": "30年项目质量管理，强证据派",
+        "responsibilities": ["对照PRD验收", "证据校验", "上线前 Go/No-Go", "缺陷归类"],
+        "stages": ["reviewing"],
+        "tier": "planning",
     },
     "devops-agent": {
         "id": "devops-agent",
@@ -121,10 +139,11 @@ class CollabSession(BaseModel):
 
 PIPELINE_STAGES = [
     {"id": "planning", "label": "需求规划", "role": "product-manager", "agent": "ceo-agent"},
+    {"id": "design", "label": "UI/UX 设计", "role": "designer", "agent": "designer-agent"},
     {"id": "architecture", "label": "架构设计", "role": "architect", "agent": "architect-agent"},
     {"id": "development", "label": "开发实现", "role": "developer", "agent": "developer-agent"},
     {"id": "testing", "label": "测试验证", "role": "qa-lead", "agent": "qa-agent"},
-    {"id": "reviewing", "label": "审查验收", "role": "orchestrator", "agent": "ceo-agent"},
+    {"id": "reviewing", "label": "审查验收", "role": "acceptance", "agent": "acceptance-agent"},
     {"id": "deployment", "label": "部署上线", "role": "devops", "agent": "devops-agent"},
 ]
 

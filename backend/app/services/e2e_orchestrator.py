@@ -348,14 +348,73 @@ async def run_full_e2e(
         e2e_result["phases"]["preview"] = preview_result
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "done"})
 
+    else:
+        e2e_result["phases"]["preview"] = preview_result
+
+    # ── Phase 5.5: Post-deploy Acceptance (evidence-based) ───────────
+    # Re-invoke the reviewing stage with the live URL + screenshot baked
+    # into previous_outputs so the acceptance-agent can use browser_*
+    # tools to do real E2E validation, not just paper review.
+    acceptance_result: Dict[str, Any] = {"ok": True, "skipped": True}
+    if preview_url:
+        await emit_event("e2e:phase", {
+            "taskId": task_id, "phase": "acceptance", "status": "running",
+        })
+        try:
+            from .pipeline_engine import execute_stage
+
+            evidence_block = (
+                f"## 已上线预览（请使用 browser_* 工具实际访问验证）\n"
+                f"- 预览 URL: {preview_url}\n"
+                f"- 平台: {deploy_result.get('platform', 'unknown')}\n"
+            )
+            if preview_result.get("screenshotPath"):
+                evidence_block += f"- 首页截图本地路径: {preview_result['screenshotPath']}\n"
+
+            acceptance_outputs = dict(outputs)
+            acceptance_outputs["deployment"] = (
+                acceptance_outputs.get("deployment", "") + "\n\n" + evidence_block
+            ).strip()
+
+            acc = await execute_stage(
+                db,
+                task_id=task_id,
+                task_title=task_title,
+                task_description=effective_description,
+                stage_id="reviewing",
+                previous_outputs=acceptance_outputs,
+            )
+            acceptance_result = {
+                "ok": bool(acc.get("ok")),
+                "verdict": "APPROVED" if "APPROVED" in (acc.get("content") or "")[:200] else "REJECTED",
+                "report": (acc.get("content") or "")[:4000],
+                "tokens": acc.get("tokens"),
+                "cost_usd": acc.get("cost_usd"),
+            }
+        except Exception as e:
+            logger.warning(f"[e2e] post-deploy acceptance failed: {e}")
+            acceptance_result = {"ok": False, "skipped": False, "error": str(e)}
+
+        e2e_result["phases"]["acceptance"] = acceptance_result
+        await emit_event("e2e:phase", {
+            "taskId": task_id, "phase": "acceptance",
+            "status": "done" if acceptance_result.get("ok") else "failed",
+            "verdict": acceptance_result.get("verdict"),
+        })
+    else:
+        e2e_result["phases"]["acceptance"] = acceptance_result
+
+    if preview_url:
+        verdict_label = acceptance_result.get("verdict", "")
+        notify_extras = {"平台": deploy_result.get("platform", "")}
+        if verdict_label:
+            notify_extras["验收"] = verdict_label
         await _notify(
             "preview",
             message="预览已就绪，回复「通过」即上线，或「修改：xxx」反馈",
             url=preview_url,
-            extras={"平台": deploy_result.get("platform", "")},
+            extras=notify_extras,
         )
-    else:
-        e2e_result["phases"]["preview"] = preview_result
 
     # ── Done ────────────────────────────────────────────────────────
     all_ok = all(

@@ -1,7 +1,7 @@
 <template>
   <div class="agent-card" @click="$emit('click')">
     <div class="card-icon" :style="{ background: agent.color + '18', color: agent.color }">
-      <el-icon :size="28"><component :is="agent.icon" /></el-icon>
+      <el-icon :size="28"><component :is="resolveAgentIcon(agent.icon)" /></el-icon>
     </div>
     <div class="card-body">
       <div class="card-top">
@@ -55,6 +55,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AgentProfile } from '@/stores/agents'
+import { resolveAgentIcon } from '@/utils/agentIcon'
 
 const props = defineProps<{
   agent: AgentProfile

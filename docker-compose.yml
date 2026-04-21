@@ -7,7 +7,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-agenthub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-agenthub}
-    # ports:  # Uncomment for local dev: - '5432:5432'
+    ports:
+      - '5432:5432' # local dev: backend connects via localhost:5432
     volumes:
       - agenthub_pg:/var/lib/postgresql/data
     healthcheck:

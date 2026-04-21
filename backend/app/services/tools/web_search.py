@@ -6,6 +6,8 @@ from typing import Any, Dict
 
 import httpx
 
+from ..safety import sanitize_external_content
+
 logger = logging.getLogger(__name__)
 
 _DDGS_API = "https://api.duckduckgo.com/"
@@ -45,7 +47,10 @@ async def web_search(params: Dict[str, Any]) -> str:
                     lines.append(f"   URL: {r['url']}")
                 lines.append("")
 
-            return "\n".join(lines)
+            wrapped, _scan = sanitize_external_content(
+                "\n".join(lines), source="web_search", source_url=f"ddg:{query}",
+            )
+            return wrapped
 
     except httpx.TimeoutException:
         return "Error: Search request timed out"

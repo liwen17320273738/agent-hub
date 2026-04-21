@@ -18,6 +18,7 @@ same as before this migration.
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 revision = "2c3d4e5f6a7b"
@@ -27,20 +28,58 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("pipeline_stages") as batch:
-        batch.add_column(sa.Column("last_error", sa.Text(), nullable=True))
-        batch.add_column(sa.Column(
-            "retry_count", sa.Integer(), nullable=False, server_default="0",
-        ))
-        batch.add_column(sa.Column(
-            "max_retries", sa.Integer(), nullable=False, server_default="0",
-        ))
-        batch.add_column(sa.Column(
-            "on_failure", sa.String(20), nullable=False, server_default="halt",
-        ))
-        batch.add_column(sa.Column(
-            "human_gate", sa.Boolean(), nullable=False, server_default=sa.false(),
-        ))
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        # batch_alter_table is SQLite-centric; on PostgreSQL use explicit DDL
+        # so columns always appear (IF NOT EXISTS for idempotency).
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS last_error TEXT"))
+        op.execute(
+            text(
+                "ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS retry_count "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        op.execute(
+            text(
+                "ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS max_retries "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+        )
+        op.execute(
+            text(
+                "ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS on_failure "
+                "VARCHAR(20) NOT NULL DEFAULT 'halt'"
+            )
+        )
+        op.execute(
+            text(
+                "ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS human_gate "
+                "BOOLEAN NOT NULL DEFAULT false"
+            )
+        )
+    else:
+        with op.batch_alter_table("pipeline_stages") as batch:
+            batch.add_column(sa.Column("last_error", sa.Text(), nullable=True))
+            batch.add_column(
+                sa.Column(
+                    "retry_count", sa.Integer(), nullable=False, server_default="0",
+                )
+            )
+            batch.add_column(
+                sa.Column(
+                    "max_retries", sa.Integer(), nullable=False, server_default="0",
+                )
+            )
+            batch.add_column(
+                sa.Column(
+                    "on_failure", sa.String(20), nullable=False, server_default="halt",
+                )
+            )
+            batch.add_column(
+                sa.Column(
+                    "human_gate", sa.Boolean(), nullable=False, server_default=sa.false(),
+                )
+            )
 
 
 def downgrade() -> None:

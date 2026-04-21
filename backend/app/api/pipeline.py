@@ -1276,3 +1276,66 @@ async def resume_pipeline(
         "remaining_stages": remaining_stages,
         "prior_outputs": list(done_outputs.keys()),
     }
+
+
+# ---------- Cost Governor endpoints ----------
+
+class BudgetSetBody(BaseModel):
+    budget_usd: float
+    soft_ratio: float = 0.6
+    hard_ratio: float = 1.0
+
+
+class BudgetRaiseBody(BaseModel):
+    additional_usd: float
+
+
+@router.get("/tasks/{task_id}/budget")
+async def get_budget(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the live spend snapshot for a task."""
+    await _get_task_or_404(db, task_id, user)
+    from ..services.cost_governor import get_task_budget
+    return await get_task_budget(task_id)
+
+
+@router.post("/tasks/{task_id}/budget")
+async def set_budget(
+    task_id: str,
+    body: BudgetSetBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Override the per-task budget (USD) before/while it runs."""
+    await _get_task_or_404(db, task_id, user)
+    from ..services.cost_governor import set_task_budget, get_task_budget
+    if body.budget_usd <= 0:
+        raise HTTPException(status_code=400, detail="budget_usd must be > 0")
+    if not (0 < body.soft_ratio <= body.hard_ratio):
+        raise HTTPException(status_code=400, detail="soft_ratio must be > 0 and <= hard_ratio")
+    await set_task_budget(
+        task_id, body.budget_usd,
+        soft_ratio=body.soft_ratio, hard_ratio=body.hard_ratio,
+    )
+    return await get_task_budget(task_id)
+
+
+@router.post("/tasks/{task_id}/budget/raise")
+async def raise_budget_endpoint(
+    task_id: str,
+    body: BudgetRaiseBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Approve more budget after the governor blocked the task."""
+    await _get_task_or_404(db, task_id, user)
+    from ..services.cost_governor import raise_budget, get_task_budget
+    if body.additional_usd <= 0:
+        raise HTTPException(status_code=400, detail="additional_usd must be > 0")
+    new_budget = await raise_budget(task_id, body.additional_usd)
+    snapshot = await get_task_budget(task_id)
+    snapshot["new_budget_usd"] = new_budget
+    return snapshot

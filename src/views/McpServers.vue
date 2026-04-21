@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchAgents, type AgentConfig } from '@/services/api'
 import {
@@ -13,6 +13,19 @@ import {
   type McpToolSpec,
   type ProbeResult,
 } from '@/services/mcpApi'
+import {
+  MCP_PRESETS,
+  getMcpPreset,
+  findPresetByServerUrl,
+  type McpPreset,
+} from '@/data/mcpPresets'
+import { getAgentMcpUrlSuggestions } from '@/data/agentMcpUrlSuggestions'
+
+interface McpUrlPickOption {
+  value: string
+  label: string
+  nameHint: string
+}
 
 const agents = ref<AgentConfig[]>([])
 const mcps = ref<McpRecord[]>([])
@@ -54,6 +67,22 @@ const addForm = reactive({
 const probing = ref(false)
 const probeResult = ref<ProbeResult | null>(null)
 const submitting = ref(false)
+/** 添加对话框：选中的 MCP 预设 */
+const selectedPresetId = ref<string>('custom')
+/** 预设自带的 config（如 headers），与 API Key 合并后提交 */
+const presetConfigExtras = ref<Record<string, unknown>>({})
+
+function applyPreset(p: McpPreset) {
+  addForm.name = p.name
+  addForm.server_url = p.serverUrl
+  presetConfigExtras.value = p.configExtras ? { ...p.configExtras } : {}
+  probeResult.value = null
+}
+
+function onPresetChange(id: string) {
+  const p = getMcpPreset(id)
+  if (p) applyPreset(p)
+}
 
 function openAdd() {
   Object.assign(addForm, {
@@ -67,17 +96,146 @@ function openAdd() {
     auto_refresh: true,
   })
   probeResult.value = null
+  selectedPresetId.value = 'custom'
+  presetConfigExtras.value = {}
+  mcpUrlOptions.value = []
   addOpen.value = true
 }
 
+const selectedPresetHint = computed(() => {
+  const p = getMcpPreset(selectedPresetId.value)
+  return p?.description ?? ''
+})
+
+const selectedPresetDocUrl = computed(() => getMcpPreset(selectedPresetId.value)?.docUrl ?? '')
+
+/** 选择 agent 后加载：推荐 + 预设 + 系统已有 MCP 地址 */
+const mcpUrlOptions = ref<McpUrlPickOption[]>([])
+const loadingUrlOptions = ref(false)
+
+async function loadMcpUrlOptionsForAgent(agentId: string) {
+  loadingUrlOptions.value = true
+  try {
+    const list: McpUrlPickOption[] = []
+    const seen = new Set<string>()
+    const push = (label: string, value: string, nameHint: string) => {
+      const v = value.trim()
+      if (!v || seen.has(v)) return
+      seen.add(v)
+      list.push({ label, value: v, nameHint })
+    }
+
+    const an = agentName(agentId)
+
+    // 1) 当前 agent 已在库中绑定的 MCP（最相关）
+    try {
+      const mine = await listMcps(agentId)
+      for (const m of mine) {
+        if (!m.server_url?.trim()) continue
+        push(`[${an} · 已有] ${m.name}`, m.server_url, m.name)
+      }
+    } catch {
+      /* 忽略 */
+    }
+
+    // 2) 按角色配置的推荐占位（可编辑 src/data/agentMcpUrlSuggestions.ts）
+    for (const s of getAgentMcpUrlSuggestions(agentId)) {
+      push(`[推荐] ${s.label}`, s.serverUrl, s.nameHint)
+    }
+
+    // 3) 全局预设（官方远程 / 本地）
+    for (const p of MCP_PRESETS) {
+      if (p.id === 'custom' || !p.serverUrl.trim()) continue
+      const tag = p.kind === 'official' ? '官方' : p.kind === 'local' ? '本地' : '预设'
+      push(`[${tag}] ${p.label}`, p.serverUrl, p.name.trim() || 'mcp')
+    }
+
+    mcpUrlOptions.value = list
+  } finally {
+    loadingUrlOptions.value = false
+  }
+}
+
+function onServerUrlChange(val: string) {
+  const opt = mcpUrlOptions.value.find((o) => o.value === val)
+  if (opt && !addForm.name.trim()) {
+    addForm.name = opt.nameHint
+  }
+  const byUrl = findPresetByServerUrl(typeof val === 'string' ? val : '')
+  if (byUrl) {
+    presetConfigExtras.value = byUrl.configExtras ? { ...byUrl.configExtras } : {}
+    selectedPresetId.value = byUrl.id
+  }
+  probeResult.value = null
+}
+
+watch(
+  () => addForm.agent_id,
+  async (id, prevId) => {
+    if (!addOpen.value) return
+    if (id && id !== prevId) {
+      addForm.server_url = ''
+      addForm.name = ''
+      selectedPresetId.value = 'custom'
+      presetConfigExtras.value = {}
+      probeResult.value = null
+    }
+    if (id) {
+      await loadMcpUrlOptionsForAgent(id)
+    } else {
+      mcpUrlOptions.value = []
+    }
+  },
+)
+
 function buildConfig(): Record<string, unknown> {
-  if (!addForm.api_key.trim()) return {}
+  const base: Record<string, unknown> = { ...presetConfigExtras.value }
+  if (!addForm.api_key.trim()) return base
   return {
+    ...base,
     api_key: addForm.api_key.trim(),
     auth_header: addForm.auth_header || 'Authorization',
     auth_scheme: addForm.auth_scheme || 'Bearer',
   }
 }
+
+/** 探测失败时解释：发往 MCP 上游的 Bearer 来自「API Key」，与浏览器请求本站 API 的 JWT 无关 */
+const probeFailureHint = computed(() => {
+  if (!probeResult.value || probeResult.value.ok) return ''
+  const errRaw = probeResult.value.error || ''
+  const err = errRaw.toLowerCase()
+  const url = addForm.server_url.trim().toLowerCase()
+  const hasKey = !!addForm.api_key.trim()
+  const looks401 =
+    err.includes('401') ||
+    err.includes('authorization') ||
+    err.includes('unauthorized') ||
+    err.includes('invalid_token')
+  // 已填令牌但仍 invalid / 未激活：换 token 或重走 OAuth
+  if (
+    hasKey &&
+    (err.includes('not active') || err.includes('invalid_token') || err.includes('expired'))
+  ) {
+    if (
+      (url.includes('127.0.0.1:3232') || url.includes('localhost:3232')) &&
+      url.includes('/mcp')
+    ) {
+      return '「Token is not active」表示当前填入的不是有效的 OAuth access_token，或已过期/被撤销（example-remote-server 重启后内存会话也会失效）。请在 MCP Inspector 里用 Streamable HTTP 连接 http://localhost:3232/mcp 重新完成授权，复制新的 access_token（一般为 eyJ 开头的 JWT），不要填授权码、refresh_token 或随机十六进制串。'
+    }
+    return '上游拒绝了当前 Bearer：令牌可能过期、已撤销或格式不对。请重新获取 OAuth access_token 或 PAT 后再试。'
+  }
+  const noKey = !hasKey
+  if (!noKey || !looks401) return ''
+  if (url.includes('githubcopilot.com')) {
+    return 'GitHub 远程 MCP 要求上游请求带 Authorization。请在上面的「API Key」中填写 GitHub PAT 或 OAuth access token（会作为 Bearer 发给 api.githubcopilot.com）。浏览器里访问本站接口的 JWT 不会自动转给 GitHub。'
+  }
+  const isExample3232 =
+    (url.includes('127.0.0.1:3232') || url.includes('localhost:3232')) && url.includes('/mcp')
+  if (isExample3232) {
+    return '本机 example-remote-server 对 MCP 启用 OAuth，必须先取得 access_token 并填入「API Key」（后端会以 Bearer 发给该地址）。请运行 npx -y @modelcontextprotocol/inspector 连接 http://localhost:3232/mcp 完成授权，或在其仓库运行 node examples/client.js；空 API Key 探测必然 401。'
+  }
+  return '若远端需要认证，请在「API Key」中填写令牌；探测请求体里的 config 为空时，后端不会代你添加 Authorization。'
+})
 
 async function probe() {
   if (!addForm.server_url.trim()) {
@@ -287,7 +445,7 @@ onMounted(refresh)
     <el-dialog v-model="addOpen" title="添加 MCP 服务器" width="640px" :close-on-click-modal="false">
       <el-form label-width="120px" label-position="left">
         <el-form-item label="绑定到 agent">
-          <el-select v-model="addForm.agent_id" placeholder="选择 agent" filterable>
+          <el-select v-model="addForm.agent_id" placeholder="先选择 agent" filterable>
             <el-option
               v-for="a in agents"
               :key="a.id"
@@ -295,15 +453,68 @@ onMounted(refresh)
               :value="a.id"
             />
           </el-select>
+          <p class="preset-hint">
+            选择后将自动检索：① 该 agent 已绑定的 MCP 地址 ② 该角色推荐占位 ③ 全局预设模板，并填入下方「Server URL」下拉框。
+          </p>
+        </el-form-item>
+        <el-form-item label="快速选择">
+          <el-select
+            v-model="selectedPresetId"
+            placeholder="选择预设模板"
+            filterable
+            style="width: 100%"
+            :disabled="!addForm.agent_id"
+            @change="onPresetChange"
+          >
+            <el-option
+              v-for="p in MCP_PRESETS"
+              :key="p.id"
+              :label="p.label"
+              :value="p.id"
+            />
+          </el-select>
+          <p v-if="selectedPresetHint" class="preset-hint">{{ selectedPresetHint }}</p>
+          <a
+            v-if="selectedPresetDocUrl"
+            :href="selectedPresetDocUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="preset-doc-link"
+          >官方文档</a>
         </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="addForm.name" placeholder="github / slack / filesystem ..." />
         </el-form-item>
         <el-form-item label="Server URL">
-          <el-input v-model="addForm.server_url" placeholder="https://example.com/mcp" />
+          <el-select
+            v-model="addForm.server_url"
+            filterable
+            allow-create
+            default-first-option
+            clearable
+            placeholder="选择或输入 MCP 地址"
+            style="width: 100%"
+            :loading="loadingUrlOptions"
+            :disabled="!addForm.agent_id"
+            @change="onServerUrlChange"
+          >
+            <el-option
+              v-for="(o, idx) in mcpUrlOptions"
+              :key="`${idx}-${o.value}`"
+              :label="o.label"
+              :value="o.value"
+            />
+          </el-select>
+          <p v-if="!addForm.agent_id" class="preset-hint">请先选择要绑定的 agent。</p>
+          <p v-else-if="!loadingUrlOptions && mcpUrlOptions.length === 0" class="preset-hint">
+            暂无候选地址，可直接在输入框中填写 URL。
+          </p>
         </el-form-item>
         <el-form-item label="API Key（可选）">
           <el-input v-model="addForm.api_key" type="password" show-password placeholder="留空表示无认证" />
+          <p class="preset-hint">
+            GitHub 官方远程：填 PAT 或 OAuth token（由后端以 Bearer 发给 MCP 地址）。这与浏览器请求本站 /api 时带的登录 JWT 是两路认证；无令牌时 config 为空，探测会收到 401。
+          </p>
         </el-form-item>
         <el-form-item v-if="addForm.api_key.trim()" label="认证头">
           <el-input v-model="addForm.auth_header" style="width: 200px" />
@@ -325,6 +536,7 @@ onMounted(refresh)
           <span class="probe-elapsed">({{ probeResult.elapsed_ms }}ms)</span>
         </span>
       </div>
+      <p v-if="probeFailureHint" class="preset-hint probe-failure-hint">{{ probeFailureHint }}</p>
 
       <div v-if="probeResult?.ok && probeResult.tools?.length" class="probe-tools">
         <el-tag
@@ -496,6 +708,10 @@ onMounted(refresh)
   border-top: 1px dashed var(--border-color, #ebeef5);
   margin-top: 8px;
 }
+.probe-failure-hint {
+  margin-top: 6px;
+  line-height: 1.45;
+}
 .probe-status.ok {
   color: var(--el-color-success, #67c23a);
   font-size: 12px;
@@ -572,5 +788,16 @@ onMounted(refresh)
 .actions {
   display: flex;
   gap: 8px;
+}
+.preset-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-secondary, #909399);
+  line-height: 1.45;
+}
+.preset-doc-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
 }
 </style>

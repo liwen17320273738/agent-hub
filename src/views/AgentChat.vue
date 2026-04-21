@@ -12,7 +12,7 @@
     <aside class="conv-sidebar">
       <div class="conv-header">
         <el-icon :style="{ color: agent.color }" :size="20">
-          <component :is="agent.icon" />
+          <component :is="resolveAgentIcon(agent.icon)" />
         </el-icon>
         <span class="conv-agent-name">{{ agent.name }}</span>
         <router-link :to="`/agent/${agent.id}/profile`" class="profile-link" title="查看专家档案">
@@ -106,7 +106,7 @@
       <!-- Welcome / empty state -->
       <div v-if="!activeConv && !showWayneRouterPanel" class="chat-welcome">
         <div class="welcome-icon" :style="{ background: agent.color + '20', color: agent.color }">
-          <el-icon :size="48"><component :is="agent.icon" /></el-icon>
+          <el-icon :size="48"><component :is="resolveAgentIcon(agent.icon)" /></el-icon>
         </div>
         <h2>{{ agent.name }} · {{ agent.title }}</h2>
         <p class="welcome-desc">{{ agent.description }}</p>
@@ -280,6 +280,7 @@ import {
   tryApplyRecommendedModel,
   type WayneRouteSuggestion,
 } from '@/services/wayneRouting'
+import { resolveAgentIcon } from '@/utils/agentIcon'
 
 const route = useRoute()
 const router = useRouter()

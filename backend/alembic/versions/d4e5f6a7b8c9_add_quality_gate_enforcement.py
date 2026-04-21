@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 revision: str = 'd4e5f6a7b8c9'
@@ -18,11 +19,19 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('pipeline_tasks', sa.Column('quality_gate_config', sa.JSON(), nullable=True))
-    op.add_column('pipeline_tasks', sa.Column('overall_quality_score', sa.Float(), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('gate_status', sa.String(20), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('gate_score', sa.Float(), nullable=True))
-    op.add_column('pipeline_stages', sa.Column('gate_details', sa.JSON(), nullable=True))
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute(text("ALTER TABLE pipeline_tasks ADD COLUMN IF NOT EXISTS quality_gate_config JSON"))
+        op.execute(text("ALTER TABLE pipeline_tasks ADD COLUMN IF NOT EXISTS overall_quality_score DOUBLE PRECISION"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS gate_status VARCHAR(20)"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS gate_score DOUBLE PRECISION"))
+        op.execute(text("ALTER TABLE pipeline_stages ADD COLUMN IF NOT EXISTS gate_details JSON"))
+    else:
+        op.add_column('pipeline_tasks', sa.Column('quality_gate_config', sa.JSON(), nullable=True))
+        op.add_column('pipeline_tasks', sa.Column('overall_quality_score', sa.Float(), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('gate_status', sa.String(20), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('gate_score', sa.Float(), nullable=True))
+        op.add_column('pipeline_stages', sa.Column('gate_details', sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
