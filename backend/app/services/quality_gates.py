@@ -236,13 +236,45 @@ TEMPLATE_GATE_OVERRIDES: Dict[str, Dict[str, Dict[str, Any]]] = {
 }
 
 
-def _get_stage_config(stage_id: str, template: Optional[str] = None) -> Dict[str, Any]:
-    """Merge base requirements with template-specific overrides."""
+def _get_stage_config(
+    stage_id: str,
+    template: Optional[str] = None,
+    task_overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Merge base requirements with template-specific overrides AND per-task
+    overrides (highest precedence).
+
+    Precedence order:
+        1. ``DELIVERABLE_REQUIREMENTS[stage_id]`` — global defaults
+        2. ``TEMPLATE_GATE_OVERRIDES[template][stage_id]`` — template tweaks
+        3. ``task_overrides[stage_id]`` — per-task overrides set via the
+           dashboard's "门禁阈值" drawer (lives on
+           ``PipelineTask.quality_gate_config`` JSONB)
+
+    The third layer is intentionally additive: a missing key falls through to
+    the template/global default, so the UI only has to round-trip the keys
+    the operator actually changed.
+    """
     base = dict(DELIVERABLE_REQUIREMENTS.get(stage_id, {}))
     if template and template in TEMPLATE_GATE_OVERRIDES:
-        overrides = TEMPLATE_GATE_OVERRIDES[template].get(stage_id, {})
-        base.update(overrides)
+        base.update(TEMPLATE_GATE_OVERRIDES[template].get(stage_id, {}))
+    if task_overrides:
+        per_stage = task_overrides.get(stage_id) or {}
+        if isinstance(per_stage, dict):
+            base.update(per_stage)
     return base
+
+
+def get_effective_gate_config(
+    stage_id: str,
+    *,
+    template: Optional[str] = None,
+    task_overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Public wrapper for the API/UI: returns the same merged config that
+    ``evaluate_quality_gate`` will see. Used by the "门禁阈值" drawer to
+    populate sliders with the actual current values."""
+    return _get_stage_config(stage_id, template, task_overrides)
 
 
 def _check_deliverable_sections(output: str, config: Dict[str, Any]) -> GateCheck:
@@ -518,14 +550,18 @@ async def evaluate_quality_gate(
     previous_outputs: Optional[Dict[str, str]] = None,
     heuristic_result: Optional[StageVerification] = None,
     skip_llm: bool = False,
+    task_overrides: Optional[Dict[str, Any]] = None,
 ) -> GateResult:
     """
     Full quality gate evaluation for a stage output.
 
     Runs heuristic checks, deliverable completeness, optional LLM evaluation,
     then applies thresholds to determine pass/warn/fail.
+
+    ``task_overrides``: per-task config from ``PipelineTask.quality_gate_config``.
+    See ``_get_stage_config`` for precedence rules.
     """
-    config = _get_stage_config(stage_id, template)
+    config = _get_stage_config(stage_id, template, task_overrides)
     checks: List[GateCheck] = []
     suggestions: List[str] = []
 

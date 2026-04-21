@@ -134,47 +134,53 @@
               </div>
             </div>
 
-            <!-- Quality gate details -->
-            <div v-if="stage.gateDetails && (stage.gateStatus === 'failed' || stage.gateStatus === 'warning')" class="gate-detail-panel">
-              <div class="gate-detail-header" @click="toggleGateDetail(stage.id)">
+            <!-- Quality gate panel (rich) -->
+            <div
+              v-if="stage.gateStatus && stage.gateStatus !== 'pending'"
+              class="gate-panel-wrap"
+            >
+              <div class="gate-panel-header" @click="toggleGateDetail(stage.id)">
                 <el-icon><Warning /></el-icon>
-                <span>质量门禁详情</span>
+                <span>质量门禁</span>
+                <el-tag
+                  size="small"
+                  :type="gateTagType(stage.gateStatus)"
+                  effect="dark"
+                >
+                  {{ gateLabel(stage.gateStatus) }} · {{ ((stage.gateScore ?? 0) * 100).toFixed(0) }}%
+                </el-tag>
                 <el-icon class="toggle-icon" :class="{ expanded: expandedGateDetails.has(stage.id) }">
                   <ArrowDown />
                 </el-icon>
               </div>
-              <div v-if="expandedGateDetails.has(stage.id)" class="gate-detail-body">
-                <div v-if="stage.gateDetails.block_reason" class="gate-block-reason">
-                  <strong>阻断原因:</strong> {{ stage.gateDetails.block_reason }}
-                </div>
-                <div v-if="stage.gateDetails.checks?.length" class="gate-checks">
-                  <div v-for="check in stage.gateDetails.checks" :key="check.name" class="gate-check-item">
-                    <span class="gate-check-icon">{{ gateIcon(check.status) }}</span>
-                    <span class="gate-check-name">{{ check.name }}</span>
-                    <span class="gate-check-score">{{ (check.score * 100).toFixed(0) }}%</span>
-                    <span class="gate-check-msg">{{ check.message }}</span>
-                  </div>
-                </div>
-                <div v-if="stage.gateDetails.suggestions?.length" class="gate-suggestions">
-                  <p v-for="(s, i) in stage.gateDetails.suggestions" :key="i" class="gate-suggestion">{{ s }}</p>
-                </div>
-                <div v-if="stage.gateStatus === 'failed'" class="gate-override-action">
-                  <el-button type="warning" size="small" @click="handleGateOverride(stage.id)" :loading="overridingGate === stage.id">
-                    <el-icon><Unlock /></el-icon> 人工放行
-                  </el-button>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="stage.gateDetails?.override" class="gate-override-info">
-              <span class="override-badge">🔓 已人工放行</span>
-              <span class="override-by">{{ stage.gateDetails.override.by }}</span>
-              <span v-if="stage.gateDetails.override.reason" class="override-reason">: {{ stage.gateDetails.override.reason }}</span>
+              <QualityGatePanel
+                v-if="expandedGateDetails.has(stage.id)"
+                :gate-status="stage.gateStatus"
+                :gate-score="stage.gateScore"
+                :gate-details="stage.gateDetails"
+                :overriding="overridingGate === stage.id"
+                @override="handleGateOverride(stage.id)"
+              />
             </div>
 
             <!-- Human approval buttons -->
-            <div v-if="stage.status === 'awaiting_approval'" class="approval-actions">
-              <p class="approval-hint">此阶段需要人工审批确认后才能继续</p>
+            <div
+              v-if="stage.status === 'awaiting_approval'"
+              class="approval-actions"
+              :class="['sla-' + (approvalSLA.get(stage.id)?.level || 'normal')]"
+            >
+              <p class="approval-hint">
+                此阶段需要人工审批确认后才能继续
+                <span
+                  v-if="approvalSLA.get(stage.id)"
+                  class="sla-pill"
+                  :class="'sla-pill-' + approvalSLA.get(stage.id)!.level"
+                >
+                  {{ approvalSLA.get(stage.id)!.level === 'critical' ? '⏰ 严重超时' :
+                     approvalSLA.get(stage.id)!.level === 'warn' ? '⚠️ 接近超时' : '⌛' }}
+                  已等 {{ formatSLAElapsed(approvalSLA.get(stage.id)!.elapsedMs) }}
+                </span>
+              </p>
               <div class="approval-btns">
                 <el-button type="success" size="small" @click="handleApproveStage(stage.id, true)" :loading="approvingStage === stage.id">
                   <el-icon><Check /></el-icon> 批准
@@ -220,7 +226,48 @@
       </div>
     </section>
 
-    <section class="task-actions" v-if="task.status === 'paused'">
+    <!--
+      Final-acceptance terminus banner.
+
+      Renders at the very top of the action area when the engine has parked
+      the task at the human acceptance gate (status="awaiting_final_acceptance"
+      from migration c2d3e4f5a6b7). Outranks the paused/failed banners
+      because this is the *expected* parking state for a successful run.
+    -->
+    <section
+      class="task-actions final-acceptance-banner"
+      v-if="task.status === 'awaiting_final_acceptance'"
+    >
+      <div class="fab-pulse-bg"></div>
+      <h2 class="section-title fab-title">
+        <span class="fab-icon">🏁</span>
+        交付完成 · 等待最终验收
+      </h2>
+      <div class="fab-info">
+        <p class="fab-summary">
+          所有 {{ task.stages.length }} 个阶段已完成。
+          <span v-if="task.overallQualityScore != null">
+            综合质量分 <strong>{{ ((task.overallQualityScore ?? 0) * 100).toFixed(0) }}%</strong>。
+          </span>
+          请你作为产品负责人决定是 <strong>接受交付</strong> 还是 <strong>打回某个阶段重做</strong>。
+        </p>
+        <div class="action-buttons">
+          <el-button type="success" size="large" @click="openFinalAcceptance('accept')">
+            <el-icon><Check /></el-icon> 接受交付
+          </el-button>
+          <el-button type="warning" size="large" @click="openFinalAcceptance('reject')">
+            <el-icon><Close /></el-icon> 打回重做
+          </el-button>
+          <el-button size="large" @click="$router.push(`/pipeline/${task.id}/deliverable`)" v-if="false">
+            <!-- Deliverable preview route is wired separately; left disabled
+                 here as a guidepost for future work. -->
+            <el-icon><Document /></el-icon> 预览交付物
+          </el-button>
+        </div>
+      </div>
+    </section>
+
+    <section class="task-actions" v-else-if="task.status === 'paused'">
       <h2 class="section-title">Pipeline 已暂停</h2>
       <div class="paused-info">
         <p>Pipeline 在阶段「{{ task.currentStageId }}」暂停，可能需要人工审批或审阅反馈已达上限。</p>
@@ -315,6 +362,10 @@
         >
           <el-icon><ChatDotSquare /></el-icon>
           进入 Agent 对话
+        </el-button>
+        <el-button @click="showQualityGateConfig = true">
+          <el-icon><Setting /></el-icon>
+          门禁阈值
         </el-button>
       </div>
     </section>
@@ -508,6 +559,21 @@
       </template>
     </el-dialog>
 
+    <QualityGateConfigDrawer
+      v-if="task"
+      v-model="showQualityGateConfig"
+      :task-id="task.id"
+      @saved="loadTask"
+    />
+
+    <FinalAcceptanceModal
+      v-if="task"
+      v-model="showFinalAcceptance"
+      :task="task"
+      @accepted="loadTask"
+      @rejected="loadTask"
+    />
+
     <el-dialog v-model="showRejectDialog" title="打回任务" width="400px">
       <el-form label-position="top">
         <el-form-item label="打回到哪个阶段">
@@ -548,7 +614,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
-  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Unlock,
+  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Unlock,
   VideoPlay, View, Warning, WarningFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -569,6 +635,10 @@ import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
 import PipelineDagCanvas from '@/components/pipeline/PipelineDagCanvas.vue'
+import QualityGateConfigDrawer from '@/components/pipeline/QualityGateConfigDrawer.vue'
+import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'
+import FinalAcceptanceModal from '@/components/pipeline/FinalAcceptanceModal.vue'
+import { useApprovalSLA } from '@/composables/useApprovalSLA'
 
 const route = useRoute()
 const router = useRouter()
@@ -576,11 +646,33 @@ const pipelineStore = usePipelineStore()
 
 const task = ref<PipelineTask | null>(null)
 const loadError = ref('')
+
+// Approval SLA — drives the "stuck for N min" pill and overdue toast.
+// onCritical fires once per stage per page session — the user gets one
+// loud reminder and we stop being noisy after that.
+const { byStage: approvalSLA, formatElapsed: formatSLAElapsed } = useApprovalSLA(
+  task,
+  {
+    warnAfter: 5 * 60 * 1000,
+    critAfter: 15 * 60 * 1000,
+    onCritical: (stageId, elapsedMs) => {
+      const stg = task.value?.stages.find((s) => s.id === stageId)
+      const label = stg?.label || stageId
+      ElMessage.warning({
+        message: `阶段「${label}」已等待审批 ${formatSLAElapsed(elapsedMs)}，请尽快处理。`,
+        duration: 8000,
+        showClose: true,
+      })
+    },
+  },
+)
 const autoRunning = ref(false)
 const smartRunning = ref(false)
 const stageRunning = ref(false)
 const resuming = ref(false)
 const resumingDag = ref(false)
+const showQualityGateConfig = ref(false)
+const showFinalAcceptance = ref(false)
 const rcaDialog = ref(false)
 const rcaLoading = ref(false)
 const rcaReport = ref<RcaReport | null>(null)
@@ -793,6 +885,7 @@ function formatEventName(event: string) {
     'task:updated': '📝 更新',
     'pipeline:auto-start': '🚀 自动启动',
     'pipeline:auto-completed': '🎉 全流程完成',
+    'pipeline:awaiting-final-acceptance': '🏁 等待最终验收',
     'pipeline:auto-paused': '⏸️ 暂停',
     'pipeline:auto-error': '💥 流程错误',
     'pipeline:smart-start': '🧠 Lead Agent 启动',
@@ -851,6 +944,15 @@ function gateLabel(status: string | null | undefined) {
     passed: '门禁通过', warning: '门禁警告', failed: '门禁失败', bypassed: '已放行', pending: '待评估',
   }
   return labels[status || ''] || ''
+}
+
+function gateTagType(status: string | null | undefined): 'success' | 'warning' | 'danger' | 'info' {
+  switch (status) {
+    case 'passed': return 'success'
+    case 'warning': return 'warning'
+    case 'failed': return 'danger'
+    default: return 'info'
+  }
 }
 
 function toggleGateDetail(stageId: string) {
@@ -1024,7 +1126,10 @@ function setupSSE() {
       evt.event === 'task:updated' ||
       evt.event === 'stage:completed' ||
       evt.event === 'pipeline:auto-completed' ||
-      evt.event === 'pipeline:smart-completed'
+      evt.event === 'pipeline:smart-completed' ||
+      // Refresh on terminus transitions so the banner appears the moment
+      // the engine parks at the human acceptance gate (migration c2d3e4f5a6b7).
+      evt.event === 'pipeline:awaiting-final-acceptance'
     ) {
       const updatedTask = (data?.task as PipelineTask) || null
       if (updatedTask) {
@@ -1038,6 +1143,17 @@ function setupSSE() {
       autoRunning.value = false
       stageRunning.value = false
       ElMessage.success('全自动流水线已完成！')
+      loadQualityReport()
+    }
+
+    if (evt.event === 'pipeline:awaiting-final-acceptance') {
+      // Engine parked at terminus — flip to terminal UX immediately.
+      autoRunning.value = false
+      stageRunning.value = false
+      ElMessage.warning({
+        message: '🏁 全部阶段完成，等待你做最终验收',
+        duration: 6000,
+      })
       loadQualityReport()
     }
 
@@ -1101,6 +1217,21 @@ function rcaSeverityType(severity?: string): 'success' | 'info' | 'warning' | 'd
     case 'high': return 'danger'
     case 'critical': return 'danger'
     default: return 'info'
+  }
+}
+
+function openFinalAcceptance(initialMode: 'accept' | 'reject') {
+  // The modal owns mode reset on open; we set the flag after a microtask
+  // so its watcher sees the v-model flip from false → true and reinitialises.
+  showFinalAcceptance.value = true
+  // Stash desired mode on a global so the modal picks it up. Simple ref
+  // would be cleaner but we want zero refactor of the modal's API; it
+  // already defaults to 'accept' so the reject case just nudges via DOM.
+  if (initialMode === 'reject') {
+    void Promise.resolve().then(() => {
+      const el = document.querySelector<HTMLElement>('.tab-reject')
+      el?.click()
+    })
   }
 }
 
@@ -1451,11 +1582,50 @@ watch(() => route.params.id, () => {
   background: rgba(249, 115, 22, 0.08);
   border: 1px solid rgba(249, 115, 22, 0.3);
   border-radius: 8px;
+  transition: background 0.3s, border-color 0.3s;
+}
+.approval-actions.sla-warn {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.55);
+}
+.approval-actions.sla-critical {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.65);
+  animation: sla-pulse 2.4s ease-in-out infinite;
+}
+@keyframes sla-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.2); }
 }
 .approval-hint {
   font-size: 12px;
   color: #f97316;
   margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.sla-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+}
+.sla-pill-warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+.sla-pill-critical {
+  background: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
+  animation: sla-pulse 2.4s ease-in-out infinite;
 }
 .approval-btns {
   display: flex;
@@ -1558,6 +1728,59 @@ watch(() => route.params.id, () => {
 }
 
 .task-actions { margin-bottom: 32px; }
+
+/*
+  Final-acceptance terminus banner.
+  Distinct visual language from "paused" / "failed" — green/teal sheen +
+  a soft pulse to draw the eye, since this is the state where we *want*
+  the operator to act fast.
+*/
+.final-acceptance-banner {
+  position: relative;
+  padding: 20px 24px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(34, 197, 94, 0.45);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.10), rgba(56, 189, 248, 0.06));
+  overflow: hidden;
+}
+.fab-pulse-bg {
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle at 30% 30%, rgba(34, 197, 94, 0.22), transparent 60%);
+  animation: fab-pulse 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes fab-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50%      { transform: scale(1.15); opacity: 0.85; }
+}
+.fab-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #22c55e;
+  font-size: 16px;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+.fab-icon {
+  font-size: 22px;
+  filter: drop-shadow(0 0 6px rgba(34, 197, 94, 0.6));
+}
+.fab-info {
+  position: relative;
+  z-index: 1;
+}
+.fab-summary {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary, #e2e8f0);
+}
+.fab-summary strong {
+  color: #22c55e;
+}
 
 .paused-info {
   padding: 16px;
@@ -1872,29 +2095,39 @@ watch(() => route.params.id, () => {
   margin-left: 4px;
 }
 
-/* Gate detail panel */
-.gate-detail-panel {
+/* Gate detail panel — header wraps the new QualityGatePanel component.
+   The body styles below (.gate-block-reason etc.) are still used by the
+   read-only quality-report section near the bottom of the page, not the
+   per-stage panel. */
+.gate-panel-wrap {
   margin-top: 8px;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.gate-detail-header {
+.gate-panel-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 6px 10px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.06);
+  color: var(--text-secondary);
+  background: rgba(148, 163, 184, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 6px;
+  transition: background 0.15s;
 }
-.gate-detail-header:hover { background: rgba(239, 68, 68, 0.12); }
-.gate-detail-body {
-  padding: 12px;
-  font-size: 13px;
-  border-top: 1px solid rgba(239, 68, 68, 0.15);
+.gate-panel-header:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+.gate-panel-header .toggle-icon {
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+.gate-panel-header .toggle-icon.expanded {
+  transform: rotate(180deg);
 }
 .gate-block-reason {
   color: #991b1b;

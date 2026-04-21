@@ -71,6 +71,89 @@
         <Controls />
       </VueFlow>
     </div>
+
+    <!--
+      Self-heal drawer: opens when the user clicks a node that has at least
+      one rework attempt recorded. We render the *latest* attempt's diff
+      first (most actionable) and let the user step backwards through prior
+      attempts. The drawer lives inside this component so the parent view
+      doesn't need to know how SSE rework events are accumulated.
+    -->
+    <el-drawer
+      v-model="healDrawerOpen"
+      :title="healDrawerTitle"
+      direction="rtl"
+      size="56%"
+    >
+      <div v-if="!healDrawerEvents.length" class="heal-empty">
+        <p>该阶段暂无自愈记录。</p>
+      </div>
+      <div v-else class="heal-body">
+        <div class="heal-pager">
+          <el-button-group>
+            <el-button
+              size="small"
+              :disabled="healCursor === 0"
+              @click="healCursor = Math.max(0, healCursor - 1)"
+            >
+              <el-icon><ArrowLeft /></el-icon>
+              上一次
+            </el-button>
+            <el-button
+              size="small"
+              :disabled="healCursor >= healDrawerEvents.length - 1"
+              @click="healCursor = Math.min(healDrawerEvents.length - 1, healCursor + 1)"
+            >
+              下一次
+              <el-icon><ArrowRight /></el-icon>
+            </el-button>
+          </el-button-group>
+          <span class="heal-pager-meta">
+            第 {{ healCursor + 1 }} / {{ healDrawerEvents.length }} 次自愈 ·
+            <strong>{{ formatHealTime(currentHealEvent?.at) }}</strong>
+          </span>
+        </div>
+
+        <div class="heal-card heal-feedback">
+          <div class="heal-card-title">
+            <span class="heal-card-icon">📝</span>
+            审阅反馈
+            <span v-if="currentHealEvent?.reviewer" class="heal-reviewer">
+              · {{ currentHealEvent.reviewer }}
+            </span>
+          </div>
+          <pre class="heal-feedback-text">{{ currentHealEvent?.feedback || '(无)' }}</pre>
+        </div>
+
+        <div class="heal-card heal-before">
+          <div class="heal-card-title">
+            <span class="heal-card-icon">🚫</span>
+            被打回的草稿
+            <el-tag v-if="currentHealEvent?.truncated" size="small" type="warning" effect="dark">
+              已截断
+            </el-tag>
+          </div>
+          <pre class="heal-draft">{{ currentHealEvent?.rejectedDraft || '(SSE 未携带草稿)' }}</pre>
+        </div>
+
+        <div class="heal-card heal-after">
+          <div class="heal-card-title">
+            <span class="heal-card-icon">✅</span>
+            最新产出（来自 task.stages）
+            <el-button
+              v-if="currentStageOutput"
+              size="small"
+              text
+              type="primary"
+              @click="emit('node-click', healDrawerStageId)"
+            >
+              在主面板打开 →
+            </el-button>
+          </div>
+          <pre class="heal-draft">{{ currentStageOutput?.slice(0, 4000) || '(尚无新产出)' }}</pre>
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
@@ -79,8 +162,8 @@ import { computed, markRaw, onBeforeUnmount, ref, watch } from 'vue'
 import { useVueFlow, VueFlow, type Edge, type Node } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
-import { ElButton, ElIcon, ElTag } from 'element-plus'
-import { Connection, FullScreen } from '@element-plus/icons-vue'
+import { ElButton, ElButtonGroup, ElDrawer, ElIcon, ElTag } from 'element-plus'
+import { ArrowLeft, ArrowRight, Connection, FullScreen } from '@element-plus/icons-vue'
 
 import AgentStageNode from '@/components/builder/AgentStageNode.vue'
 import { subscribePipelineEvents, type SSEStatus } from '@/services/pipelineApi'
@@ -140,6 +223,59 @@ const sseStatusLabel = computed(() => {
 
 const lastFallback = ref<FallbackEvent | null>(null)
 
+// ── Self-heal history, accumulated from SSE ──
+//
+// Each `stage:rework` (linear pipeline) and `pipeline:dag-branch` (DAG
+// orchestrator) event captures one rejected draft + its review feedback.
+// We keep them per-stage so the operator can scrub through prior attempts
+// when the AI is still wrestling with the same stage.
+//
+// Cap at 8 attempts/stage — that's twice the engine's MAX_REVIEW_RETRIES,
+// enough headroom for the DAG branch case and far below anything that
+// would matter for memory.
+interface SelfHealEvent {
+  attempt: number
+  feedback: string
+  rejectedDraft: string
+  truncated: boolean
+  reviewer: string
+  at: number
+}
+const SELF_HEAL_CAP = 8
+const selfHealHistory = ref<Map<string, SelfHealEvent[]>>(new Map())
+
+function pushSelfHeal(stageId: string, evt: SelfHealEvent) {
+  const next = new Map(selfHealHistory.value)
+  const cur = next.get(stageId) || []
+  next.set(stageId, [...cur, evt].slice(-SELF_HEAL_CAP))
+  selfHealHistory.value = next
+}
+
+// Drawer state
+const healDrawerOpen = ref(false)
+const healDrawerStageId = ref<string>('')
+const healCursor = ref(0)
+const healDrawerEvents = computed<SelfHealEvent[]>(
+  () => selfHealHistory.value.get(healDrawerStageId.value) || [],
+)
+const currentHealEvent = computed<SelfHealEvent | undefined>(
+  () => healDrawerEvents.value[healCursor.value],
+)
+const healDrawerTitle = computed(() => {
+  const stage = props.task.stages.find((s) => s.id === healDrawerStageId.value)
+  const label = stage?.label || healDrawerStageId.value
+  return `🔁 自愈历史 · ${label}`
+})
+const currentStageOutput = computed(() => {
+  const stage = props.task.stages.find((s) => s.id === healDrawerStageId.value)
+  return stage?.output || ''
+})
+function formatHealTime(ms?: number): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  return d.toLocaleString()
+}
+
 // ── Status mapping: PipelineStageState.status → AgentStageNode runStatus ──
 function mapStageStatus(s: PipelineStageState, taskFailed: boolean): RunStatus {
   switch (s.status) {
@@ -183,6 +319,8 @@ function buildGraph() {
     const runStatus: RunStatus =
       fromProcessing?.status || fromSse?.status || fromSnapshot
 
+    const healCount = selfHealHistory.value.get(stage.id)?.length || 0
+
     return {
       id: stage.id,
       type: 'agentStage',
@@ -194,6 +332,7 @@ function buildGraph() {
         runStatus,
         lastError: fromSse?.lastError,
         qualityGateMin: stage.gateScore && stage.gateScore < 1 ? stage.gateScore : undefined,
+        selfHealAttempts: healCount,
       },
       // The AgentStageNode handles both selection & rendering; we don't want
       // the user to drag stages around on a live execution view.
@@ -221,7 +360,7 @@ function buildGraph() {
 }
 
 watch(
-  [() => props.task, () => props.processingStageId, sseRunStatus],
+  [() => props.task, () => props.processingStageId, sseRunStatus, selfHealHistory],
   () => buildGraph(),
   { immediate: true, deep: true },
 )
@@ -232,7 +371,18 @@ function autoFit() { fitView({ padding: 0.15, duration: 250 }) }
 
 function onNodeClick(payload: { node: Node }) {
   const stageId = (payload.node.data as { stageId?: string })?.stageId
-  if (stageId) emit('node-click', stageId)
+  if (!stageId) return
+  // If this stage has self-heal history, prefer opening the diff drawer —
+  // that's what the 🔁 pill is hinting at. Holding shift bypasses (lets
+  // power-users go straight to the in-page section).
+  const hasHistory = (selfHealHistory.value.get(stageId) || []).length > 0
+  if (hasHistory) {
+    healDrawerStageId.value = stageId
+    healCursor.value = (selfHealHistory.value.get(stageId)?.length ?? 1) - 1
+    healDrawerOpen.value = true
+    return
+  }
+  emit('node-click', stageId)
 }
 
 function shortModel(m?: string): string {
@@ -285,9 +435,38 @@ function onSSE(evt: PipelineEvent) {
       // about to be tried.
       lastFallback.value = data as FallbackEvent
       break
+    case 'stage:rework': {
+      // Linear pipeline self-heal — peer-review rejected, regenerating.
+      // The stage stays "running" (we're regenerating now); the badge
+      // count goes up.
+      if (!stageId) break
+      pushSelfHeal(stageId, {
+        attempt: Number(data.attempt) || 1,
+        feedback: String(data.feedback || ''),
+        rejectedDraft: String(data.rejectedDraft || ''),
+        truncated: Boolean(data.rejectedDraftTruncated),
+        reviewer: String(data.reviewer || ''),
+        at: evt.timestamp || Date.now(),
+      })
+      setStageStatus(stageId, 'running')
+      break
+    }
     case 'pipeline:dag-branch': {
+      // DAG path equivalent of stage:rework — reviewing stage REJECTED a
+      // downstream stage and we're branching back to it. The "to" stage
+      // is what's about to be regenerated.
       const target = data.to as string | undefined
-      if (target) setStageStatus(target, 'rejected')
+      if (target) {
+        setStageStatus(target, 'rejected')
+        pushSelfHeal(target, {
+          attempt: Number(data.rejectCount) || 1,
+          feedback: String(data.feedbackPreview || ''),
+          rejectedDraft: String(data.rejectedDraft || ''),
+          truncated: Boolean(data.rejectedDraftTruncated),
+          reviewer: 'reviewing',
+          at: evt.timestamp || Date.now(),
+        })
+      }
       break
     }
     case 'pipeline:rollback':
@@ -377,5 +556,71 @@ onBeforeUnmount(() => {
 }
 :deep(.vue-flow__controls-button svg) {
   fill: currentColor;
+}
+
+/* ── Self-heal drawer ── */
+.heal-empty {
+  padding: 24px;
+  color: #94a3b8;
+  font-style: italic;
+}
+.heal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+}
+.heal-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.heal-pager-meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+.heal-pager-meta strong {
+  color: #cbd5e1;
+}
+.heal-card {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 12px;
+}
+.heal-card.heal-feedback { border-color: #1e40af; }
+.heal-card.heal-before   { border-color: #7f1d1d; }
+.heal-card.heal-after    { border-color: #14532d; }
+.heal-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 8px;
+}
+.heal-card-icon {
+  font-size: 14px;
+}
+.heal-reviewer {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.heal-feedback-text,
+.heal-draft {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11.5px;
+  color: #cbd5e1;
+  background: #0b1220;
+  border: 1px solid #111827;
+  border-radius: 6px;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow: auto;
 }
 </style>

@@ -21,6 +21,7 @@
       warn: !!props.data?.warning,
       'has-gate': !!props.data?.qualityGateMin,
       'has-human-gate': !!props.data?.humanGate,
+      'has-self-heal': (props.data?.selfHealAttempts ?? 0) > 0,
       [`run-${props.data?.runStatus || 'idle'}`]: true,
     }"
   >
@@ -28,6 +29,13 @@
     <div v-if="runStatusBadge" class="run-status-pill" :title="runStatusBadge.title">
       <span class="run-dot" />
       {{ runStatusBadge.text }}
+    </div>
+    <div
+      v-if="(props.data?.selfHealAttempts ?? 0) > 0"
+      class="self-heal-pill"
+      :title="`已自愈 ${props.data?.selfHealAttempts} 次（点击查看 before/after）`"
+    >
+      🔁 ×{{ props.data?.selfHealAttempts }}
     </div>
     <div class="row title-row">
       <span class="emoji">{{ roleEmoji(props.data?.role) }}</span>
@@ -74,6 +82,12 @@ interface NodeData {
   runStatus?: RunStatus
   /** Last error string (used as tooltip on failed badge). */
   lastError?: string
+  /**
+   * Number of "self-heal" cycles (peer-review-rejected → reworked) this
+   * stage has gone through in the current run. Drives the 🔁×N pill so
+   * the operator can see at a glance which stages the AI is wrestling with.
+   */
+  selfHealAttempts?: number
 }
 
 const props = defineProps<{
@@ -222,6 +236,34 @@ const badges = computed(() => {
   height: 6px;
   border-radius: 50%;
   background: currentColor;
+}
+
+/* Self-heal attempt counter pill — sits opposite the runStatus pill so it
+   doesn't fight for layout. The amber colour is intentional: this is
+   neither a success nor a failure, it's "the AI is fixing itself, watch
+   me". Pulses gently for the first 2s after each new attempt. */
+.self-heal-pill {
+  position: absolute;
+  top: -10px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 10px;
+  border-radius: 999px;
+  background: #422006;
+  color: #fbbf24;
+  border: 1px solid #854d0e;
+  white-space: nowrap;
+  cursor: help;
+}
+.has-self-heal {
+  animation: heal-flash 2s ease-out 1;
+}
+@keyframes heal-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
+  30%  { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.25); }
+  100% { box-shadow: 0 0 0 0 rgba(251, 191, 36, 0); }
 }
 
 .row {

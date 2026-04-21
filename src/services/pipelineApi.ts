@@ -117,6 +117,11 @@ function mapTask(raw: any): PipelineTask {
     projectPath: raw.project_path ?? raw.projectPath ?? null,
     qualityGateConfig: raw.quality_gate_config ?? raw.qualityGateConfig ?? null,
     overallQualityScore: raw.overall_quality_score ?? raw.overallQualityScore ?? null,
+    finalAcceptanceStatus: raw.final_acceptance_status ?? raw.finalAcceptanceStatus ?? null,
+    finalAcceptanceBy: raw.final_acceptance_by ?? raw.finalAcceptanceBy ?? null,
+    finalAcceptanceAt: mapTs(raw.final_acceptance_at ?? raw.finalAcceptanceAt) ?? null,
+    finalAcceptanceFeedback: raw.final_acceptance_feedback ?? raw.finalAcceptanceFeedback ?? null,
+    autoFinalAccept: raw.auto_final_accept ?? raw.autoFinalAccept ?? null,
     createdBy: raw.created_by ?? raw.createdBy ?? '',
     createdAt: mapTs(raw.created_at ?? raw.createdAt) ?? Date.now(),
     updatedAt: mapTs(raw.updated_at ?? raw.updatedAt) ?? Date.now(),
@@ -607,6 +612,94 @@ export async function overrideQualityGate(
   return apiFetch(`/pipeline/tasks/${taskId}/stages/${stageId}/gate-override`, {
     method: 'POST',
     body: JSON.stringify({ reason: reason || '' }),
+  })
+}
+
+// ── Per-task quality gate config (the "门禁阈值" drawer) ──────────────────
+//
+// Effective vs overrides: `effective` is what the engine actually uses
+// (template defaults + per-task overrides merged). `overrides` is just the
+// per-task delta. The drawer renders sliders bound to `effective` and POSTs
+// only the changed keys back as `overrides`.
+
+export interface StageGateConfig {
+  stageId: string
+  effective: {
+    passThreshold: number
+    failThreshold: number
+    minLength: number
+    requiredSections: string[]
+    requiredKeywords: string[]
+    keywordMode: 'all' | 'any'
+  }
+  overrides: Record<string, unknown>
+  hasOverrides: boolean
+}
+
+export interface QualityGateConfigResponse {
+  taskId: string
+  template: string | null
+  stages: StageGateConfig[]
+}
+
+export async function fetchQualityGateConfig(taskId: string): Promise<QualityGateConfigResponse> {
+  return apiFetch(`/pipeline/tasks/${taskId}/quality-gate-config`)
+}
+
+export async function updateQualityGateConfig(
+  taskId: string,
+  overrides: Record<string, Record<string, unknown>>,
+): Promise<{ ok: boolean; taskId: string; overrides: Record<string, Record<string, unknown>> }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/quality-gate-config`, {
+    method: 'PUT',
+    body: JSON.stringify({ overrides }),
+  })
+}
+
+// ── Final acceptance terminus ─────────────────────────────────────────
+//
+// These wrap POST /tasks/{id}/final-accept and /final-reject. The reject
+// path optionally takes a stage to restart from — when provided the backend
+// resets that stage + everything downstream and re-enqueues the DAG.
+
+export interface FinalAcceptResponse {
+  ok: boolean
+  alreadyAccepted?: boolean
+  taskId: string
+  by: string
+  acceptedAt?: string
+}
+
+export async function finalAcceptTask(
+  taskId: string,
+  notes?: string,
+): Promise<FinalAcceptResponse> {
+  return apiFetch(`/pipeline/tasks/${taskId}/final-accept`, {
+    method: 'POST',
+    body: JSON.stringify({ notes: notes || null }),
+  })
+}
+
+export interface FinalRejectResponse {
+  ok: boolean
+  queued?: boolean
+  paused?: boolean
+  taskId: string
+  restartFromStage?: string
+  message?: string
+}
+
+export async function finalRejectTask(
+  taskId: string,
+  reason: string,
+  restartFromStage?: string,
+): Promise<FinalRejectResponse> {
+  return apiFetch(`/pipeline/tasks/${taskId}/final-reject`, {
+    method: 'POST',
+    body: JSON.stringify({
+      reason,
+      restart_from_stage: restartFromStage || null,
+    }),
   })
 }
 

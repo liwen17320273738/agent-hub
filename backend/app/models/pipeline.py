@@ -34,6 +34,22 @@ class PipelineTask(Base):
     quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
     overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)
 
+    # ── Final acceptance terminus ─────────────────────────────────────
+    # After all stages succeed and ``compile_deliverables`` runs, the task
+    # transitions to ``status="awaiting_final_acceptance"`` and parks here
+    # until a human (or ``auto_final_accept=True``) calls one of the
+    # ``/final-accept`` / ``/final-reject`` endpoints. See migration
+    # ``5f8a9b0c1d2e_add_final_acceptance_fields`` for the column shape
+    # rationale.
+    final_acceptance_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    final_acceptance_by: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    final_acceptance_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    final_acceptance_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Bypass the human terminus — useful for CI / batch runs that want the
+    # legacy "straight to done" behavior. Defaults to FALSE so existing
+    # interactive flows pick up the new gate automatically.
+    auto_final_accept: Mapped[Optional[bool]] = mapped_column(nullable=True, default=False)
+
     # Workflow Builder spec — when ``template == "custom"``, this holds the
     # verbatim DAG shape (incl. ``depends_on``, per-stage retry / gate /
     # quality config) so the orchestrator can rehydrate it without

@@ -6,7 +6,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from typing import Annotated, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -1439,6 +1439,422 @@ async def override_quality_gate(
         "gate_status": "bypassed",
         "overridden_by": reviewer_email,
     }
+
+
+class FinalAcceptBody(BaseModel):
+    """Optional accept-side notes — purely informational, no behavioral effect."""
+    notes: Optional[str] = None
+
+
+class FinalRejectBody(BaseModel):
+    """Reject the final deliverable and either pause or re-run from a stage.
+
+    ``restart_from_stage``:
+      - omitted / null  → just record the rejection and pause; operator
+                          can manually pick what to do later
+      - <stage_id>      → reset that stage + everything downstream of it
+                          to ``pending`` and re-enqueue the DAG. The reason
+                          gets propagated to the regen prompts via the
+                          existing ``reject_feedback`` mechanism that
+                          ``execute_stage`` already injects.
+    """
+    reason: str
+    restart_from_stage: Optional[str] = None
+
+
+@router.post("/tasks/{task_id}/final-accept")
+async def final_accept_task(
+    task_id: str,
+    body: FinalAcceptBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Mark the entire task as accepted. Closes the human terminus and
+    transitions ``status="awaiting_final_acceptance"`` → ``"done"``."""
+    if not user:
+        raise HTTPException(status_code=403, detail="authentication required")
+
+    result = await db.execute(
+        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Idempotency: accepting an already-accepted task is a no-op (returns 200).
+    # Trying to accept a task that hasn't reached the terminus is a 400 — the
+    # client almost certainly has a stale view.
+    if task.final_acceptance_status == "accepted":
+        return {
+            "ok": True,
+            "alreadyAccepted": True,
+            "taskId": task_id,
+            "by": task.final_acceptance_by,
+        }
+    if task.status != "awaiting_final_acceptance":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"task is not awaiting final acceptance "
+                f"(status={task.status})"
+            ),
+        )
+
+    task.status = "done"
+    task.current_stage_id = "done"
+    task.final_acceptance_status = "accepted"
+    task.final_acceptance_by = user.email
+    task.final_acceptance_at = datetime.utcnow()
+    if body.notes:
+        task.final_acceptance_feedback = body.notes
+    await db.commit()
+
+    from ..services.sse import emit_event
+    await emit_event("pipeline:final-accepted", {
+        "taskId": task_id,
+        "by": user.email,
+        "notes": body.notes or "",
+    })
+
+    return {
+        "ok": True,
+        "taskId": task_id,
+        "by": user.email,
+        "acceptedAt": task.final_acceptance_at.isoformat(),
+    }
+
+
+@router.post("/tasks/{task_id}/final-reject")
+async def final_reject_task(
+    task_id: str,
+    body: FinalRejectBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks = None,
+):
+    """Reject the deliverable. Optionally re-run from a chosen stage.
+
+    Re-run mechanics: we reset the chosen stage + every later one (by
+    ``sort_order``) to ``status='pending'``, write the rejection text into
+    the chosen stage's ``last_error`` so the engine's existing reject_feedback
+    injection picks it up, then re-enqueue the DAG via the same
+    ``execute_dag_pipeline`` that ``runDagPipeline`` uses. This keeps the
+    re-run path identical to a fresh run from the operator's perspective —
+    no special-case execution branch.
+    """
+    if not user:
+        raise HTTPException(status_code=403, detail="authentication required")
+    if not body.reason or not body.reason.strip():
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if task.status != "awaiting_final_acceptance":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"task is not awaiting final acceptance "
+                f"(status={task.status})"
+            ),
+        )
+
+    target_stage = body.restart_from_stage
+    if target_stage:
+        # Validate the requested stage actually exists on this task before
+        # we mutate anything.
+        target_db_stage = next(
+            (s for s in task.stages if s.stage_id == target_stage), None,
+        )
+        if not target_db_stage:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown stage_id: {target_stage}",
+            )
+
+    task.final_acceptance_status = "rejected"
+    task.final_acceptance_by = user.email
+    task.final_acceptance_at = datetime.utcnow()
+    task.final_acceptance_feedback = body.reason
+
+    if target_stage and target_db_stage:
+        # Reset target stage + downstream stages so the DAG actually re-runs
+        # from there.
+        target_order = target_db_stage.sort_order
+        for s in task.stages:
+            if s.sort_order >= target_order:
+                s.status = "pending"
+                s.completed_at = None
+                if s.stage_id == target_stage:
+                    # Stash the rejection so execute_stage's reject_feedback
+                    # injection picks it up on the very next run.
+                    s.reject_feedback = (
+                        f"用户在最终验收阶段打回，要求从此阶段重做：{body.reason}"
+                    ) if hasattr(s, "reject_feedback") else s.last_error
+                    # The above hasattr guard is defensive — older deployments
+                    # may not have the column yet. Fall back to last_error
+                    # which the engine also reads on retry.
+                    s.last_error = body.reason[:1000]
+        task.status = "active"
+        task.current_stage_id = target_stage
+        await db.commit()
+
+        from ..services.sse import emit_event
+        await emit_event("pipeline:final-rejected", {
+            "taskId": task_id,
+            "by": user.email,
+            "reason": body.reason[:500],
+            "restartFromStage": target_stage,
+        })
+
+        # Re-enqueue the DAG. We use the existing dag_run path so the resume
+        # mechanism (skip already-DONE stages) takes care of the rest.
+        if background_tasks is not None:
+            from ..services.dag_orchestrator import execute_dag_pipeline
+            background_tasks.add_task(
+                _resume_dag_after_reject,
+                str(task.id),
+                task.title,
+                task.description,
+                task.template or "full",
+                task.custom_stages,
+            )
+            return {
+                "ok": True,
+                "queued": True,
+                "taskId": task_id,
+                "restartFromStage": target_stage,
+                "message": f"已打回，将从 {target_stage} 重新运行",
+            }
+        return {
+            "ok": True,
+            "queued": False,
+            "taskId": task_id,
+            "restartFromStage": target_stage,
+        }
+    else:
+        # Plain reject: pause and let the operator pick what to do.
+        task.status = "paused"
+        await db.commit()
+
+        from ..services.sse import emit_event
+        await emit_event("pipeline:final-rejected", {
+            "taskId": task_id,
+            "by": user.email,
+            "reason": body.reason[:500],
+            "restartFromStage": None,
+        })
+        return {
+            "ok": True,
+            "paused": True,
+            "taskId": task_id,
+            "message": "已打回，任务已暂停，请决定下一步动作",
+        }
+
+
+async def _resume_dag_after_reject(
+    task_id: str,
+    task_title: str,
+    task_description: str,
+    template: str,
+    custom_stages: Optional[List[Dict[str, Any]]],
+) -> None:
+    """Background-task wrapper for re-running the DAG after a final-reject.
+
+    Defined out-of-line so FastAPI's BackgroundTasks can schedule it without
+    holding a reference to the request-scoped DB session (we open a fresh
+    one inside via the shared async_session_maker, same pattern as
+    ``executeTask``).
+    """
+    from ..database import async_session
+    from ..services.dag_orchestrator import execute_dag_pipeline
+
+    async with async_session() as session:
+        try:
+            await execute_dag_pipeline(
+                session,
+                task_id=task_id,
+                task_title=task_title,
+                task_description=task_description,
+                template=template,
+                resume=True,
+                custom_stages=custom_stages,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "[pipeline] re-run after final-reject failed for task %s: %s",
+                task_id, exc,
+            )
+
+
+class QualityGateConfigBody(BaseModel):
+    """Per-stage threshold overrides written by the dashboard slider drawer.
+
+    Shape: ``{ stage_id: { pass_threshold: 0.0..1.0, fail_threshold: 0.0..1.0,
+                            min_length: int, ... } }``
+    Only the keys the operator changed need to be sent — missing keys fall
+    through to the template / global default. The whole dict is persisted as
+    one JSON blob on ``PipelineTask.quality_gate_config``.
+    """
+    overrides: Dict[str, Dict[str, Any]]
+
+
+@router.get("/tasks/{task_id}/quality-gate-config")
+async def get_quality_gate_config(
+    task_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return BOTH the effective merged config (what the engine actually uses)
+    and the raw per-task overrides (what the slider drawer should restore on
+    open). The frontend needs both: effective for display defaults, raw for
+    the "已修改" indicator."""
+    from ..services.dag_orchestrator import PIPELINE_TEMPLATES
+    from ..services.quality_gates import get_effective_gate_config
+
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    overrides = task.quality_gate_config or {}
+    template = task.template
+
+    # Use the actual stage IDs that exist on the task — covers custom_stages
+    # AND template-defined stages alike.
+    stage_ids: List[str] = []
+    if task.custom_stages:
+        for s in task.custom_stages:
+            sid = (s or {}).get("id") or (s or {}).get("stage_id")
+            if sid:
+                stage_ids.append(sid)
+    elif template and template in PIPELINE_TEMPLATES:
+        stage_ids = [s.stage_id for s in PIPELINE_TEMPLATES[template]]
+    else:
+        stage_ids = [s.stage_id for s in task.stages]
+
+    per_stage = []
+    for sid in stage_ids:
+        effective = get_effective_gate_config(
+            sid, template=template, task_overrides=overrides,
+        )
+        per_stage.append({
+            "stageId": sid,
+            "effective": {
+                "passThreshold": effective.get("pass_threshold", 0.7),
+                "failThreshold": effective.get("fail_threshold", 0.4),
+                "minLength": effective.get("min_length", 300),
+                "requiredSections": effective.get("required_sections", []),
+                "requiredKeywords": effective.get("required_keywords", []),
+                "keywordMode": effective.get("keyword_mode", "all"),
+            },
+            "overrides": overrides.get(sid, {}),
+            "hasOverrides": bool(overrides.get(sid)),
+        })
+
+    return {
+        "taskId": task_id,
+        "template": template,
+        "stages": per_stage,
+    }
+
+
+@router.put("/tasks/{task_id}/quality-gate-config")
+async def update_quality_gate_config(
+    task_id: str,
+    body: QualityGateConfigBody,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Replace the per-task quality_gate_config blob. Authenticated users
+    only — same posture as gate-override (this can effectively bypass quality
+    enforcement by setting all thresholds to 0)."""
+    if not user:
+        raise HTTPException(status_code=403, detail="authentication required")
+
+    result = await db.execute(
+        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id))
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Validate keys + values: thresholds must be in [0,1]; min_length >= 0.
+    # We're permissive about unknown keys so future engine knobs don't need
+    # a coordinated frontend release — but bogus types are rejected here.
+    cleaned: Dict[str, Dict[str, Any]] = {}
+    for stage_id, raw in (body.overrides or {}).items():
+        if not isinstance(raw, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"overrides[{stage_id}] must be an object",
+            )
+        out: Dict[str, Any] = {}
+        for k, v in raw.items():
+            if k in ("pass_threshold", "fail_threshold"):
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{stage_id}.{k} must be a number",
+                    )
+                if not 0.0 <= fv <= 1.0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{stage_id}.{k}={fv} must be in [0,1]",
+                    )
+                out[k] = fv
+            elif k == "min_length":
+                try:
+                    iv = int(v)
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{stage_id}.min_length must be an integer",
+                    )
+                if iv < 0:
+                    raise HTTPException(status_code=400,
+                                        detail="min_length must be >= 0")
+                out[k] = iv
+            elif k in ("required_sections", "required_keywords"):
+                if not isinstance(v, list):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{stage_id}.{k} must be a list",
+                    )
+                out[k] = [str(x) for x in v if str(x).strip()]
+            elif k == "keyword_mode":
+                if v not in ("all", "any"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{stage_id}.keyword_mode must be 'all' or 'any'",
+                    )
+                out[k] = v
+            else:
+                out[k] = v
+        cleaned[stage_id] = out
+
+    task.quality_gate_config = cleaned
+    await db.commit()
+
+    from ..services.sse import emit_event
+    await emit_event("pipeline:quality-gate-config-updated", {
+        "taskId": task_id,
+        "by": (user.email if user else None),
+        "stagesAffected": list(cleaned.keys()),
+    })
+
+    return {"ok": True, "taskId": task_id, "overrides": cleaned}
 
 
 @router.get("/sdlc-templates")

@@ -43,7 +43,7 @@ export interface PipelineTask {
   source: 'feishu' | 'qq' | 'web' | 'api'
   sourceMessageId?: string
   sourceUserId?: string
-  status: 'active' | 'paused' | 'done' | 'cancelled'
+  status: 'active' | 'paused' | 'done' | 'cancelled' | 'failed' | 'awaiting_final_acceptance'
   currentStageId: string
   template?: string | null
   repoUrl?: string | null
@@ -52,6 +52,12 @@ export interface PipelineTask {
   artifacts: TaskArtifact[]
   qualityGateConfig?: Record<string, unknown> | null
   overallQualityScore?: number | null
+  // Final acceptance terminus — see backend migration c2d3e4f5a6b7.
+  finalAcceptanceStatus?: 'pending' | 'accepted' | 'rejected' | null
+  finalAcceptanceBy?: string | null
+  finalAcceptanceAt?: number | null
+  finalAcceptanceFeedback?: string | null
+  autoFinalAccept?: boolean | null
   createdBy: string
   createdAt: number
   updatedAt: number

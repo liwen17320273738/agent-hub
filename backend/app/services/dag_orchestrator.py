@@ -660,6 +660,20 @@ async def execute_dag_pipeline(
             }
     except Exception as e:
         logger.debug(f"[dag] no per-stage overrides loaded: {e}")
+
+    # Per-task quality-gate overrides (set via the dashboard's "门禁阈值"
+    # drawer). Loaded once here so the per-stage gate evaluation closure
+    # below doesn't have to re-query for every stage.
+    task_quality_overrides: Optional[Dict[str, Any]] = None
+    try:
+        tq_row = await db.execute(
+            select(PipelineTask.quality_gate_config).where(
+                PipelineTask.id == uuid.UUID(task_id)
+            )
+        )
+        task_quality_overrides = tq_row.scalar_one_or_none() or None
+    except Exception as e:
+        logger.debug(f"[dag] no task-level quality_gate_config loaded: {e}")
     for stg in stages:
         ov = db_stage_overrides.get(stg.stage_id)
         if not ov:
@@ -793,6 +807,7 @@ async def execute_dag_pipeline(
                         previous_outputs=outputs,
                         heuristic_result=heuristic,
                         skip_llm=False,
+                        task_overrides=task_quality_overrides,
                     )
 
                     db_result_inner = await stage_db.execute(
@@ -852,11 +867,23 @@ async def execute_dag_pipeline(
                             (s for s in stages if s.stage_id == target), None,
                         )
                         reject_count = target_stage.reject_count if target_stage else 0
+                        # ``rejectedDraft`` lets the dashboard's self-heal
+                        # drawer show before/after without a separate
+                        # API call — the prior draft of the *target* stage
+                        # is what was just rejected. Cap to 4 KB to keep
+                        # SSE payloads small.
+                        target_draft = (
+                            target_stage.output if target_stage else ""
+                        )
                         await emit_event("pipeline:dag-branch", {
                             "taskId": task_id, "from": "reviewing", "to": target,
                             "reason": "Review rejected, returning to earlier stage",
                             "feedbackPreview": (feedback or "")[:200],
                             "rejectCount": reject_count,
+                            "rejectedDraft": (target_draft or "")[:4000],
+                            "rejectedDraftTruncated": bool(
+                                target_draft and len(target_draft) > 4000
+                            ),
                         })
 
                         # ── Bidirectional mirror to external trackers ──
@@ -1108,8 +1135,20 @@ async def execute_dag_pipeline(
                 db.add(artifact)
 
         if all_ok:
-            db_task.status = "done"
-            db_task.current_stage_id = "done"
+            # Same final-acceptance terminus as the linear engine — see
+            # pipeline_engine.execute_full_pipeline for the decision tree
+            # and event semantics. Keeping the two paths in sync matters
+            # because the dashboard treats them identically downstream.
+            if bool(db_task.auto_final_accept):
+                db_task.status = "done"
+                db_task.current_stage_id = "done"
+                db_task.final_acceptance_status = "accepted"
+                db_task.final_acceptance_by = "auto"
+                db_task.final_acceptance_at = datetime.utcnow()
+            else:
+                db_task.status = "awaiting_final_acceptance"
+                db_task.current_stage_id = "final_acceptance"
+                db_task.final_acceptance_status = "pending"
         elif blocked_stage:
             db_task.status = "paused"
             db_task.current_stage_id = blocked_stage.stage_id
@@ -1124,6 +1163,20 @@ async def execute_dag_pipeline(
                 sum(gate_scores) / len(gate_scores), 3
             )
         await db.flush()
+
+        # Symmetry with the linear path: emit a dedicated event when the
+        # task lands in the human terminus, instead of conflating it with
+        # the existing dag-completed signal (which other UIs rely on).
+        if all_ok and not bool(db_task.auto_final_accept):
+            await emit_event("pipeline:awaiting-final-acceptance", {
+                "taskId": task_id,
+                "title": task_title,
+                "stagesCompleted": sum(
+                    1 for s in stages if s.status == StageStatus.DONE
+                ),
+                "stagesTotal": len(stages),
+                "overallQualityScore": db_task.overall_quality_score,
+            })
 
     return {
         "ok": all_ok,

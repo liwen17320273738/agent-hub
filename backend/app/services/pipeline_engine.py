@@ -1320,12 +1320,17 @@ async def execute_full_pipeline(
                 auto_proceed=verification.get("auto_proceed", True),
             )
             task_template = db_task.template if db_task else None
+            # Per-task overrides set via the dashboard's "门禁阈值" drawer
+            # take precedence over template/global defaults — see
+            # quality_gates._get_stage_config for the merge rules.
+            task_overrides = (db_task.quality_gate_config if db_task else None) or None
             gate_result = await evaluate_quality_gate(
                 stage_id, content,
                 template=task_template,
                 previous_outputs=outputs,
                 heuristic_result=heuristic,
                 skip_llm=force_continue,
+                task_overrides=task_overrides,
             )
 
             if stage_id in db_stages:
@@ -1487,12 +1492,26 @@ async def execute_full_pipeline(
                         "trace_id": trace.trace_id,
                     }
 
-                # Re-execute stage with reviewer feedback injected
+                # Re-execute stage with reviewer feedback injected.
+                # We pass the *rejected* draft along with the event so the
+                # frontend's "self-heal" drawer can show a before/after diff
+                # without needing a separate API round-trip. The DB column
+                # ``output`` will be overwritten on the next iteration, so
+                # this is the only place we get to capture the rejected
+                # version.
+                rejected_draft = (
+                    db_stages[stage_id].output
+                    if stage_id in db_stages
+                    else (results[-1].get("content", "") if results else "")
+                )
                 await emit_event("stage:rework", {
                     "taskId": task_id,
                     "stageId": stage_id,
                     "attempt": retries + 1,
                     "feedback": feedback[:300],
+                    "rejectedDraft": (rejected_draft or "")[:4000],
+                    "rejectedDraftTruncated": bool(rejected_draft and len(rejected_draft) > 4000),
+                    "reviewer": review_result.get("reviewer", ""),
                 })
 
                 rework_outputs = dict(outputs)
@@ -1578,10 +1597,8 @@ async def execute_full_pipeline(
             prev_stage = stages[stages.index(stage_id) - 1]
             await update_quality_score(db, task_id, prev_stage, 0.8)
 
-    # All stages complete — compute overall quality and mark task as done
+    # All stages complete — compute overall quality. Status decision below.
     if db_task:
-        db_task.status = "done"
-        db_task.current_stage_id = "done"
         gate_scores = [
             s.gate_score for s in db_task.stages
             if s.gate_score is not None
@@ -1601,6 +1618,30 @@ async def execute_full_pipeline(
         logger.warning(f"[pipeline] Failed to compile deliverables: {e}")
         deliverable_md = None
 
+    # ── Final acceptance terminus ─────────────────────────────────────
+    # Decision tree (kept here, NOT in compile_deliverables, so callers that
+    # invoke compile manually don't accidentally trip the gate):
+    #
+    #   1. ``auto_final_accept = True``  → straight to ``done``,
+    #                                       final_acceptance_status="accepted",
+    #                                       by="auto"
+    #   2. otherwise                      → ``status=awaiting_final_acceptance``,
+    #                                       final_acceptance_status="pending",
+    #                                       wait for /final-accept or /final-reject
+    auto_accept = bool(db_task and db_task.auto_final_accept)
+    if db_task:
+        if auto_accept:
+            db_task.status = "done"
+            db_task.current_stage_id = "done"
+            db_task.final_acceptance_status = "accepted"
+            db_task.final_acceptance_by = "auto"
+            db_task.final_acceptance_at = datetime.utcnow()
+        else:
+            db_task.status = "awaiting_final_acceptance"
+            db_task.current_stage_id = "final_acceptance"
+            db_task.final_acceptance_status = "pending"
+        await db.flush()
+
     await complete_trace(trace.trace_id, status="completed")
 
     summary = {
@@ -1609,15 +1650,29 @@ async def execute_full_pipeline(
         "total_cost_usd": round(sum(r.get("cost_usd", 0) for r in results), 6),
     }
 
-    await emit_event("pipeline:auto-completed", {
-        "taskId": task_id,
-        "title": task_title,
-        "stagesCompleted": summary["stages_completed"],
-        "totalTokens": summary["total_tokens"],
-        "totalCostUsd": summary["total_cost_usd"],
-        "traceId": trace.trace_id,
-        "hasDeliverable": deliverable_md is not None,
-    })
+    if auto_accept:
+        await emit_event("pipeline:auto-completed", {
+            "taskId": task_id,
+            "title": task_title,
+            "stagesCompleted": summary["stages_completed"],
+            "totalTokens": summary["total_tokens"],
+            "totalCostUsd": summary["total_cost_usd"],
+            "traceId": trace.trace_id,
+            "hasDeliverable": deliverable_md is not None,
+        })
+    else:
+        await emit_event("pipeline:awaiting-final-acceptance", {
+            "taskId": task_id,
+            "title": task_title,
+            "stagesCompleted": summary["stages_completed"],
+            "totalTokens": summary["total_tokens"],
+            "totalCostUsd": summary["total_cost_usd"],
+            "traceId": trace.trace_id,
+            "hasDeliverable": deliverable_md is not None,
+            "overallQualityScore": (
+                db_task.overall_quality_score if db_task else None
+            ),
+        })
 
     return {
         "ok": True,
