@@ -347,10 +347,23 @@ async def build_tool_handlers(
                 continue
             tool_id = _normalize_tool_name(label, raw_name)
             schema = t.get("inputSchema") or {"type": "object", "properties": {}}
+            # Carry over MCP-standard `annotations` (readOnlyHint /
+            # destructiveHint / idempotentHint / openWorldHint) and any
+            # custom `category` field declared by the server. These are
+            # consumed by the sandbox layer (tools/registry.mcp_tool_allowed)
+            # to make a more accurate allow/deny decision than the prefix
+            # heuristic alone. Servers that don't declare anything keep
+            # the legacy prefix-based behavior.
+            annotations = t.get("annotations") if isinstance(t.get("annotations"), dict) else None
+            category = t.get("category") if isinstance(t.get("category"), str) else None
             definitions[tool_id] = {
                 "name": tool_id,
                 "description": (t.get("description") or f"MCP tool {label}.{raw_name}")[:300],
                 "parameters": schema,
+                "annotations": annotations,
+                "category": category,
+                "_mcp_raw_name": raw_name,
+                "_mcp_server": label,
             }
             handlers[tool_id] = _make_handler(server_url, raw_name, config)
 

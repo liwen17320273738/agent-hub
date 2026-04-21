@@ -9,6 +9,7 @@ from .observability import TraceRecord, SpanRecord, AuditLog, ApprovalRecord, Fe
 from .eval import EvalDataset, EvalCase, EvalRun, EvalResult
 from .code_chunk import CodeChunk
 from .agent_message import AgentMessage
+from .learning import LearningSignal, PromptOverride
 
 __all__ = [
     "AgentMessage",
@@ -35,4 +36,6 @@ __all__ = [
     "AuditLog",
     "ApprovalRecord",
     "FeedbackRecord",
+    "LearningSignal",
+    "PromptOverride",
 ]

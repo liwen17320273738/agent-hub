@@ -430,30 +430,165 @@ async def delete_task(
 
 
 # --- Background execution helpers ---
+#
+# All pipeline-class background work (smart-run, auto-run, run-stage,
+# DAG runs) goes through the global TaskScheduler so we have a single,
+# bounded concurrency point for the whole process. See
+# services/task_scheduler.py for rationale.
+#
+# Each `kind` registered below is restart-safe: if the process dies with
+# items waiting in the scheduler queue, they will be re-submitted on next
+# boot from Redis. Kinds whose params contain large blobs (prior_outputs,
+# previous_outputs) are still persisted, but those blobs are reconstructed
+# from the DB on resume rather than carried in the params dict.
 
-async def _run_in_background(coro_factory, task_label: str):
-    """Run a coroutine in a standalone background task with its own DB session.
+from ..services.task_scheduler import get_scheduler, register_kind
 
-    This prevents the execution from being cancelled when the HTTP client
-    disconnects (e.g. user navigates to a different page).
+
+def _build_smart_run(params):
+    async def _run(bg_db: AsyncSession):
+        from ..services.lead_agent import run_smart_pipeline
+        await run_smart_pipeline(
+            bg_db, params["task_id"], params["task_title"], params["task_description"],
+        )
+    return _run
+
+
+def _build_dag_run(params):
+    async def _run(bg_db: AsyncSession):
+        from ..services.dag_orchestrator import execute_dag_pipeline
+        await execute_dag_pipeline(
+            bg_db,
+            task_id=params["task_id"],
+            task_title=params["task_title"],
+            task_description=params["task_description"],
+            template=params.get("template", "full"),
+            complexity=params.get("complexity"),
+            project_path=params.get("project_path"),
+            resume=bool(params.get("resume", False)),
+        )
+    return _run
+
+
+def _build_auto_run(params):
+    async def _run(bg_db: AsyncSession):
+        from ..services.pipeline_engine import execute_full_pipeline
+        await execute_full_pipeline(
+            bg_db,
+            task_id=params["task_id"],
+            task_title=params["task_title"],
+            task_description=params["task_description"],
+            force_continue=bool(params.get("force_continue", True)),
+            project_path=params.get("project_path"),
+        )
+    return _run
+
+
+def _build_run_stage(params):
+    async def _run(bg_db: AsyncSession):
+        from ..services.pipeline_engine import execute_stage
+        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        # Reconstruct previous_outputs from DB so we don't carry big
+        # blobs through Redis params.
+        tid = params["task_id"]
+        stage_id = params["stage_id"]
+        prev: Dict[str, Any] = {}
+        db_result = await bg_db.execute(
+            select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
+        )
+        db_task = db_result.scalar_one_or_none()
+        if db_task:
+            for s in sorted(db_task.stages, key=lambda x: x.sort_order):
+                if s.output:
+                    prev[s.stage_id] = s.output
+
+        result = await execute_stage(
+            bg_db,
+            task_id=tid,
+            task_title=params["task_title"],
+            task_description=params["task_description"],
+            stage_id=stage_id,
+            previous_outputs=prev,
+            project_path=params.get("project_path"),
+        )
+
+        if result.get("ok") and db_task:
+            ss = sorted(db_task.stages, key=lambda x: x.sort_order)
+            cur = next((s for s in ss if s.stage_id == stage_id), None)
+            if cur:
+                cur.output = result.get("content", "")
+                cur.status = "done"
+                cur.completed_at = datetime.utcnow()
+            cur_idx = next((i for i, s in enumerate(ss) if s.stage_id == stage_id), -1)
+            if cur_idx >= 0 and cur_idx + 1 < len(ss):
+                nxt = ss[cur_idx + 1]
+                nxt.status = "active"
+                nxt.started_at = datetime.utcnow()
+                db_task.current_stage_id = nxt.stage_id
+            elif cur_idx >= 0:
+                db_task.status = "done"
+                db_task.current_stage_id = "done"
+    return _run
+
+
+def _build_resume_pipeline(params):
+    """For the linear /resume endpoint. Reconstructs prior_outputs from
+    DB so we don't carry large blobs through Redis."""
+    async def _run(bg_db: AsyncSession):
+        from ..services.pipeline_engine import execute_full_pipeline
+        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        tid = params["task_id"]
+        remaining = params["remaining_stages"]
+
+        db_result = await bg_db.execute(
+            select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
+        )
+        db_task = db_result.scalar_one_or_none()
+        prior: Dict[str, str] = {}
+        if db_task:
+            for s in db_task.stages:
+                if s.status == "done" and s.output and s.stage_id not in remaining:
+                    prior[s.stage_id] = s.output
+
+        await execute_full_pipeline(
+            bg_db,
+            task_id=tid,
+            task_title=params["task_title"],
+            task_description=params["task_description"],
+            stages=remaining,
+            force_continue=bool(params.get("force_continue", True)),
+            prior_outputs=prior,
+            project_path=params.get("project_path"),
+        )
+    return _run
+
+
+register_kind("smart-run", _build_smart_run)
+register_kind("dag-run", _build_dag_run)
+register_kind("auto-run", _build_auto_run)
+register_kind("run-stage", _build_run_stage)
+register_kind("resume-pipeline", _build_resume_pipeline)
+
+
+async def _submit_task(
+    task_id: str,
+    label: str,
+    *,
+    kind: str,
+    params: Dict[str, Any],
+) -> str:
+    """Submit a pipeline task to the global scheduler, with restart-safe
+    persistence. ``kind`` must be registered in ``task_scheduler``.
     """
-    from ..database import async_session as session_factory
-    from ..services.sse import emit_event
-
-    try:
-        async with session_factory() as db:
-            try:
-                await coro_factory(db)
-                await db.commit()
-            except Exception as exc:
-                await db.rollback()
-                logger.exception(f"[background] {task_label} failed: {exc}")
-                await emit_event("pipeline:auto-error", {
-                    "error": str(exc),
-                    "label": task_label,
-                })
-    except Exception as outer:
-        logger.exception(f"[background] session error in {task_label}: {outer}")
+    return await get_scheduler().submit(
+        task_id=task_id, label=label, kind=kind, params=params,
+    )
 
 
 # --- Lead Agent / Smart Pipeline ---
@@ -468,12 +603,12 @@ async def smart_run(
     task = await _get_task_or_404(db, task_id, user, load_relations=False)
     tid, title, desc = str(task.id), task.title, task.description
 
-    async def _run(bg_db: AsyncSession):
-        from ..services.lead_agent import run_smart_pipeline
-        await run_smart_pipeline(bg_db, tid, title, desc)
-
-    asyncio.create_task(_run_in_background(_run, f"smart-run:{tid[:8]}"))
-    return {"ok": True, "started": True, "taskId": tid}
+    submission_id = await _submit_task(
+        tid, f"smart-run:{tid[:8]}",
+        kind="smart-run",
+        params={"task_id": tid, "task_title": title, "task_description": desc},
+    )
+    return {"ok": True, "started": True, "taskId": tid, "submissionId": submission_id}
 
 
 @router.post("/tasks/{task_id}/analyze")
@@ -503,56 +638,20 @@ async def run_single_stage(
     task = await _get_task_or_404(db, task_id, user)
 
     stage_id = body.get("stageId") or task.current_stage_id
-    previous_outputs = {}
-    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
-    for stage in sorted_stages:
-        if stage.output:
-            previous_outputs[stage.stage_id] = stage.output
-
     tid = str(task.id)
-    t_title, t_desc = task.title, task.description
-    t_proj_path = task.project_path
 
-    async def _run(bg_db: AsyncSession):
-        from ..services.pipeline_engine import execute_stage
-        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
-
-        result = await execute_stage(
-            bg_db,
-            task_id=tid,
-            task_title=t_title,
-            task_description=t_desc,
-            stage_id=stage_id,
-            previous_outputs=previous_outputs,
-            project_path=t_proj_path,
-        )
-
-        if result.get("ok"):
-            db_result = await bg_db.execute(
-                select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
-            )
-            db_task = db_result.scalar_one_or_none()
-            if db_task:
-                ss = sorted(db_task.stages, key=lambda s: s.sort_order)
-                cur = next((s for s in ss if s.stage_id == stage_id), None)
-                if cur:
-                    cur.output = result.get("content", "")
-                    cur.status = "done"
-                    cur.completed_at = datetime.utcnow()
-                cur_idx = next((i for i, s in enumerate(ss) if s.stage_id == stage_id), -1)
-                if cur_idx >= 0 and cur_idx + 1 < len(ss):
-                    nxt = ss[cur_idx + 1]
-                    nxt.status = "active"
-                    nxt.started_at = datetime.utcnow()
-                    db_task.current_stage_id = nxt.stage_id
-                elif cur_idx >= 0:
-                    db_task.status = "done"
-                    db_task.current_stage_id = "done"
-
-    asyncio.create_task(_run_in_background(_run, f"run-stage:{tid[:8]}/{stage_id}"))
-    return {"ok": True, "started": True, "taskId": tid, "stageId": stage_id}
+    submission_id = await _submit_task(
+        tid, f"run-stage:{tid[:8]}/{stage_id}",
+        kind="run-stage",
+        params={
+            "task_id": tid,
+            "task_title": task.title,
+            "task_description": task.description,
+            "stage_id": stage_id,
+            "project_path": task.project_path,
+        },
+    )
+    return {"ok": True, "started": True, "taskId": tid, "stageId": stage_id, "submissionId": submission_id}
 
 
 @router.post("/tasks/{task_id}/auto-run")
@@ -568,21 +667,19 @@ async def auto_run_pipeline(
     """
     task = await _get_task_or_404(db, task_id, user, load_relations=False)
     tid, title, desc = str(task.id), task.title, task.description
-    proj_path = task.project_path
 
-    async def _run(bg_db: AsyncSession):
-        from ..services.pipeline_engine import execute_full_pipeline
-        await execute_full_pipeline(
-            bg_db,
-            task_id=tid,
-            task_title=title,
-            task_description=desc,
-            force_continue=True,
-            project_path=proj_path,
-        )
-
-    asyncio.create_task(_run_in_background(_run, f"auto-run:{tid[:8]}"))
-    return {"ok": True, "started": True, "taskId": tid}
+    submission_id = await _submit_task(
+        tid, f"auto-run:{tid[:8]}",
+        kind="auto-run",
+        params={
+            "task_id": tid,
+            "task_title": title,
+            "task_description": desc,
+            "force_continue": True,
+            "project_path": task.project_path,
+        },
+    )
+    return {"ok": True, "started": True, "taskId": tid, "submissionId": submission_id}
 
 
 # --- Skills + Middleware ---
@@ -662,21 +759,32 @@ async def dag_run(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    """Execute pipeline using DAG-based scheduling (parallel stages)."""
-    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    """Submit a DAG pipeline run to the global scheduler (returns immediately).
 
-    from ..services.dag_orchestrator import execute_dag_pipeline
-    dag_result = await execute_dag_pipeline(
-        db,
-        task_id=str(task.id),
-        task_title=task.title,
-        task_description=task.description,
-        template=body.template,
-        complexity=body.complexity,
-        project_path=task.project_path,
+    Progress streams over SSE — callers should NOT keep this HTTP
+    connection open for the duration. Use ``synchronous=true`` only for
+    test/CLI use cases that genuinely need the inline reply.
+    """
+    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    tid = str(task.id)
+    template = body.template
+
+    submission_id = await _submit_task(
+        tid, f"dag-run:{tid[:8]}/{template}",
+        kind="dag-run",
+        params={
+            "task_id": tid,
+            "task_title": task.title,
+            "task_description": task.description,
+            "template": template,
+            "complexity": body.complexity,
+            "project_path": task.project_path,
+        },
     )
-    await db.commit()
-    return {"ok": dag_result.get("ok", False), "taskId": str(task.id), **dag_result}
+    return {
+        "ok": True, "started": True, "taskId": tid,
+        "submissionId": submission_id, "template": template,
+    }
 
 
 @router.post("/tasks/{task_id}/resume-dag")
@@ -711,23 +819,26 @@ async def resume_task_dag(
     ckpt = await load_checkpoint(db, str(task.id))
     template = (ckpt.get("template") if ckpt else None) or task.template or "full"
 
-    from ..services.dag_orchestrator import execute_dag_pipeline
-    dag_result = await execute_dag_pipeline(
-        db,
-        task_id=str(task.id),
-        task_title=task.title,
-        task_description=task.description,
-        template=template,
-        project_path=task.project_path,
-        resume=True,
+    tid = str(task.id)
+
+    submission_id = await _submit_task(
+        tid, f"resume-dag:{tid[:8]}/{template}",
+        kind="dag-run",
+        params={
+            "task_id": tid,
+            "task_title": task.title,
+            "task_description": task.description,
+            "template": template,
+            "project_path": task.project_path,
+            "resume": True,
+        },
     )
     await db.commit()
     return {
-        "ok": dag_result.get("ok", False),
-        "taskId": str(task.id),
+        "ok": True, "started": True, "taskId": tid,
+        "submissionId": submission_id,
         "resumedFromCheckpoint": bool(ckpt),
         "template": template,
-        **dag_result,
     }
 
 
@@ -1203,7 +1314,7 @@ async def resume_pipeline(
     background_tasks: BackgroundTasks = None,
 ):
     """Resume a paused pipeline from the last completed stage or a specific stage."""
-    from ..services.pipeline_engine import execute_full_pipeline, STAGE_ROLE_PROMPTS
+    from ..services.pipeline_engine import STAGE_ROLE_PROMPTS
     from ..services.sse import emit_event
 
     result = await db.execute(
@@ -1250,31 +1361,25 @@ async def resume_pipeline(
         "stages": remaining_stages,
     })
 
-    captured_outputs = dict(done_outputs)
-
-    async def _run():
-        from ..database import async_session
-        async with async_session() as session:
-            await execute_full_pipeline(
-                session,
-                task_id=task_id,
-                task_title=task.title,
-                task_description=task.description or "",
-                stages=remaining_stages,
-                force_continue=body.force_continue,
-                prior_outputs=captured_outputs,
-                project_path=task.project_path,
-            )
-            await session.commit()
-
-    import asyncio
-    asyncio.create_task(_run())
+    submission_id = await _submit_task(
+        task_id, f"resume:{task_id[:8]}",
+        kind="resume-pipeline",
+        params={
+            "task_id": task_id,
+            "task_title": task.title,
+            "task_description": task.description or "",
+            "remaining_stages": remaining_stages,
+            "force_continue": body.force_continue,
+            "project_path": task.project_path,
+        },
+    )
 
     return {
         "ok": True,
         "resumed_from": remaining_stages[0],
         "remaining_stages": remaining_stages,
         "prior_outputs": list(done_outputs.keys()),
+        "submissionId": submission_id,
     }
 
 

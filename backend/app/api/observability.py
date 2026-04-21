@@ -140,6 +140,24 @@ async def get_audit_log_endpoint(
     return {"entries": [e.dict() for e in entries]}
 
 
+# --- Dashboard Snapshot ---
+
+@router.get("/dashboard")
+async def get_dashboard(
+    days: int = Query(14, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """One-shot snapshot for the Pipeline Observability page.
+
+    Returns: trend (daily cost / tokens / calls), per-stage heatmap, per-agent
+    leaderboard, per-model leaderboard, recent failures, approval & budget-event
+    summaries, task status counts.
+    """
+    from ..services.observability_dashboard import get_dashboard_snapshot
+    return await get_dashboard_snapshot(db, days=days)
+
+
 # --- Weekly Digest ---
 
 @router.get("/digest")

@@ -40,6 +40,7 @@ class AgentRuntime:
         task_id: Optional[str] = None,
         dynamic_tools: Optional[Dict[str, Dict[str, Any]]] = None,
         dynamic_handlers: Optional[Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]]] = None,
+        role: Optional[str] = None,
     ):
         """
         dynamic_tools / dynamic_handlers: tools NOT in the global TOOL_REGISTRY,
@@ -52,6 +53,10 @@ class AgentRuntime:
         self.tool_names = [t for t in tools if t in TOOL_REGISTRY]
         self.tools = get_tool_definitions(self.tool_names)
         self.dynamic_handlers: Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]] = dynamic_handlers or {}
+        # Keep the full descriptor (annotations, category, ...) around so
+        # the sandbox layer can consult MCP-declared semantics instead of
+        # falling back to prefix heuristics on every call.
+        self.dynamic_tool_meta: Dict[str, Dict[str, Any]] = {}
         if dynamic_tools:
             for name, defn in dynamic_tools.items():
                 if name in self.dynamic_handlers:
@@ -60,10 +65,13 @@ class AgentRuntime:
                         "description": defn.get("description", ""),
                         "parameters": defn.get("parameters", {"type": "object", "properties": {}}),
                     })
+                    self.dynamic_tool_meta[name] = defn
         self.model_preference = model_preference or {}
         self.max_steps = max_steps
         self.temperature = temperature
         self.task_id = task_id
+        # Role drives the runtime skill-sandbox whitelist in tools/registry.py
+        self.role = role
 
     async def execute(
         self,
@@ -214,14 +222,45 @@ class AgentRuntime:
         })
 
         if tool_name in self.dynamic_handlers:
-            handler = self.dynamic_handlers[tool_name]
-            try:
-                result = await handler(tool_input)
-            except Exception as e:
-                logger.error(f"[agent_runtime] dynamic tool {tool_name} crashed: {e}")
-                result = f"Error: dynamic tool '{tool_name}' failed: {e}"
+            # Apply role-based sandbox to MCP / dynamic tools too. The
+            # policy is coarser (prefix-based) than the static whitelist
+            # because we don't enumerate MCP tools at code-time. See
+            # tools/registry.mcp_tool_allowed for the rules.
+            from .tools.registry import mcp_tool_allowed, _audit_sandbox_denial
+
+            verdict = mcp_tool_allowed(
+                self.role,
+                tool_name,
+                metadata=self.dynamic_tool_meta.get(tool_name),
+            )
+            if not verdict["allowed"]:
+                await _audit_sandbox_denial(
+                    role=self.role or "",
+                    tool_name=tool_name,
+                    agent_id=self.agent_id,
+                    task_id=self.task_id,
+                    reason=f"[mcp] {verdict['reason']}",
+                )
+                result = (
+                    f"Error: SANDBOX_DENIED — MCP tool '{tool_name}' "
+                    f"blocked for role '{self.role}'. "
+                    f"Reason: {verdict['reason']}"
+                )
+            else:
+                handler = self.dynamic_handlers[tool_name]
+                try:
+                    result = await handler(tool_input)
+                except Exception as e:
+                    logger.error(f"[agent_runtime] dynamic tool {tool_name} crashed: {e}")
+                    result = f"Error: dynamic tool '{tool_name}' failed: {e}"
         else:
-            result = await execute_tool(tool_name, tool_input, allowed_tools=self.tool_names)
+            result = await execute_tool(
+                tool_name, tool_input,
+                allowed_tools=self.tool_names,
+                role=self.role,
+                agent_id=self.agent_id,
+                task_id=self.task_id,
+            )
 
         await emit_event("agent:tool-result", {
             "agentId": self.agent_id,

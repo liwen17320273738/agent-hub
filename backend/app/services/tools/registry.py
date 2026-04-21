@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 
 from .file_tools import file_read, file_write, file_list, str_replace
 from .bash_tool import bash_execute
@@ -607,14 +607,450 @@ TOOL_REGISTRY["agent_wait_for"] = {
 }
 
 
+# ─────────────────────────────────────────────────────────────────
+# Role-based skill sandbox (least-privilege whitelist)
+#
+# Even if an agent's `agent_tools` (services/seed.py) is mis-configured,
+# `execute_tool` will refuse a tool that's not on the role whitelist.
+# This is the second layer of defense — the first is `allowed_tools`
+# (per-agent declared tools), the second is per-role policy.
+#
+# Convention:
+# - Role keys match `STAGE_ROLE_PROMPTS[*]["role"]` in pipeline_engine.py
+# - Tool names must exist in TOOL_REGISTRY
+# - A role missing from this map skips enforcement (back-compat)
+# - `COMMON_TOOLS` are allowed for every role (delegation / messaging)
+# ─────────────────────────────────────────────────────────────────
+
+COMMON_TOOLS = {
+    "delegate_to_agent",
+    "agent_publish",
+    "agent_wait_for",
+    "deerflow_delegate",
+    "deerflow_skills",
+    "deerflow_models",
+}
+
+ROLE_TOOL_WHITELIST: Dict[str, set] = {
+    # Strategy / leadership — read-only, no execution
+    "ceo": {
+        "file_read", "file_list",
+        "web_search", "browser_open", "browser_extract",
+    },
+    "cto": {
+        "file_read", "file_list",
+        "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
+        "git_status", "git_diff", "git_log",
+        "web_search", "browser_open", "browser_extract",
+    },
+    # Product / Design — write specs and assets, no shell / git commits
+    "product-manager": {
+        "file_read", "file_write", "file_list", "str_replace",
+        "web_search", "browser_open", "browser_extract", "browser_screenshot",
+        "codebase_map", "codebase_search", "codebase_read_chunk",
+    },
+    "designer": {
+        "file_read", "file_write", "file_list", "str_replace",
+        "web_search", "browser_open", "browser_screenshot", "browser_extract",
+    },
+    "architect": {
+        "file_read", "file_write", "file_list", "str_replace",
+        "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
+        "git_status", "git_diff", "git_log",
+        "web_search", "browser_open", "browser_extract",
+    },
+    # Engineering — full coding power, NO push / PR (devops owns release)
+    "developer": {
+        "file_read", "file_write", "file_list", "str_replace", "bash",
+        "git_status", "git_add", "git_commit", "git_diff", "git_log",
+        "git_checkout", "git_clone", "write_file",
+        "build", "install_deps", "run_tests",
+        "test_execute", "test_detect",
+        "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
+    },
+    # QA — runs tests + browser e2e, reads code; cannot mutate code or commit
+    "qa-lead": {
+        "file_read", "file_list", "bash",
+        "test_execute", "test_detect", "run_tests",
+        "git_status", "git_diff", "git_log",
+        "browser_open", "browser_screenshot", "browser_extract", "browser_click_flow",
+        "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
+    },
+    # Acceptance — pure verification: browser/tests/read-only inspection
+    "acceptance": {
+        "file_read", "file_list",
+        "test_execute", "test_detect",
+        "browser_open", "browser_screenshot", "browser_extract", "browser_click_flow",
+        "codebase_search", "code_semantic_search",
+        "web_search",
+    },
+    # DevOps — release pipeline, allowed to push / open PR / deploy via bash
+    "devops": {
+        "file_read", "file_write", "file_list", "bash",
+        "git_status", "git_add", "git_commit", "git_push", "git_create_pr",
+        "git_log", "git_diff", "git_checkout", "git_clone",
+        "build", "install_deps", "run_tests",
+    },
+    # Security — read-only audit; NO shell, NO write, NO deploy
+    "security": {
+        "file_read", "file_list",
+        "git_status", "git_diff", "git_log",
+        "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
+        "web_search", "browser_open", "browser_extract",
+    },
+    # Data — own ETL files + SQL/bash, no deploy / no push
+    "data": {
+        "file_read", "file_write", "file_list", "str_replace", "bash",
+        "codebase_search", "codebase_read_chunk",
+        "test_execute", "test_detect",
+    },
+    # Read-only / research-only roles
+    "legal": {
+        "file_read", "file_list",
+        "codebase_search", "codebase_read_chunk",
+        "web_search", "browser_open", "browser_extract",
+    },
+    "marketing": {
+        "file_read", "file_list", "file_write",
+        "web_search", "browser_open", "browser_extract", "browser_screenshot",
+    },
+    "finance": {
+        "file_read", "file_list",
+        "web_search", "browser_open", "browser_extract",
+    },
+}
+
+
+def role_allowed(role: Optional[str], tool_name: str) -> bool:
+    """Return True if the role may invoke this tool.
+
+    Resolution order (first match wins):
+
+    1. **DB override** (``sandbox_overrides.override_decision``) — admins
+       can flip a rule via the UI / API without a code deploy. Returns
+       True or False explicitly when an override row exists.
+    2. **Common tools** — delegate / messaging tools are universally
+       available so agents can always escalate.
+    3. **Per-role baseline** (``ROLE_TOOL_WHITELIST``) — the in-code
+       least-privilege whitelist.
+    4. **Unknown role** → allow (back-compat for roles not yet
+       configured; deny would silently break older agents).
+    """
+    if not role:
+        return True
+
+    # 1) DB override — explicit allow/deny shortcuts the rest.
+    try:
+        from ..sandbox_overrides import override_decision
+        ov = override_decision(role, tool_name)
+        if ov is True:
+            return True
+        if ov is False:
+            return False
+    except Exception:
+        # Cache loader isn't healthy — fall through to in-code defaults.
+        pass
+
+    if tool_name in COMMON_TOOLS:
+        return True
+    whitelist = ROLE_TOOL_WHITELIST.get(role)
+    if whitelist is None:
+        return True
+    return tool_name in whitelist
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MCP / dynamic-tool sandbox
+#
+# Static tools are governed by ROLE_TOOL_WHITELIST above. MCP tools are
+# loaded *per execution* and not present in TOOL_REGISTRY, so the static
+# whitelist can't enforce them. We apply a category-based policy instead:
+#
+#   * Roles in READ_ONLY_ROLES may invoke MCP tools whose name does NOT
+#     match a "write" pattern (delete_*, create_*, send_*, push_*, etc.).
+#   * All other roles see their full set of MCP tools (back-compat).
+#   * MCP_DENY_OVERRIDES allows ops to deny specific MCP tools per role
+#     without touching code (driven by env later if needed).
+#
+# This is deliberately coarser than the static whitelist: MCP servers
+# are extension points and we shouldn't enumerate every tool. The default
+# stance is "deny dangerous verbs to read-only roles".
+# ─────────────────────────────────────────────────────────────────────────────
+
+READ_ONLY_ROLES = {
+    "security", "legal", "finance", "marketing",
+    "acceptance", "qa-lead", "ceo",
+}
+
+# Regex-free; matches by lowercase prefix on the tool name.
+MCP_WRITE_PREFIXES = (
+    "delete_", "create_", "update_", "modify_", "patch_",
+    "post_", "send_", "publish_",
+    "write_", "push_", "upload_",
+    "deploy_", "execute_", "run_",
+    "start_", "stop_", "kill_", "restart_",
+    "approve_", "reject_", "merge_",
+    "set_", "add_", "remove_",
+)
+
+MCP_READ_PREFIXES = (
+    "get_", "list_", "read_", "search_", "query_",
+    "fetch_", "find_", "show_", "describe_", "inspect_",
+    "stat_", "head_", "preview_", "diff_",
+)
+
+
+def _classify_mcp_tool(tool_name: str) -> str:
+    """Prefix-based fallback classifier. One of: 'read', 'write', 'unknown'.
+
+    Used only when the MCP server itself does NOT self-describe the
+    tool's category. See ``classify_mcp_tool`` for the high-level entry
+    point that prefers explicit metadata.
+    """
+    n = tool_name.lower()
+    for p in MCP_READ_PREFIXES:
+        if n.startswith(p):
+            return "read"
+    for p in MCP_WRITE_PREFIXES:
+        if n.startswith(p):
+            return "write"
+    return "unknown"
+
+
+# Synonyms accepted from explicit `metadata.category`. We collapse them
+# to the canonical 'read' / 'write' / 'execute' tri-state. 'execute'
+# is treated like 'write' for sandbox purposes (read-only roles can't
+# run shells / deploy commands).
+_CATEGORY_SYNONYMS = {
+    "read": "read",
+    "ro": "read",
+    "readonly": "read",
+    "read_only": "read",
+    "query": "read",
+    "search": "read",
+    "fetch": "read",
+    "write": "write",
+    "rw": "write",
+    "mutate": "write",
+    "mutation": "write",
+    "create": "write",
+    "update": "write",
+    "delete": "write",
+    "destructive": "write",
+    "execute": "execute",
+    "exec": "execute",
+    "run": "execute",
+    "command": "execute",
+    "shell": "execute",
+}
+
+
+def classify_mcp_tool(
+    tool_name: str, metadata: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    """Resolve a tool to (category, source).
+
+    Resolution order (most explicit → most heuristic):
+
+      1. ``metadata.category`` — server-declared 'read' / 'write' /
+         'execute' (or one of the synonyms in ``_CATEGORY_SYNONYMS``).
+      2. ``metadata.annotations.readOnlyHint == True`` → read.
+         ``metadata.annotations.destructiveHint == True`` → write.
+      3. Prefix heuristic on the tool name.
+
+    The ``source`` string is included in audit reasons so operators can
+    tell at a glance why a tool was classified the way it was. It's one
+    of: ``"declared"``, ``"annotation"``, ``"prefix"``.
+    """
+    if metadata:
+        cat_raw = metadata.get("category")
+        if isinstance(cat_raw, str):
+            canonical = _CATEGORY_SYNONYMS.get(cat_raw.strip().lower())
+            if canonical:
+                return canonical, "declared"
+        ann = metadata.get("annotations") or {}
+        if isinstance(ann, dict):
+            if ann.get("destructiveHint") is True:
+                return "write", "annotation"
+            if ann.get("readOnlyHint") is True:
+                return "read", "annotation"
+    return _classify_mcp_tool(tool_name), "prefix"
+
+
+def mcp_tool_allowed(
+    role: Optional[str], tool_name: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Decide whether a role may invoke an MCP/dynamic tool.
+
+    Returns ``{"allowed": bool, "reason": str, "category": str, "source": str}``.
+
+    Policy
+    ------
+    * No role specified → allow (back-compat).
+    * Role is in READ_ONLY_ROLES:
+        - category 'write' or 'execute' → deny
+        - category 'unknown'            → deny (default-deny when we
+          can't tell — read-only roles err on the safe side)
+        - category 'read'               → allow
+    * Any other role → allow.
+
+    The classification prefers MCP-declared metadata
+    (``category`` / ``annotations.readOnlyHint`` / ``annotations.destructiveHint``)
+    over the prefix heuristic — see ``classify_mcp_tool``.
+    """
+    category, source = classify_mcp_tool(tool_name, metadata)
+    if not role:
+        return {
+            "allowed": True, "reason": "no role configured",
+            "category": category, "source": source,
+        }
+
+    if role in READ_ONLY_ROLES:
+        if category == "read":
+            return {
+                "allowed": True,
+                "reason": f"read-only role + read tool (via {source})",
+                "category": category, "source": source,
+            }
+        if category in ("write", "execute"):
+            return {
+                "allowed": False,
+                "reason": (
+                    f"role '{role}' is read-only; MCP tool '{tool_name}' "
+                    f"is classified as '{category}' (via {source})"
+                ),
+                "category": category, "source": source,
+            }
+        # unknown → default-deny for read-only roles
+        return {
+            "allowed": False,
+            "reason": (
+                f"role '{role}' is read-only; MCP tool '{tool_name}' "
+                f"could not be classified (via {source}); default-denied. "
+                f"Either declare ``category`` / ``annotations.readOnlyHint`` "
+                f"on the MCP tool, or rename it with a read-style prefix "
+                f"({MCP_READ_PREFIXES})."
+            ),
+            "category": category, "source": source,
+        }
+
+    return {
+        "allowed": True,
+        "reason": f"role '{role}' is not read-only",
+        "category": category, "source": source,
+    }
+
+
+def role_tool_summary(role: str) -> Dict[str, Any]:
+    """Inspector helper for the UI — what can this role do?
+
+    Reflects DB overrides on top of the in-code baseline so the matrix
+    view sees the effective policy (allows added by ops appear in
+    ``allowed``, denies added by ops appear in ``denied``, and the
+    overridden tools are listed in ``overrides`` for UI badges).
+    """
+    try:
+        from ..sandbox_overrides import override_decision
+    except Exception:  # pragma: no cover — defensive
+        override_decision = lambda _r, _t: None  # type: ignore
+
+    whitelist = ROLE_TOOL_WHITELIST.get(role)
+    all_tools = set(TOOL_REGISTRY.keys())
+
+    if whitelist is None:
+        baseline_allowed = set(all_tools)
+    else:
+        baseline_allowed = (set(whitelist) | COMMON_TOOLS) & all_tools
+
+    effective_allowed: set = set()
+    overrides_allow: List[str] = []
+    overrides_deny: List[str] = []
+    for tool in all_tools:
+        ov = override_decision(role, tool)
+        baseline = tool in baseline_allowed
+        if ov is True:
+            effective_allowed.add(tool)
+            if not baseline:
+                overrides_allow.append(tool)
+        elif ov is False:
+            if baseline:
+                overrides_deny.append(tool)
+        else:
+            if baseline:
+                effective_allowed.add(tool)
+
+    return {
+        "role": role,
+        "policy": "whitelist" if whitelist is not None else "unrestricted",
+        "allowed": sorted(effective_allowed),
+        "denied": sorted(all_tools - effective_allowed),
+        "common": sorted(COMMON_TOOLS & all_tools),
+        "overrides": {
+            "allow": sorted(overrides_allow),
+            "deny": sorted(overrides_deny),
+        },
+    }
+
+
+async def _audit_sandbox_denial(
+    *, role: str, tool_name: str, agent_id: Optional[str],
+    task_id: Optional[str], reason: str,
+) -> None:
+    """Persist a 'tool denied by sandbox' audit row. Best-effort."""
+    try:
+        from ...database import async_session as AsyncSessionLocal
+        from ...models.observability import AuditLog
+        async with AsyncSessionLocal() as db:
+            db.add(AuditLog(
+                task_id=task_id or "system",
+                stage_id="sandbox",
+                action=f"tool.denied:{tool_name}",
+                actor=f"role:{role or 'unknown'}/agent:{agent_id or 'unknown'}",
+                risk_level="warn",
+                outcome="denied",
+                details=reason[:1000],
+            ))
+            await db.commit()
+    except Exception as exc:
+        logger.debug(f"[sandbox] audit persist failed: {exc}")
+    try:
+        from ..sse import emit_event
+        await emit_event("sandbox:tool-denied", {
+            "role": role, "tool": tool_name, "agentId": agent_id,
+            "taskId": task_id, "reason": reason,
+        })
+    except Exception:
+        pass
+
+
 async def execute_tool(
     tool_name: str,
     params: Dict[str, Any],
     allowed_tools: Optional[List[str]] = None,
+    *,
+    role: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    task_id: Optional[str] = None,
 ) -> str:
-    """Execute a tool by name with parameter validation."""
+    """Execute a tool by name with two layers of authorization:
+    1) per-agent `allowed_tools` (declared at AgentRuntime construction)
+    2) per-role `ROLE_TOOL_WHITELIST` (least-privilege sandbox)
+    """
     if allowed_tools is not None and tool_name not in allowed_tools:
         return f"Error: tool '{tool_name}' is not available for this agent"
+
+    if not role_allowed(role, tool_name):
+        reason = (
+            f"role '{role}' is not permitted to call '{tool_name}' "
+            f"(skill-sandbox whitelist). Use `delegate_to_agent` to ask a "
+            f"role that owns this capability."
+        )
+        await _audit_sandbox_denial(
+            role=role or "", tool_name=tool_name,
+            agent_id=agent_id, task_id=task_id, reason=reason,
+        )
+        return f"Error: SANDBOX_DENIED — {reason}"
 
     tool = TOOL_REGISTRY.get(tool_name)
     if not tool:

@@ -91,6 +91,11 @@ const router = createRouter({
       component: () => import('@/views/InsightsDigest.vue'),
     },
     {
+      path: '/insights/observability',
+      name: 'insights-observability',
+      component: () => import('@/views/InsightsObservability.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       meta: { public: true },

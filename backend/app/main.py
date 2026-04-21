@@ -42,6 +42,9 @@ from .api import (
     plans as plans_api,
     codebase as codebase_api,
     agent_bus as agent_bus_api,
+    learning as learning_api,
+    sandbox as sandbox_api,
+    scheduler as scheduler_api,
 )
 
 logging.basicConfig(
@@ -136,6 +139,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await db.commit()
     if synced:
         logger.info(f"Synced {synced} filesystem skills to database.")
+
+    # Eager-load DB-backed sandbox overrides into the in-memory cache so
+    # the FIRST tool call doesn't pay the table-scan cost. Failures here
+    # are logged and ignored — empty cache simply means "use in-code
+    # defaults", which is the same behaviour as before this feature.
+    try:
+        from .services.sandbox_overrides import preload_overrides
+        async with async_session() as db:
+            n_rules = await preload_overrides(db)
+        logger.info(f"Sandbox overrides preloaded: {n_rules} rules.")
+    except Exception as exc:
+        logger.warning(f"Sandbox preload skipped: {exc}")
 
     yield
 
@@ -247,6 +262,9 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(plans_api.router, prefix="/api")
     application.include_router(codebase_api.router, prefix="/api")
     application.include_router(agent_bus_api.router, prefix="/api")
+    application.include_router(learning_api.router)
+    application.include_router(sandbox_api.router)
+    application.include_router(scheduler_api.router)
 
     # ── Health & Config ──────────────────────────────────────────────────
 

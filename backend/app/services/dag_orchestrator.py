@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -21,12 +23,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from ..database import async_session
 from ..models.pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from .pipeline_engine import execute_stage
 from .sse import emit_event
 from .observability import start_trace, complete_trace
 
 logger = logging.getLogger(__name__)
+
+
+# Cap concurrent stages within a single DAG batch. Tunable per deploy via
+# DAG_PARALLEL_LIMIT. Keep modest by default — LLM provider rate limits and
+# Postgres pool size are usually the binding constraints, not CPU.
+_DAG_PARALLEL_LIMIT = max(1, int(os.getenv("DAG_PARALLEL_LIMIT", "4")))
 
 
 class StageStatus(str, Enum):
@@ -523,7 +532,7 @@ async def execute_dag_pipeline(
             "stageIds": [s.stage_id for s in ready],
         })
 
-        async def _run_stage(stage: DAGStage) -> Dict[str, Any]:
+        async def _run_stage(stage: DAGStage, stage_db: AsyncSession) -> Dict[str, Any]:
             stage.status = StageStatus.RUNNING
             await emit_event("stage:processing", {
                 "taskId": task_id, "stageId": stage.stage_id,
@@ -531,7 +540,7 @@ async def execute_dag_pipeline(
             })
 
             stage_result = await execute_stage(
-                db,
+                stage_db,
                 task_id=task_id,
                 task_title=task_title,
                 task_description=task_description,
@@ -539,6 +548,7 @@ async def execute_dag_pipeline(
                 previous_outputs=outputs,
                 trace=trace,
                 complexity=complexity,
+                template=template,
                 project_path=project_path,
             )
 
@@ -574,7 +584,7 @@ async def execute_dag_pipeline(
                         skip_llm=False,
                     )
 
-                    db_result_inner = await db.execute(
+                    db_result_inner = await stage_db.execute(
                         select(PipelineStage).where(
                             PipelineStage.task_id == uuid.UUID(task_id),
                             PipelineStage.stage_id == stage.stage_id,
@@ -589,7 +599,7 @@ async def execute_dag_pipeline(
                             "suggestions": gate_result.suggestions,
                             "block_reason": gate_result.block_reason,
                         }
-                        await db.flush()
+                        await stage_db.flush()
 
                     await emit_event("stage:quality-gate", {
                         "taskId": task_id,
@@ -639,7 +649,7 @@ async def execute_dag_pipeline(
                     stage_result["ok"] = False  # so the outer loop breaks
                     stage_result["awaiting_approval"] = True
                     await _persist_stage_state(
-                        db, task_id, stage,
+                        stage_db, task_id, stage,
                         db_status="awaiting_approval",
                     )
                     await emit_event("stage:awaiting-approval", {
@@ -656,7 +666,7 @@ async def execute_dag_pipeline(
                 if stage.retry_count < stage.max_retries:
                     stage.retry_count += 1
                     await _persist_stage_state(
-                        db, task_id, stage, db_status="active",
+                        stage_db, task_id, stage, db_status="active",
                     )
                     await emit_event("stage:retry", {
                         "taskId": task_id, "stageId": stage.stage_id,
@@ -666,11 +676,11 @@ async def execute_dag_pipeline(
                     })
                     # Recurse once via a tail call — keeps the surrounding
                     # gather logic intact and bounded by max_retries.
-                    return await _run_stage(stage)
+                    return await _run_stage(stage, stage_db)
 
                 stage.status = StageStatus.FAILED
                 await _persist_stage_state(
-                    db, task_id, stage, db_status="error",
+                    stage_db, task_id, stage, db_status="error",
                 )
                 await emit_event("stage:error", {
                     "taskId": task_id, "stageId": stage.stage_id,
@@ -703,23 +713,75 @@ async def execute_dag_pipeline(
 
             return {"stageId": stage.stage_id, **stage_result}
 
+        # ─────────────────────────────────────────────────────────
+        # Real parallel dispatch
+        #
+        # Each parallel stage runs in its OWN AsyncSession (SQLAlchemy
+        # AsyncSession is not safe for concurrent use). A semaphore caps
+        # in-flight count so we don't blow LLM rate limits or DB pools.
+        # The orchestrator's outer `db` is NOT shared with stage workers.
+        # ─────────────────────────────────────────────────────────
+        sem = asyncio.Semaphore(_DAG_PARALLEL_LIMIT)
+
+        async def _run_stage_isolated(stage: DAGStage) -> Dict[str, Any]:
+            """Own session + commit lifecycle per stage."""
+            async with sem:
+                t0 = time.monotonic()
+                async with async_session() as stage_db:
+                    try:
+                        result = await _run_stage(stage, stage_db)
+                        await stage_db.commit()
+                    except Exception as exc:
+                        await stage_db.rollback()
+                        logger.exception(
+                            "[dag] isolated stage %s crashed", stage.stage_id,
+                        )
+                        result = {"stageId": stage.stage_id, "ok": False, "error": str(exc)}
+                result["_elapsed_s"] = round(time.monotonic() - t0, 3)
+                return result
+
         if len(ready) == 1:
-            result = await _run_stage(ready[0])
+            # Single-stage batch — keep the cheaper code path that reuses
+            # the orchestrator's session (no session-isolation needed).
+            result = await _run_stage(ready[0], db)
             results.append(result)
             if not result.get("ok"):
                 break
         else:
+            batch_t0 = time.monotonic()
             batch_results = await asyncio.gather(
-                *[_run_stage(s) for s in ready],
+                *[_run_stage_isolated(s) for s in ready],
                 return_exceptions=True,
             )
+            normalised: List[Dict[str, Any]] = []
             for br in batch_results:
                 if isinstance(br, Exception):
-                    results.append({"ok": False, "error": str(br)})
+                    normalised.append({"ok": False, "error": str(br)})
                 else:
-                    results.append(br)
+                    normalised.append(br)
+            results.extend(normalised)
 
-            if any(not r.get("ok") for r in results[-len(ready):] if isinstance(r, dict)):
+            wall = round(time.monotonic() - batch_t0, 3)
+            sequential = round(
+                sum(r.get("_elapsed_s", 0.0) for r in normalised if isinstance(r, dict)),
+                3,
+            )
+            speedup = round(sequential / wall, 2) if wall > 0 else None
+            await emit_event("pipeline:dag-batch-stats", {
+                "taskId": task_id,
+                "batchIndex": batch_idx,
+                "stageIds": [s.stage_id for s in ready],
+                "concurrency": min(len(ready), _DAG_PARALLEL_LIMIT),
+                "wallSeconds": wall,
+                "serialSeconds": sequential,
+                "speedup": speedup,
+            })
+            logger.info(
+                "[dag] batch=%d stages=%s wall=%.2fs serial=%.2fs speedup=%s",
+                batch_idx, [s.stage_id for s in ready], wall, sequential, speedup,
+            )
+
+            if any(not r.get("ok") for r in normalised if isinstance(r, dict)):
                 break
 
         try:

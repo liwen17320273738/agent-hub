@@ -89,6 +89,11 @@
           <span>Agent 周报</span>
         </router-link>
 
+        <router-link to="/insights/observability" class="nav-item" active-class="active">
+          <el-icon><TrendCharts /></el-icon>
+          <span>Agent 观测台</span>
+        </router-link>
+
         <router-link to="/skills" class="nav-item" active-class="active">
           <el-icon><SetUp /></el-icon>
           <span>技能中心</span>
@@ -160,7 +165,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Operation, SetUp, SwitchButton } from '@element-plus/icons-vue'
+import { Connection, Operation, SetUp, SwitchButton, TrendCharts } from '@element-plus/icons-vue'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useAgentStore } from '@/stores/agents'

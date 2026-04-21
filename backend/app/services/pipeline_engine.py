@@ -603,6 +603,8 @@ async def review_stage_output(
     task_title: str,
     task_description: str,
     previous_outputs: Optional[Dict[str, str]] = None,
+    injected_override_id: Optional[str] = None,
+    injected_override_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Run a peer review on a completed stage's output.
@@ -693,6 +695,42 @@ async def review_stage_output(
             "feedback": review_content[:500],
         })
 
+    # ── Learning loop — capture outcome + bump injected override impact ───
+    #
+    # Critical for A/B shadow correctness: we MUST attribute the outcome
+    # to the override that was actually injected at LLM time, not re-roll
+    # the traffic split here. The caller passes `injected_override_id`.
+    try:
+        from .learning_loop import capture_signal, record_override_outcome
+
+        stage_role = STAGE_ROLE_PROMPTS.get(stage_id, {}).get("role", "")
+
+        if injected_override_id:
+            await record_override_outcome(
+                db, override_id=injected_override_id, approved=approved,
+            )
+
+        if not approved:
+            await capture_signal(
+                db, task_id=task_id, stage_id=stage_id, role=stage_role,
+                signal_type="REJECT", severity="warn",
+                reviewer=reviewer_key, reviewer_feedback=review_content,
+                output_excerpt=stage_output,
+            )
+        elif injected_override_id:
+            # approving a stage that DID use a learned addendum is positive evidence
+            await capture_signal(
+                db, task_id=task_id, stage_id=stage_id, role=stage_role,
+                signal_type="APPROVE_AFTER_RETRY", severity="info",
+                reviewer=reviewer_key, reviewer_feedback=review_content,
+                metadata={
+                    "override_id": injected_override_id,
+                    "override_mode": injected_override_mode or "active",
+                },
+            )
+    except Exception as exc:
+        logger.debug("[learning] signal capture failed for %s: %s", stage_id, exc)
+
     return {
         "reviewed": True,
         "approved": approved,
@@ -714,6 +752,7 @@ async def execute_stage(
     trace: Optional[PipelineTrace] = None,
     available_providers: Optional[List[str]] = None,
     complexity: Optional[str] = None,
+    template: Optional[str] = None,
     project_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -737,6 +776,30 @@ async def execute_stage(
 
     role = stage_conf["role"]
     system_prompt = stage_conf["system"] + _DELEGATE_HINT
+
+    # --- Layer 0: Learning loop — inject historically-distilled prompt patches ---
+    # Pass (template, complexity) so segmented shadows / actives only fire
+    # for the segment they were targeted at. Empty-targeting overrides
+    # match any segment (legacy behaviour).
+    from .learning_loop import get_active_addendum
+    active_addendum = await get_active_addendum(
+        db, stage_id=stage_id, template=template, complexity=complexity,
+    )
+    if active_addendum and active_addendum.get("addendum"):
+        system_prompt += (
+            f"\n\n<!-- learning-override id={active_addendum.get('id')} "
+            f"v{active_addendum.get('version')} mode={active_addendum.get('mode','active')} -->\n"
+            f"{active_addendum['addendum']}"
+        )
+        # Surface the injection over SSE so the UI can show whether this
+        # call was steered by the active prompt or the A/B shadow canary.
+        await emit_event("learning:override-injected", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "overrideId": active_addendum.get("id"),
+            "version": active_addendum.get("version"),
+            "mode": active_addendum.get("mode", "active"),
+        })
 
     if trace is None:
         trace = await start_trace(task_id, task_title)
@@ -883,6 +946,7 @@ async def execute_stage(
                 max_steps=5,
                 temperature=0.7,
                 task_id=task_id,
+                role=role,
             )
             runtime_result = await runtime.execute(
                 db,
@@ -1216,6 +1280,21 @@ async def execute_full_pipeline(
                 await db.flush()
                 await complete_trace(trace.trace_id, status="paused")
 
+                # Learning loop — persist GATE_FAIL signal
+                try:
+                    from .learning_loop import capture_signal
+                    await capture_signal(
+                        db, task_id=task_id, stage_id=stage_id,
+                        role=STAGE_ROLE_PROMPTS.get(stage_id, {}).get("role", ""),
+                        signal_type="GATE_FAIL", severity="error",
+                        reviewer_feedback=gate_result.block_reason,
+                        output_excerpt=content,
+                        quality_score=gate_result.overall_score,
+                        metadata={"suggestions": gate_result.suggestions},
+                    )
+                except Exception as exc:
+                    logger.debug("[learning] GATE_FAIL signal capture failed: %s", exc)
+
                 await emit_event("pipeline:auto-paused", {
                     "taskId": task_id,
                     "stoppedAt": stage_id,
@@ -1281,6 +1360,12 @@ async def execute_full_pipeline(
                     task_title=task_title,
                     task_description=task_description,
                     previous_outputs=outputs,
+                    injected_override_id=(
+                        active_addendum.get("id") if active_addendum else None
+                    ),
+                    injected_override_mode=(
+                        active_addendum.get("mode") if active_addendum else None
+                    ),
                 )
 
                 results[-1]["review"] = review_result
