@@ -10,12 +10,14 @@ from .eval import EvalDataset, EvalCase, EvalRun, EvalResult
 from .code_chunk import CodeChunk
 from .agent_message import AgentMessage
 from .learning import LearningSignal, PromptOverride
+from .workflow import Workflow
 
 __all__ = [
     "AgentMessage",
     "CodeChunk",
     "Org",
     "User",
+    "Workflow",
     "Conversation",
     "AgentDefinition",
     "AgentSkill",

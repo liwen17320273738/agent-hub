@@ -56,6 +56,12 @@ class CreateTaskRequest(BaseModel):
     auto_link: Optional[str] = None
     auto_link_project: Optional[str] = None
     auto_link_labels: Optional[List[str]] = None
+    # Workflow Builder spec — when present, ``template`` is treated as
+    # ``"custom"`` and these stages take precedence over any named
+    # template. Each entry mirrors ``BackendStage`` from the frontend
+    # builder (stage_id / label / role / depends_on / max_retries /
+    # on_failure / human_gate / skip_condition).
+    custom_stages: Optional[List[Dict[str, object]]] = None
 
 
 class AdvanceRequest(BaseModel):
@@ -79,6 +85,25 @@ def _default_stages() -> List[Dict[str, object]]:
         {"stage_id": s["id"], "label": s["label"], "owner_role": s["role"], "sort_order": i}
         for i, s in enumerate(PIPELINE_STAGES)
     ]
+
+
+def _reset_stage_for_reject(stage: PipelineStage) -> None:
+    """Clear per-stage progress / review / gate fields when rewinding the pipeline."""
+    stage.output = None
+    stage.completed_at = None
+    stage.review_status = None
+    stage.reviewer_feedback = None
+    stage.reviewer_agent = None
+    stage.review_attempts = 0
+    stage.approval_id = None
+    stage.verify_status = None
+    stage.verify_checks = None
+    stage.quality_score = None
+    stage.gate_status = None
+    stage.gate_score = None
+    stage.gate_details = None
+    stage.last_error = None
+    stage.retry_count = 0
 
 
 def _apply_org_filter(stmt, user: Optional[User]):
@@ -168,8 +193,30 @@ async def create_task(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    stages_list = _default_stages()
-    if body.template:
+    # Workflow Builder custom DAG: caller supplied an explicit topology.
+    # We persist the spec verbatim on the task (so resume / restart can
+    # reconstruct ``DAGStage`` objects) AND project the rows into
+    # ``pipeline_stages`` for the existing per-stage UI / per-stage APIs.
+    persist_custom: Optional[List[Dict[str, object]]] = None
+    if body.custom_stages:
+        persist_custom = list(body.custom_stages)
+        stages_list = []
+        for i, s in enumerate(persist_custom):
+            sid = str(s.get("stage_id") or s.get("stageId") or "").strip()
+            if not sid:
+                continue
+            stages_list.append({
+                "stage_id": sid,
+                "label": str(s.get("label") or sid),
+                "owner_role": str(s.get("role") or s.get("owner_role") or "developer"),
+                "sort_order": i,
+                "max_retries": int(s.get("max_retries") or s.get("maxRetries") or 0),
+                "on_failure": str(s.get("on_failure") or s.get("onFailure") or "halt"),
+                "human_gate": bool(s.get("human_gate") or s.get("humanGate") or False),
+            })
+        if not stages_list:
+            raise HTTPException(status_code=400, detail="custom_stages 内没有有效阶段")
+    elif body.template:
         from ..services.dag_orchestrator import PIPELINE_TEMPLATES
         tmpl_stages = PIPELINE_TEMPLATES.get(body.template)
         if tmpl_stages:
@@ -177,6 +224,10 @@ async def create_task(
                 {"stage_id": s.stage_id, "label": s.label, "owner_role": s.role, "sort_order": i}
                 for i, s in enumerate(tmpl_stages)
             ]
+        else:
+            stages_list = _default_stages()
+    else:
+        stages_list = _default_stages()
 
     first_stage = stages_list[0]["stage_id"] if stages_list else "planning"
 
@@ -198,12 +249,13 @@ async def create_task(
         title=body.title,
         description=body.description,
         source=body.source,
-        template=body.template,
+        template=("custom" if persist_custom else body.template),
         repo_url=body.repo_url,
         project_path=project_path or body.project_path,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
         current_stage_id=first_stage,
+        custom_stages=persist_custom,
     )
     db.add(task)
     await db.flush()
@@ -349,17 +401,41 @@ async def reject_task(
 ):
     task = await _get_task_or_404(db, task_id, user)
 
-    target_stage = next((s for s in task.stages if s.stage_id == body.target_stage_id), None)
-    if not target_stage:
+    sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
+
+    current_idx = next(
+        (i for i, s in enumerate(sorted_stages) if s.stage_id == task.current_stage_id),
+        -1,
+    )
+    target_idx = next(
+        (i for i, s in enumerate(sorted_stages) if s.stage_id == body.target_stage_id),
+        -1,
+    )
+
+    if target_idx < 0:
         raise HTTPException(status_code=400, detail="目标阶段不存在")
+    if current_idx < 0:
+        raise HTTPException(status_code=400, detail="当前阶段无效")
+    if target_idx >= current_idx:
+        raise HTTPException(status_code=400, detail="只能打回到之前的阶段")
 
-    for stage in task.stages:
-        if stage.stage_id == task.current_stage_id:
-            stage.status = "blocked"
+    now = datetime.utcnow()
 
-    target_stage.status = "active"
-    target_stage.started_at = datetime.utcnow()
+    for i, stage in enumerate(sorted_stages):
+        if i < target_idx:
+            continue
+        if i == target_idx:
+            _reset_stage_for_reject(stage)
+            stage.status = "active"
+            stage.started_at = now
+        else:
+            _reset_stage_for_reject(stage)
+            stage.status = "pending"
+            stage.started_at = None
+
     task.current_stage_id = body.target_stage_id
+    if task.status == "done":
+        task.status = "active"
 
     await db.flush()
 
@@ -549,6 +625,7 @@ def _build_dag_run(params):
             complexity=params.get("complexity"),
             project_path=params.get("project_path"),
             resume=bool(params.get("resume", False)),
+            custom_stages=params.get("custom_stages"),
         )
     return _run
 
@@ -833,6 +910,10 @@ async def get_agent_team():
 class DAGRunRequest(BaseModel):
     template: str = "full"
     complexity: Optional[str] = None
+    # Optional inline override of the DAG topology — only honoured if
+    # the task itself doesn't already carry a ``custom_stages`` spec
+    # (which always wins, to keep "what you saved" == "what runs").
+    custom_stages: Optional[List[Dict[str, object]]] = None
 
 
 @router.post("/tasks/{task_id}/dag-run")
@@ -851,6 +932,14 @@ async def dag_run(
     task = await _get_task_or_404(db, task_id, user, load_relations=False)
     tid = str(task.id)
     template = body.template
+    # If the task was created with a Workflow Builder spec, that always
+    # wins — the body.template field is only meaningful for tasks built
+    # off named templates. We forward the verbatim spec into the
+    # scheduler params so the worker can rehydrate ``DAGStage`` even if
+    # the orchestrator restarts mid-run.
+    custom_stages = task.custom_stages if task.custom_stages else body.custom_stages
+    if custom_stages:
+        template = "custom"
 
     submission_id = await _submit_task(
         tid, f"dag-run:{tid[:8]}/{template}",
@@ -862,6 +951,7 @@ async def dag_run(
             "template": template,
             "complexity": body.complexity,
             "project_path": task.project_path,
+            "custom_stages": custom_stages,
         },
     )
     return {
@@ -914,6 +1004,7 @@ async def resume_task_dag(
             "template": template,
             "project_path": task.project_path,
             "resume": True,
+            "custom_stages": task.custom_stages if task.custom_stages else None,
         },
     )
     await db.commit()

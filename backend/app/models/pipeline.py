@@ -34,6 +34,12 @@ class PipelineTask(Base):
     quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
     overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)
 
+    # Workflow Builder spec — when ``template == "custom"``, this holds the
+    # verbatim DAG shape (incl. ``depends_on``, per-stage retry / gate /
+    # quality config) so the orchestrator can rehydrate it without
+    # re-asking the client. NULL = use the named template instead.
+    custom_stages: Mapped[Optional[list]] = mapped_column(JsonDict(), nullable=True)
+
     # Bidirectional issue-tracker links. Stored as a JSON list of
     # ``ExternalIssueRef.to_dict()`` shapes:
     #   [{"kind": "jira",   "key": "AI-7",        "url": "...", "project": "AI"},

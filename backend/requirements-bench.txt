@@ -1,0 +1,12 @@
+# Optional benchmark dependencies for `python -m scripts.swebench`.
+#
+# Install with:
+#     PYTHONPATH=. uv pip install -r requirements-bench.txt
+#
+# Not pulled in by the regular backend install on purpose — most contributors
+# never run benchmarks and pulling Apache Arrow / pyarrow into every dev box
+# adds ~80 MB and breaks editable installs on some musl distros.
+
+datasets>=2.18.0          # HuggingFace datasets loader for `hf:` sources
+pyarrow>=15.0.0           # transitive but pinning helps reproducibility
+swebench>=2.1.0; python_version >= "3.10"  # official evaluator (optional reference)

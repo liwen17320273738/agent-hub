@@ -51,6 +51,11 @@ const router = createRouter({
       component: () => import('@/views/PipelineDashboard.vue'),
     },
     {
+      path: '/workflow-builder',
+      name: 'workflow-builder',
+      component: () => import('@/views/WorkflowBuilder.vue'),
+    },
+    {
       path: '/pipeline/task/:id',
       name: 'pipeline-task',
       component: () => import('@/views/PipelineTaskDetail.vue'),

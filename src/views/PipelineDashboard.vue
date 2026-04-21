@@ -67,6 +67,16 @@
               class="task-card"
               @click="$router.push(`/pipeline/task/${task.id}`)"
             >
+              <button
+                v-if="stage.id === 'planning'"
+                type="button"
+                class="task-delete"
+                title="删除任务"
+                aria-label="删除任务"
+                @click.stop="confirmDeletePlanningTask(task)"
+              >
+                <el-icon :size="14"><Delete /></el-icon>
+              </button>
               <div class="task-title">{{ task.title }}</div>
               <div class="task-meta">
                 <el-tag :type="sourceTagType(task.source)" size="small">{{ task.source }}</el-tag>
@@ -340,7 +350,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus } from '@element-plus/icons-vue'
+import { Delete, Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -352,7 +362,7 @@ import {
 } from '@/services/pipelineApi'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import type { SDLCTemplate } from '@/services/pipelineApi'
-import type { PipelineEvent } from '@/agents/types'
+import type { PipelineEvent, PipelineTask } from '@/agents/types'
 
 const router = useRouter()
 
@@ -596,6 +606,25 @@ function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'inf
     api: 'primary',
  }
   return map[source] ?? 'info'
+}
+
+async function confirmDeletePlanningTask(task: PipelineTask) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除任务「${task.title}」？删除后无法恢复。`,
+      '删除任务',
+      {
+        type: 'warning',
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+      },
+    )
+    await pipelineStore.removeTask(task.id)
+    ElMessage.success('任务已删除')
+  } catch (e: unknown) {
+    if (e === 'cancel') return
+    ElMessage.error(`删除失败: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 function timeAgo(ts: number | string | undefined) {
@@ -922,6 +951,29 @@ onUnmounted(() => {
   border-color: var(--accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   z-index: 1;
+}
+
+.task-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.task-delete:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .task-title {

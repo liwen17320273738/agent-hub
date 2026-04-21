@@ -59,6 +59,11 @@
           <span>AI 军团流水线</span>
         </router-link>
 
+        <router-link to="/workflow-builder" class="nav-item" active-class="active">
+          <el-icon><Share /></el-icon>
+          <span>Workflow Builder</span>
+        </router-link>
+
         <router-link to="/agents-console" class="nav-item" active-class="active">
           <el-icon><User /></el-icon>
           <span>专家工作台</span>

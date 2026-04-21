@@ -257,6 +257,45 @@ TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
 }
 
 
+def _dag_stages_from_custom_spec(spec: List[Dict[str, Any]]) -> List[DAGStage]:
+    """Build a list of ``DAGStage`` from the Workflow Builder JSON spec.
+
+    Mirrors ``BackendStage`` from ``src/services/workflowBuilder.ts``:
+    every entry MUST carry ``stage_id`` / ``label`` / ``role``; everything
+    else is optional and falls back to the same defaults
+    ``PIPELINE_TEMPLATES`` would have used.
+
+    Unknown fields are tolerated (forward-compatible with future builder
+    flags). Bad ``on_failure`` strings collapse to ``"halt"`` via the
+    ``DAGStage`` constructor itself.
+    """
+    out: List[DAGStage] = []
+    for raw in spec or []:
+        if not isinstance(raw, dict):
+            continue
+        sid = (raw.get("stage_id") or raw.get("stageId") or "").strip()
+        label = raw.get("label") or sid
+        role = raw.get("role") or raw.get("owner_role") or "developer"
+        if not sid:
+            # Silently drop ill-formed entries — better than 500-ing the
+            # entire run because of a rogue node from an old export.
+            continue
+        depends_on = raw.get("depends_on") or raw.get("dependsOn") or []
+        out.append(
+            DAGStage(
+                stage_id=sid,
+                label=label,
+                role=role,
+                depends_on=[str(d) for d in depends_on if d],
+                skip_condition=raw.get("skip_condition") or raw.get("skipCondition"),
+                max_retries=int(raw.get("max_retries") or raw.get("maxRetries") or 0),
+                on_failure=str(raw.get("on_failure") or raw.get("onFailure") or "halt"),
+                human_gate=bool(raw.get("human_gate") or raw.get("humanGate") or False),
+            )
+        )
+    return out
+
+
 def get_ready_stages(stages: List[DAGStage], outputs: Dict[str, str] = None) -> List[DAGStage]:
     """Find all stages whose dependencies are satisfied and can run now.
     
@@ -575,6 +614,7 @@ async def execute_dag_pipeline(
     complexity: Optional[str] = None,
     project_path: Optional[str] = None,
     resume: bool = False,
+    custom_stages: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Execute a pipeline using DAG-based scheduling.
 
@@ -583,8 +623,16 @@ async def execute_dag_pipeline(
     If `resume=True` and a checkpoint exists for this task, stages already
     marked DONE are skipped (their outputs are restored), and the run picks
     up from the first non-DONE stage.
+
+    When ``custom_stages`` is provided (typically when ``template=="custom"``)
+    it takes precedence over ``PIPELINE_TEMPLATES[template]``. The shape
+    matches ``BackendStage`` from the Workflow Builder UI — see
+    ``_dag_stages_from_custom_spec`` for the field-by-field mapping.
     """
-    template_stages = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full"])
+    if custom_stages:
+        template_stages = _dag_stages_from_custom_spec(custom_stages)
+    else:
+        template_stages = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full"])
     stages = [
         DAGStage(
             s.stage_id, s.label, s.role,

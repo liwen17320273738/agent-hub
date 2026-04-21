@@ -37,6 +37,17 @@ async function checkServer(): Promise<boolean> {
   return serverAvailable
 }
 
+/** Normalize API date fields (ISO strings or ms) for UI math (durations, timeAgo). */
+function mapTs(v: unknown): number | undefined {
+  if (v == null || v === '') return undefined
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string') {
+    const n = Date.parse(v)
+    return Number.isNaN(n) ? undefined : n
+  }
+  return undefined
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getAuthToken()
   const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
@@ -84,8 +95,8 @@ function mapTask(raw: any): PipelineTask {
       label: s.label,
       status: s.status,
       ownerRole: s.owner_role ?? s.ownerRole,
-      startedAt: s.started_at ?? s.startedAt,
-      completedAt: s.completed_at ?? s.completedAt,
+      startedAt: mapTs(s.started_at ?? s.startedAt),
+      completedAt: mapTs(s.completed_at ?? s.completedAt),
       output: s.output,
       sortOrder: s.sort_order ?? s.sortOrder,
       reviewStatus: s.review_status ?? s.reviewStatus ?? null,
@@ -107,8 +118,8 @@ function mapTask(raw: any): PipelineTask {
     qualityGateConfig: raw.quality_gate_config ?? raw.qualityGateConfig ?? null,
     overallQualityScore: raw.overall_quality_score ?? raw.overallQualityScore ?? null,
     createdBy: raw.created_by ?? raw.createdBy ?? '',
-    createdAt: raw.created_at ?? raw.createdAt,
-    updatedAt: raw.updated_at ?? raw.updatedAt,
+    createdAt: mapTs(raw.created_at ?? raw.createdAt) ?? Date.now(),
+    updatedAt: mapTs(raw.updated_at ?? raw.updatedAt) ?? Date.now(),
   } as PipelineTask
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -215,6 +226,19 @@ export async function downloadTaskAttachment(
   URL.revokeObjectURL(url)
 }
 
+export interface CustomStageSpec {
+  stage_id: string
+  label: string
+  role: string
+  depends_on?: string[]
+  max_retries?: number
+  on_failure?: 'halt' | 'rollback' | 'skip'
+  human_gate?: boolean
+  skip_condition?: string | null
+  model_override?: string | null
+  quality_gate_min?: number | null
+}
+
 export async function createTask(payload: {
   title: string
   description?: string
@@ -222,7 +246,18 @@ export async function createTask(payload: {
   template?: string
   repo_url?: string
   project_path?: string
+  custom_stages?: CustomStageSpec[]
 }): Promise<PipelineTask> {
+  // Custom-stages flows REQUIRE the backend (local fallback only knows
+  // the canonical SDLC stages), so don't silently downgrade to local.
+  if (payload.custom_stages?.length) {
+    const data = await apiFetch<{ task: unknown }>('/pipeline/tasks', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+    return mapTask(data.task)
+  }
+
   if (!(await checkServer())) return localCreateTask(payload)
 
   const data = await apiFetch<{ task: unknown }>('/pipeline/tasks', {
@@ -230,6 +265,16 @@ export async function createTask(payload: {
     body: JSON.stringify(payload),
   })
   return mapTask(data.task)
+}
+
+export async function runDagPipeline(
+  taskId: string,
+  payload?: { template?: string; complexity?: string; custom_stages?: CustomStageSpec[] },
+): Promise<{ ok: boolean; taskId: string; submissionId: string; template: string }> {
+  return apiFetch(`/pipeline/tasks/${taskId}/dag-run`, {
+    method: 'POST',
+    body: JSON.stringify(payload ?? { template: 'full' }),
+  })
 }
 
 export async function advanceTask(

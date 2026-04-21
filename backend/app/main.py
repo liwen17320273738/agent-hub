@@ -46,6 +46,7 @@ from .api import (
     sandbox as sandbox_api,
     scheduler as scheduler_api,
     integrations as integrations_api,
+    workflows as workflows_api,
 )
 
 logging.basicConfig(
@@ -280,6 +281,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(sandbox_api.router)
     application.include_router(scheduler_api.router)
     application.include_router(integrations_api.router)
+    application.include_router(workflows_api.router, prefix="/api")
 
     # ── Health & Config ──────────────────────────────────────────────────
 
