@@ -1008,11 +1008,19 @@ async def resume_task_dag(
         },
     )
     await db.commit()
+    # NOTE: this endpoint *queues* a resume; the actual DAG run happens in a
+    # background worker. We deliberately do NOT return ``ok: true`` to avoid
+    # the frontend showing a green "完成" toast before any work has happened.
+    # The frontend should subscribe to the SSE log to observe progress.
     return {
-        "ok": True, "started": True, "taskId": tid,
+        "ok": True,
+        "queued": True,
+        "started": True,  # kept for backward compat; deprecated, prefer `queued`
+        "taskId": tid,
         "submissionId": submission_id,
         "resumedFromCheckpoint": bool(ckpt),
         "template": template,
+        "message": "DAG 续跑已加入后台队列，可在实时日志区观察进度",
     }
 
 

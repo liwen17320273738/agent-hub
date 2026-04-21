@@ -10,7 +10,7 @@ import logging
 import re
 import time
 from ipaddress import ip_address
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -18,6 +18,61 @@ import httpx
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+# Fallback chain when the primary provider returns a retriable error
+# (rate-limit, insufficient balance, transient 5xx). Order = preference.
+# We pick the first whose API key is configured AND that we haven't already
+# attempted on the same call. Lives here (not cost_governor) to avoid an
+# import cycle between llm_router ↔ cost_governor.
+PROVIDER_FALLBACK_CHAIN: List[Dict[str, str]] = [
+    {"provider": "deepseek",  "model": "deepseek-chat"},
+    {"provider": "openai",    "model": "gpt-4o-mini"},
+    {"provider": "anthropic", "model": "claude-3-5-haiku-20241022"},
+    {"provider": "qwen",      "model": "qwen-turbo"},
+    {"provider": "zhipu",     "model": "glm-4-flash"},
+    {"provider": "google",    "model": "gemini-2.5-flash"},
+]
+
+# Status codes the caller probably wants us to retry on a different provider.
+# 401/403 are excluded — those mean "your key is wrong", not "this provider
+# is overloaded"; falling back hides a config bug.
+_RETRIABLE_HTTP_STATUSES = {402, 408, 429, 500, 502, 503, 504}
+
+# Substrings (case-insensitive) found in upstream error bodies that indicate
+# a transient / quota issue rather than a request-shape problem.
+_RETRIABLE_ERROR_SUBSTRINGS = (
+    "insufficient balance",
+    "insufficient_balance",
+    "rate limit",
+    "rate_limit",
+    "ratelimit",
+    "您的账户已达到速率限制",
+    "quota",
+    "1302",            # Zhipu rate-limit
+    "1303",            # Zhipu concurrency limit
+    "billing_hard_limit",
+    "context_length_exceeded",  # not really transient, but useful: degrade to longer-context model
+    "overloaded",
+    "service unavailable",
+    "上游请求超时",
+    "上游请求失败",
+)
+
+
+def _is_retriable_failure(result: Dict[str, Any]) -> bool:
+    """Return True if the LLM result looks like a transient/quota error.
+
+    Used to decide whether to fall through to the next provider in
+    ``chat_completion_with_fallback``.
+    """
+    status = result.get("status")
+    if isinstance(status, int) and status in _RETRIABLE_HTTP_STATUSES:
+        return True
+    err = (result.get("error") or "")
+    if not err:
+        return False
+    err_low = str(err).lower()
+    return any(s in err_low for s in _RETRIABLE_ERROR_SUBSTRINGS)
 
 PROVIDER_ENDPOINTS: Dict[str, str] = {
     "openai": "https://api.openai.com/v1/chat/completions",
@@ -657,6 +712,123 @@ def _extract_anthropic_tool_calls(data: Dict[str, Any]) -> List[Dict[str, Any]]:
 # `provider → embeddings_endpoint` so a misconfigured chat-completions URL
 # doesn't accidentally get reused for embeddings (different schemas).
 # ─────────────────────────────────────────────────────────────────
+
+async def chat_completion_with_fallback(
+    *,
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    api_url: str = "",
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[str] = None,
+    image_attachments: Optional[List[Tuple[str, str]]] = None,
+    on_fallback: Optional[
+        Callable[[Dict[str, Any]], Awaitable[None]]
+    ] = None,
+    max_attempts: int = 3,
+) -> Dict[str, Any]:
+    """Call ``chat_completion`` with primary model, then walk the fallback
+    chain on retriable failures (rate-limit, insufficient balance, 5xx).
+
+    Returns the same shape as ``chat_completion`` plus:
+        - ``tried_providers``: ``[{provider, model, status, error_excerpt, ok}]``
+        - ``fell_back``: bool — True when the *successful* response came from a
+          provider other than the one originally requested.
+
+    The caller can supply an ``on_fallback`` async callback that fires *before*
+    each retry, with payload ``{from_provider, from_model, to_provider, to_model,
+    reason, status, error_excerpt}``. We use this in the pipeline engine to
+    emit ``stage:provider-fallback`` SSE events so the UI surfaces what's
+    happening rather than freezing.
+
+    Non-retriable errors (401/403/400) short-circuit immediately — those mean
+    "your config is wrong", not "this provider is having a bad day".
+    """
+    primary_provider = infer_provider(model, api_url)
+    primary_attempt = {"provider": primary_provider, "model": model}
+    available_keys = settings.get_provider_keys()
+
+    tried: List[Dict[str, Any]] = []
+    attempts = [primary_attempt]
+
+    # Build fallback list: skip the primary provider, skip providers without keys.
+    seen_providers = {primary_provider}
+    for cand in PROVIDER_FALLBACK_CHAIN:
+        if cand["provider"] in seen_providers:
+            continue
+        if not available_keys.get(cand["provider"]):
+            continue
+        attempts.append(dict(cand))
+        seen_providers.add(cand["provider"])
+        if len(attempts) >= max_attempts:
+            break
+
+    last_result: Dict[str, Any] = {}
+    for idx, attempt in enumerate(attempts):
+        # Primary uses caller's api_url (could be a custom OpenAI-compatible
+        # endpoint). Fallbacks always use the canonical provider endpoint.
+        attempt_api_url = api_url if idx == 0 else ""
+        last_result = await chat_completion(
+            model=attempt["model"],
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_url=attempt_api_url,
+            tools=tools,
+            tool_choice=tool_choice,
+            image_attachments=image_attachments,
+        )
+        ok = bool(last_result.get("content")) and not last_result.get("error")
+        excerpt = (last_result.get("error") or "")[:200] if not ok else ""
+        tried.append({
+            "provider": attempt["provider"],
+            "model": attempt["model"],
+            "status": last_result.get("status", 200 if ok else None),
+            "error_excerpt": excerpt,
+            "ok": ok,
+        })
+        if ok:
+            last_result["tried_providers"] = tried
+            last_result["fell_back"] = idx > 0
+            return last_result
+
+        # Decide whether to advance or bail.
+        if not _is_retriable_failure(last_result) or idx == len(attempts) - 1:
+            last_result.setdefault("error", "all providers failed")
+            last_result["tried_providers"] = tried
+            last_result["fell_back"] = False
+            return last_result
+
+        # Notify observers (SSE / metrics) before the next attempt.
+        next_attempt = attempts[idx + 1]
+        reason = (
+            f"primary {attempt['provider']}/{attempt['model']} returned "
+            f"status={last_result.get('status')} — {excerpt[:120]}"
+        )
+        logger.warning("[llm-fallback] %s → %s/%s (reason: %s)",
+                       attempt["provider"], next_attempt["provider"],
+                       next_attempt["model"], reason)
+        if on_fallback is not None:
+            try:
+                await on_fallback({
+                    "from_provider": attempt["provider"],
+                    "from_model":    attempt["model"],
+                    "to_provider":   next_attempt["provider"],
+                    "to_model":      next_attempt["model"],
+                    "reason":        reason,
+                    "status":        last_result.get("status"),
+                    "error_excerpt": excerpt,
+                })
+            except Exception as cb_err:
+                logger.debug("[llm-fallback] on_fallback callback raised: %s", cb_err)
+
+    # Should be unreachable (loop returns inside), but for type-safety:
+    last_result.setdefault("error", "no providers attempted")
+    last_result["tried_providers"] = tried
+    last_result["fell_back"] = False
+    return last_result
+
 
 EMBEDDING_ENDPOINTS: Dict[str, str] = {
     "openai":   "https://api.openai.com/v1/embeddings",

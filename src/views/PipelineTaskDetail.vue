@@ -38,12 +38,20 @@
       </div>
     </section>
 
+    <PipelineDagCanvas
+      v-if="task.stages.length"
+      :task="task"
+      :processing-stage-id="processingStage"
+      @node-click="scrollToStage"
+    />
+
     <section class="stage-progress">
       <h2 class="section-title">阶段进度</h2>
       <div class="stage-timeline">
         <div
           v-for="(stage, idx) in task.stages"
           :key="stage.id"
+          :ref="(el) => registerStageRef(stage.id, el as Element | null)"
           class="timeline-item"
           :class="[
             `status-${stage.status}`,
@@ -560,6 +568,7 @@ import type { QualityReport } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
+import PipelineDagCanvas from '@/components/pipeline/PipelineDagCanvas.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -600,6 +609,23 @@ interface LogEntry {
   detail?: string
 }
 const stageLogs = ref<LogEntry[]>([])
+
+// Map stageId → DOM element, populated via :ref callback on each timeline-item.
+// Used by the DAG canvas to scroll the matching stage card into view when a
+// node is clicked, so the canvas + stepper feel like one coherent view.
+const stageRefs = new Map<string, Element>()
+function registerStageRef(stageId: string, el: Element | null) {
+  if (el) stageRefs.set(stageId, el)
+  else stageRefs.delete(stageId)
+}
+function scrollToStage(stageId: string) {
+  const el = stageRefs.get(stageId)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  // Brief highlight flash so the user knows where they landed.
+  el.classList.add('flash-highlight')
+  setTimeout(() => el.classList.remove('flash-highlight'), 1200)
+}
 
 const STAGE_IDS = ['planning', 'architecture', 'development', 'testing', 'reviewing', 'deployment', 'done']
 
@@ -1102,20 +1128,23 @@ async function handleResumeDag() {
   resumingDag.value = true
   try {
     const res = await resumeDagPipeline(String(task.value.id))
-    addLog('pipeline:dag-resumed', {
+    addLog('pipeline:dag-queued', {
       fromCheckpoint: res.resumedFromCheckpoint,
       template: res.template,
+      submissionId: res.submissionId,
     })
-    ElMessage.success(
-      res.ok
-        ? `DAG 续跑完成（template=${res.template}${
-            res.resumedFromCheckpoint ? '，从检查点恢复' : '，无检查点'
-          }）`
-        : 'DAG 续跑结束但未全部完成，可再点续跑或查看日志',
-    )
+    ElMessage({
+      type: 'info',
+      duration: 4000,
+      message:
+        res.message ||
+        `已加入续跑队列（template=${res.template}${
+          res.resumedFromCheckpoint ? '，从检查点恢复' : '，无检查点'
+        }），请关注下方实时日志`,
+    })
     await loadTask()
   } catch (e: unknown) {
-    ElMessage.error(`DAG 续跑失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(`DAG 续跑提交失败: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     resumingDag.value = false
   }
@@ -1299,6 +1328,14 @@ watch(() => route.params.id, () => {
   gap: 16px;
   padding: 12px 0;
   position: relative;
+  border-radius: 8px;
+  transition: background-color 0.4s ease;
+}
+/* Triggered by scrollToStage() when the user clicks a node on the DAG canvas.
+ * 1.2s soft flash so they can see exactly where the canvas landed them. */
+.timeline-item.flash-highlight {
+  background-color: rgba(56, 189, 248, 0.12);
+  box-shadow: inset 3px 0 0 #38bdf8;
 }
 
 .timeline-dot {

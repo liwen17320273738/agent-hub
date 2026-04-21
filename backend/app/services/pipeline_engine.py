@@ -30,6 +30,7 @@ from .observability import (
     start_trace, start_span, complete_span, complete_trace, PipelineTrace,
 )
 from .llm_router import chat_completion as llm_chat
+from .llm_router import chat_completion_with_fallback as llm_chat_with_fallback
 from .token_tracker import estimate_cost
 from .sse import emit_event
 
@@ -661,7 +662,20 @@ async def review_stage_output(
             {"role": "system", "content": review_system},
             {"role": "user", "content": review_user},
         ]
-        llm_result = await llm_chat(model=model, messages=messages, api_url=api_url)
+
+        async def _on_review_fallback(payload: Dict[str, Any]) -> None:
+            await emit_event("stage:provider-fallback", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "agent": reviewer_name,
+                "phase": "peer_review",
+                **payload,
+            })
+
+        llm_result = await llm_chat_with_fallback(
+            model=model, messages=messages, api_url=api_url,
+            on_fallback=_on_review_fallback,
+        )
         if llm_result.get("error"):
             raise RuntimeError(f"LLM error: {llm_result['error']}")
 
@@ -999,18 +1013,46 @@ async def execute_stage(
                 {"role": "user", "content": user_message},
             ]
             api_url = app_settings.llm_api_url if tier == "local" else ""
-            llm_result = await llm_chat(
+
+            async def _on_provider_fallback(payload: Dict[str, Any]) -> None:
+                """Surface provider rotation to the UI. Without this the user
+                sees the same 'failed' state no matter how many times the
+                stage actually retried under the hood."""
+                await emit_event("stage:provider-fallback", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "agent": agent_name,
+                    **payload,
+                })
+
+            llm_result = await llm_chat_with_fallback(
                 model=model,
                 messages=messages,
                 api_url=api_url,
                 image_attachments=att_images if att_images else None,
+                on_fallback=_on_provider_fallback,
             )
             if llm_result.get("error"):
-                raise RuntimeError(f"LLM error: {llm_result['error']}")
+                # Include the provider trail so the surfaced error tells the
+                # operator which providers were tried and why each failed.
+                trail = llm_result.get("tried_providers") or []
+                trail_summary = "; ".join(
+                    f"{t.get('provider')}/{t.get('model')}={t.get('status')}"
+                    for t in trail
+                ) if trail else ""
+                detail = llm_result["error"]
+                raise RuntimeError(
+                    f"LLM error after fallbacks: {detail}"
+                    + (f" | tried: {trail_summary}" if trail_summary else "")
+                )
             content = llm_result.get("content", "")
             token_usage = llm_result.get("usage") or {}
             prompt_tokens = token_usage.get("prompt_tokens", 0)
             completion_tokens = token_usage.get("completion_tokens", 0)
+            # If a fallback succeeded, replace the active model name so cost
+            # accounting and the trace span credit the actual provider used.
+            if llm_result.get("fell_back") and llm_result.get("model"):
+                model = llm_result["model"]
 
     except Exception as e:
         logger.error(f"[pipeline] Stage {stage_id} LLM call failed: {e}")

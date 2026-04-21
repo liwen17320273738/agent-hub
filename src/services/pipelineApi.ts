@@ -657,9 +657,18 @@ export async function resumePipeline(
  *   2. Restore DONE stages from the checkpoint (and any newer DB updates).
  *   3. Re-execute everything from the first non-DONE stage.
  */
-export async function resumeDagPipeline(
-  taskId: string,
-): Promise<{ ok: boolean; taskId: string; resumedFromCheckpoint: boolean; template: string }> {
+export interface ResumeDagResponse {
+  ok: boolean
+  queued?: boolean
+  started?: boolean
+  taskId: string
+  submissionId?: string
+  resumedFromCheckpoint: boolean
+  template: string
+  message?: string
+}
+
+export async function resumeDagPipeline(taskId: string): Promise<ResumeDagResponse> {
   return apiFetch(`/pipeline/tasks/${taskId}/resume-dag`, { method: 'POST' })
 }
 

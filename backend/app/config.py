@@ -93,8 +93,11 @@ class Settings(BaseSettings):
     #            immediately (legacy behavior).
     gateway_plan_mode: bool = False
 
-    # Rate limiting
-    rate_limit_per_minute: int = 60
+    # Rate limiting (per-IP, sliding 60s window).
+    # 600/min ≈ 10 req/sec — enough headroom for the dashboard's polling fan-out
+    # (~7 endpoints/refresh) while still capping abusive clients. Loopback hosts
+    # (127.0.0.1, ::1, localhost) bypass the limiter entirely; see rate_limit.py.
+    rate_limit_per_minute: int = 600
 
     # Model cache TTL
     model_cache_ttl_seconds: int = 600  # 10 minutes
