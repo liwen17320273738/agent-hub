@@ -45,6 +45,7 @@ from .api import (
     learning as learning_api,
     sandbox as sandbox_api,
     scheduler as scheduler_api,
+    integrations as integrations_api,
 )
 
 logging.basicConfig(
@@ -145,14 +146,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # are logged and ignored — empty cache simply means "use in-code
     # defaults", which is the same behaviour as before this feature.
     try:
-        from .services.sandbox_overrides import preload_overrides
+        from .services.sandbox_overrides import (
+            preload_overrides,
+            start_invalidation_listener,
+        )
         async with async_session() as db:
             n_rules = await preload_overrides(db)
         logger.info(f"Sandbox overrides preloaded: {n_rules} rules.")
+        # Start the cross-process pubsub listener AFTER preload so the
+        # cache has a baseline before peers can mutate it. Idempotent
+        # — safe to call again on hot reload.
+        await start_invalidation_listener()
     except Exception as exc:
         logger.warning(f"Sandbox preload skipped: {exc}")
 
     yield
+
+    try:
+        from .services.sandbox_overrides import stop_invalidation_listener
+        await stop_invalidation_listener()
+    except Exception:
+        pass
 
     await engine.dispose()
     logger.info("Agent Hub backend stopped.")
@@ -265,6 +279,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(learning_api.router)
     application.include_router(sandbox_api.router)
     application.include_router(scheduler_api.router)
+    application.include_router(integrations_api.router)
 
     # ── Health & Config ──────────────────────────────────────────────────
 

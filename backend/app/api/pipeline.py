@@ -48,6 +48,14 @@ class CreateTaskRequest(BaseModel):
     template: Optional[str] = None
     repo_url: Optional[str] = None
     project_path: Optional[str] = None
+    # When set to "jira" or "github", the create endpoint immediately
+    # mints an issue in that tracker (using the task's title /
+    # description) and writes it to ``external_links``. Soft-fails
+    # to a warning if the connector isn't configured — task creation
+    # itself never 5xxs because of an integration miss.
+    auto_link: Optional[str] = None
+    auto_link_project: Optional[str] = None
+    auto_link_labels: Optional[List[str]] = None
 
 
 class AdvanceRequest(BaseModel):
@@ -209,12 +217,87 @@ async def create_task(
 
     await db.flush()
 
+    # ── Optional: auto-create + bind external issue ──────────────────
+    # The user opted-in via ``auto_link="jira" | "github"``. We do
+    # this *after* flush so the task row exists (and the response
+    # includes the link), but *before* the final SELECT so the loaded
+    # ``external_links`` already reflects it.
+    auto_link_result: Optional[Dict] = None
+    if body.auto_link:
+        auto_link_result = await _try_auto_link(
+            task=task,
+            kind=body.auto_link,
+            project=body.auto_link_project,
+            labels=body.auto_link_labels,
+        )
+        await db.flush()
+
     result = await db.execute(
         select(PipelineTask)
         .options(selectinload(PipelineTask.stages), selectinload(PipelineTask.artifacts))
         .where(PipelineTask.id == task.id)
     )
-    return {"task": result.scalar_one()}
+    payload = {"task": result.scalar_one()}
+    if auto_link_result is not None:
+        payload["autoLink"] = auto_link_result
+    return payload
+
+
+async def _try_auto_link(
+    *,
+    task: PipelineTask,
+    kind: str,
+    project: Optional[str],
+    labels: Optional[List[str]],
+) -> Dict:
+    """Best-effort: create an external issue from the task and persist
+    it on ``task.external_links``. Returns a status dict for the API
+    response — never raises (would otherwise leak an integrations
+    failure into the task-creation user flow)."""
+    from ..services.connectors import get_connector
+
+    kind_norm = (kind or "").lower()
+    if kind_norm not in {"jira", "github"}:
+        return {"ok": False, "skipped": True, "reason": f"unsupported kind {kind!r}"}
+
+    conn = get_connector(kind_norm)
+    if conn is None:
+        logger.warning(
+            "[pipeline] auto_link=%s requested but connector not configured; skipping",
+            kind_norm,
+        )
+        return {"ok": False, "skipped": True, "reason": "connector_not_configured"}
+
+    try:
+        res = await conn.create_issue(
+            title=task.title,
+            body=task.description or "",
+            labels=labels,
+            project=project,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("[pipeline] auto_link create_issue raised: %s", exc)
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+
+    if not res.ok:
+        return {
+            "ok": False,
+            "skipped": res.skipped,
+            "error": res.error,
+        }
+
+    issue = res.issue
+    if issue is None:
+        return {"ok": False, "error": "connector returned ok=True with no issue ref"}
+
+    new_link = {
+        "kind": issue.kind, "key": issue.key, "url": issue.url,
+        "project": issue.project, "id": issue.id,
+    }
+    existing = list(task.external_links or [])
+    existing.append(new_link)
+    task.external_links = existing
+    return {"ok": True, "link": new_link}
 
 
 @router.post("/tasks/{task_id}/advance")

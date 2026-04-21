@@ -34,8 +34,32 @@ class _MemoryFallback:
         self._expire_check(key)
         return _memory_store.get(key)
 
-    async def set(self, key: str, value: str) -> None:
+    async def set(
+        self,
+        key: str,
+        value: str,
+        *,
+        ex: Optional[int] = None,
+        nx: bool = False,
+        xx: bool = False,
+    ):
+        """Match the real ``redis-py`` ``set`` signature for the keyword
+        flags we actually use (``nx`` / ``xx`` / ``ex``).
+
+        Returns ``True`` on success, ``None`` when the conditional flag
+        rejected the write — same shape as ``redis-py`` so callers can
+        write ``if await r.set(k, v, nx=True, ex=…):`` portably.
+        """
+        self._expire_check(key)
+        exists = key in _memory_store
+        if nx and exists:
+            return None
+        if xx and not exists:
+            return None
         _memory_store[key] = value
+        if ex is not None:
+            _memory_expiry[key] = time.time() + int(ex)
+        return True
 
     async def setex(self, key: str, ttl: int, value: str) -> None:
         _memory_store[key] = value

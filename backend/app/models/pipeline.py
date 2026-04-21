@@ -34,6 +34,16 @@ class PipelineTask(Base):
     quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
     overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)
 
+    # Bidirectional issue-tracker links. Stored as a JSON list of
+    # ``ExternalIssueRef.to_dict()`` shapes:
+    #   [{"kind": "jira",   "key": "AI-7",        "url": "...", "project": "AI"},
+    #    {"kind": "github", "key": "acme/web#42", "url": "...", "project": "acme/web"}]
+    # Populated by ``POST /api/integrations/tasks/{id}/links`` (manual
+    # bind) or by the auto-create-on-task-creation hook (future).
+    # The DAG REJECT path mirrors review verdicts back to every entry
+    # here so reviewers can follow the AI in their own queue.
+    external_links: Mapped[list] = mapped_column(JsonDict(), default=list, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
 

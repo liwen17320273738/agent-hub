@@ -88,6 +88,14 @@ class DAGStage:
         self.on_failure = on_failure if on_failure in ("halt", "rollback", "skip") else "halt"
         self.human_gate = bool(human_gate)
         self.retry_count = 0
+        # Self-healing: when a downstream reviewer REJECT_TOs back to
+        # this stage, the orchestrator stuffs the reviewer's verbatim
+        # rejection text here. ``execute_stage`` reads it and prepends
+        # it as a "previous-rejection" patch to the system prompt of
+        # the next attempt, so the agent sees *why* it was sent back
+        # instead of just rerunning the same prompt blind.
+        self.reject_feedback: Optional[str] = None
+        self.reject_count: int = 0
 
 
 PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
@@ -349,8 +357,21 @@ async def _persist_stage_state(
         logger.debug(f"[dag] persist_stage_state failed for {stage.stage_id}: {e}")
 
 
-def _reset_to_stage(stages: List[DAGStage], target_stage_id: str) -> None:
-    """Reset a stage and all stages that depend on it back to PENDING."""
+def _reset_to_stage(
+    stages: List[DAGStage],
+    target_stage_id: str,
+    *,
+    feedback: Optional[str] = None,
+) -> None:
+    """Reset a stage and all stages that depend on it back to PENDING.
+
+    When ``feedback`` is provided (typical case: reviewer's rejection
+    text), it's stamped onto the target stage so the next iteration
+    of ``execute_stage`` can inject it as a self-healing prompt
+    patch. ``reject_count`` is also incremented so the agent (and
+    operators in the UI) can see how many times this stage has been
+    bounced back.
+    """
     target_idx = next(
         (i for i, s in enumerate(stages) if s.stage_id == target_stage_id), -1,
     )
@@ -365,6 +386,141 @@ def _reset_to_stage(stages: List[DAGStage], target_stage_id: str) -> None:
                 s.status = StageStatus.PENDING
                 s.output = None
                 s.error = None
+
+    if feedback:
+        target_stage = stages[target_idx]
+        target_stage.reject_feedback = feedback
+        target_stage.reject_count += 1
+
+
+def _extract_rejection_feedback(content: str) -> Optional[str]:
+    """Pull the human-readable "why" out of a reviewer's verdict.
+
+    The acceptance agent's contract is to emit either::
+
+        REJECTED
+        REJECT_TO: development
+        REASON:
+        <free-form why>
+
+    or any block whose first line says REJECTED — in that case the
+    rest of the message *is* the reason. We trim aggressively (8KB
+    cap) so a malformed reviewer doesn't fill the next prompt with
+    its entire chain-of-thought.
+    """
+    if not content:
+        return None
+    import re
+    m = re.search(
+        r"REASON\s*[:：]\s*(.+)",
+        content, re.IGNORECASE | re.DOTALL,
+    )
+    if m:
+        text = m.group(1).strip()
+    else:
+        # Fall back to "everything after REJECTED" if no explicit REASON.
+        idx = content.upper().find("REJECTED")
+        text = (content[idx + len("REJECTED"):].strip() if idx >= 0 else content.strip())
+    if not text:
+        return None
+    return text[:8000]
+
+
+async def _maybe_escalate_after_reject(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_title: str,
+    target: str,
+    reject_count: int,
+) -> None:
+    """Throttled escalation: after N rejects on the same stage,
+    label the linked issues + ping IM. Lazy-imports the escalation
+    module so plain DAG unit tests don't pull in httpx / notify.
+
+    The fan-out itself is internally idempotent (per-process
+    high-water-mark on ``reject_count``); we still re-fetch the task
+    to read the latest ``external_links`` (admin may have just
+    bound a new tracker mid-run).
+    """
+    try:
+        from .escalation import maybe_escalate
+    except Exception as exc:  # pragma: no cover - escalation always present
+        logger.debug("[dag] escalation skipped (no module): %s", exc)
+        return
+
+    task_row = await db.get(PipelineTask, uuid.UUID(task_id))
+    links = list(getattr(task_row, "external_links", None) or []) if task_row else []
+
+    summary = await maybe_escalate(
+        db,
+        task_id=task_id,
+        task_title=task_title,
+        target_stage=target,
+        reject_count=reject_count,
+        links=links,
+    )
+    if summary is not None:
+        await emit_event("integrations:escalated", summary)
+
+
+async def _mirror_reject_to_external_links(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_title: str,
+    target: str,
+    feedback: Optional[str],
+    reject_count: int,
+) -> None:
+    """Post a comment to every external issue linked to ``task_id``
+    summarizing the REJECT verdict.
+
+    Lazy-imports ``mirror_comment_to_links`` and the PipelineTask model
+    to avoid pulling httpx into pure-DAG unit tests; if either import
+    or the per-link call fails we log + return, never bubbling.
+
+    The comment body is plain text on purpose — Jira's ADF wrapper
+    and GitHub Markdown both render it acceptably without escaping.
+    """
+    try:
+        from .connectors import mirror_comment_to_links  # local import
+    except Exception as exc:  # pragma: no cover - connectors always present in app
+        logger.debug("[dag] mirror skipped (no connectors module): %s", exc)
+        return
+
+    # Re-fetch the task so we always see the latest external_links —
+    # an admin may have just bound a new issue while the DAG was running.
+    task_row = await db.get(PipelineTask, uuid.UUID(task_id))
+    if task_row is None:
+        return
+    links = getattr(task_row, "external_links", None) or []
+    if not links:
+        return
+
+    preview = (feedback or "(no reason provided)").strip()
+    if len(preview) > 1500:
+        preview = preview[:1500].rstrip() + "…"
+
+    body = (
+        f"[Agent Hub] 评审驳回 → 已自动回到阶段 `{target}`（第 {reject_count} 次返工）\n\n"
+        f"**任务**: {task_title}\n"
+        f"**Task ID**: {task_id}\n\n"
+        f"**驳回理由**:\n{preview}"
+    )
+
+    results = await mirror_comment_to_links(links, body)
+    # Surface a compact SSE so the UI can show "mirrored to N trackers".
+    posted = sum(1 for r in results if r.get("ok"))
+    skipped = sum(1 for r in results if r.get("skipped"))
+    failed = sum(1 for r in results if not r.get("ok") and not r.get("skipped"))
+    if results:
+        await emit_event("integrations:mirrored", {
+            "taskId": task_id, "trigger": "reject",
+            "target": target, "rejectCount": reject_count,
+            "posted": posted, "skipped": skipped, "failed": failed,
+            "results": results,
+        })
 
 
 def resolve_execution_plan(stages: List[DAGStage], outputs: Dict[str, str] = None) -> List[List[DAGStage]]:
@@ -550,7 +706,14 @@ async def execute_dag_pipeline(
                 complexity=complexity,
                 template=template,
                 project_path=project_path,
+                reject_feedback=stage.reject_feedback,
+                reject_count=stage.reject_count,
             )
+            # One-shot consumption: clear the feedback after the agent
+            # has seen it, so a subsequent retry-without-rejection
+            # (e.g. a transient LLM error) doesn't keep replaying old
+            # criticism that the agent has already addressed.
+            stage.reject_feedback = None
 
             if stage_result.get("ok"):
                 stage.status = StageStatus.DONE
@@ -633,11 +796,61 @@ async def execute_dag_pipeline(
                 if stage.stage_id == "reviewing" and "REJECTED" in stage.output:
                     target = _extract_rejection_target(stage.output)
                     if target:
-                        _reset_to_stage(stages, target)
+                        feedback = _extract_rejection_feedback(stage.output)
+                        _reset_to_stage(stages, target, feedback=feedback)
+                        # Find the actual target stage so we can surface
+                        # the per-stage reject_count in the SSE event.
+                        target_stage = next(
+                            (s for s in stages if s.stage_id == target), None,
+                        )
+                        reject_count = target_stage.reject_count if target_stage else 0
                         await emit_event("pipeline:dag-branch", {
                             "taskId": task_id, "from": "reviewing", "to": target,
                             "reason": "Review rejected, returning to earlier stage",
+                            "feedbackPreview": (feedback or "")[:200],
+                            "rejectCount": reject_count,
                         })
+
+                        # ── Bidirectional mirror to external trackers ──
+                        # If the task is linked to one or more Jira /
+                        # GitHub issues (PipelineTask.external_links),
+                        # post a comment so reviewers see the AI's
+                        # verdict in their own queue. Failures are
+                        # swallowed inside the mirror — never block the
+                        # DAG on a flaky external service.
+                        try:
+                            await _mirror_reject_to_external_links(
+                                stage_db,
+                                task_id=task_id,
+                                task_title=task_title,
+                                target=target,
+                                feedback=feedback,
+                                reject_count=reject_count,
+                            )
+                        except Exception as mirror_err:  # pragma: no cover - defensive
+                            logger.warning(
+                                "[dag] external-link mirror failed for %s: %s",
+                                task_id, mirror_err,
+                            )
+
+                        # ── Escalation throttle ──────────────────
+                        # After N (default 3) rejects on the same
+                        # stage, add a "needs human" label, post a
+                        # louder comment, and ping IM. Throttled
+                        # internally so retry storms don't re-spam.
+                        try:
+                            await _maybe_escalate_after_reject(
+                                stage_db,
+                                task_id=task_id,
+                                task_title=task_title,
+                                target=target,
+                                reject_count=reject_count,
+                            )
+                        except Exception as esc_err:  # pragma: no cover - defensive
+                            logger.warning(
+                                "[dag] escalation failed for %s: %s",
+                                task_id, esc_err,
+                            )
 
                 # ── Wave 4: human approval gate ──────────────────────
                 # When the stage definition (or DB override) marks

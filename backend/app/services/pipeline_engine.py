@@ -754,6 +754,8 @@ async def execute_stage(
     complexity: Optional[str] = None,
     template: Optional[str] = None,
     project_path: Optional[str] = None,
+    reject_feedback: Optional[str] = None,
+    reject_count: int = 0,
 ) -> Dict[str, Any]:
     """
     Execute a single pipeline stage with all 6 maturation layers.
@@ -799,6 +801,37 @@ async def execute_stage(
             "overrideId": active_addendum.get("id"),
             "version": active_addendum.get("version"),
             "mode": active_addendum.get("mode", "active"),
+        })
+
+    # --- Layer 0.5: Self-healing — inject reviewer rejection feedback ---
+    # When the acceptance reviewer kicked work back to this stage, the
+    # orchestrator stamped the rejection reason on the DAG node. We
+    # inline it as a prominent section so the agent SEES the criticism
+    # before regenerating, instead of producing the exact same output
+    # that already failed review. This is the "single-task self-heal"
+    # half of the learning loop — distillation handles the cross-task
+    # half.
+    if reject_feedback:
+        snippet = reject_feedback.strip()
+        if len(snippet) > 4000:
+            snippet = snippet[:4000] + "\n…(truncated)"
+        system_prompt += (
+            f"\n\n<!-- self-heal attempt={reject_count} stage={stage_id} -->\n"
+            f"## ⚠️ 上一次产出被审查驳回（第 {reject_count} 次返工）\n"
+            f"评审给出的拒绝理由如下，请先逐条对照修正后再产出新版本，"
+            f"不要重复上一次的同样结构与遗漏：\n\n"
+            f"```\n{snippet}\n```\n"
+            f"## 修订要求\n"
+            f"1. 先在产出顶部用一段「本轮修订摘要」明确列出你针对每一条"
+            f"拒绝理由所做的修改；\n"
+            f"2. 然后再给出修订后的完整产出（保持本阶段的标准结构）；\n"
+            f"3. 不要简单回复「已收到」或仅做表面更名 —— 必须实质改动。\n"
+        )
+        await emit_event("learning:self-heal-injected", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "rejectCount": reject_count,
+            "feedbackPreview": snippet[:200],
         })
 
     if trace is None:
