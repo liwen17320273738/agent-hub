@@ -856,7 +856,16 @@ async def execute_stage(
     provider_keys = app_settings.get_provider_keys()
     effective_providers = available_providers or list(provider_keys.keys())
 
-    if provider_keys:
+    force_local = bool(getattr(app_settings, "pipeline_force_local_llm", False))
+    if force_local and (app_settings.llm_api_url or "").strip() and (app_settings.llm_api_key or "").strip():
+        model = app_settings.llm_model or "deepseek-chat"
+        tier = "local"
+        model_resolution = {
+            "model": model,
+            "tier": tier,
+            "reason": "pipeline_force_local_llm — use LLM_MODEL + LLM_API_URL only",
+        }
+    elif provider_keys:
         model_resolution = resolve_model(
             role=role,
             stage_id=stage_id,

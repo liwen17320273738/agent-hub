@@ -161,6 +161,9 @@ def extract_card_action(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "source": str(value.get("source") or "feishu"),
         "user_id": str(value.get("user_id") or open_id or ""),
         "open_id": open_id,
+        # Wave 5 / G4: forward task_id when present so final-acceptance
+        # button clicks can target the right task without a plan_session.
+        "task_id": str(value.get("task_id") or ""),
         "raw_value": value,
     }
 

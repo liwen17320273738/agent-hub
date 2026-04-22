@@ -26,13 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 _EVENT_LABELS: Dict[str, Dict[str, str]] = {
-    "started":       {"title": "任务已接收", "emoji": "🚀", "template": "blue"},
-    "progress":      {"title": "进度更新",   "emoji": "⏳", "template": "blue"},
-    "preview":       {"title": "预览就绪",   "emoji": "🎉", "template": "green"},
-    "completed":     {"title": "已完成上线", "emoji": "✅", "template": "green"},
-    "failed":        {"title": "任务失败",   "emoji": "❌", "template": "red"},
-    "feedback_ack":  {"title": "已收到反馈", "emoji": "📝", "template": "wathet"},
-    "iterating":     {"title": "重新处理中", "emoji": "🔄", "template": "wathet"},
+    "started":              {"title": "任务已接收",         "emoji": "🚀", "template": "blue"},
+    "progress":             {"title": "进度更新",           "emoji": "⏳", "template": "blue"},
+    "preview":              {"title": "预览就绪",           "emoji": "🎉", "template": "green"},
+    "awaiting_acceptance":  {"title": "等待最终验收",        "emoji": "🏁", "template": "orange"},
+    "completed":            {"title": "已完成上线",         "emoji": "✅", "template": "green"},
+    "failed":               {"title": "任务失败",           "emoji": "❌", "template": "red"},
+    "feedback_ack":         {"title": "已收到反馈",         "emoji": "📝", "template": "wathet"},
+    "iterating":            {"title": "重新处理中",         "emoji": "🔄", "template": "wathet"},
 }
 
 
@@ -87,10 +88,17 @@ async def notify_task_event(
         buttons = None
         if event == "preview":
             buttons = feishu_im.task_action_buttons(task_id)
+        elif event == "awaiting_acceptance":
+            buttons = feishu_im.final_acceptance_buttons(task_id)
+        # When parking at the acceptance terminus, append a tiny prompt so
+        # users who *do* type a reply (instead of clicking) know the verbs.
+        extra_lines = list(lines)
+        if event == "awaiting_acceptance":
+            extra_lines.append("回复 **通过 / 上线** 接受，**重做：原因** 打回")
         result = await feishu_im.send_card(
             open_id=task.source_user_id or "",
             title=title,
-            lines=lines + [f"`task:{task_id}`"],
+            lines=extra_lines + [f"`task:{task_id}`"],
             buttons=buttons,
             template=cfg["template"],
         )
@@ -103,10 +111,13 @@ async def notify_task_event(
         )
 
     if source == "qq":
+        qq_lines = list(lines)
+        if event == "awaiting_acceptance":
+            qq_lines.append("回复「通过」或「上线」接受；回复「重做：原因」打回。")
         result = await qq_onebot.send_text(
             user_id=task.source_user_id or "",
             title=title,
-            lines=lines,
+            lines=qq_lines,
             task_id=task_id,
         )
         return NotifyResult(
@@ -126,6 +137,12 @@ async def notify_task_event(
                 {"type": "header", "text": {"type": "plain_text", "text": title[:60]}},
                 {"type": "section", "text": {"type": "mrkdwn", "text": text_lines[:2900]}},
                 {"type": "actions", "elements": slack_im.task_action_buttons(task_id)},
+            ]
+        elif event == "awaiting_acceptance":
+            slack_blocks = [
+                {"type": "header", "text": {"type": "plain_text", "text": title[:60]}},
+                {"type": "section", "text": {"type": "mrkdwn", "text": text_lines[:2900]}},
+                {"type": "actions", "elements": slack_im.final_acceptance_buttons(task_id)},
             ]
         result = await slack_im.send_message(
             receive_id=task.source_user_id or "",

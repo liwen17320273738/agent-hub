@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -55,6 +56,17 @@ class Settings(BaseSettings):
     llm_api_url: str = ""
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
+    # Comma-separated hostnames allowed for llm_api_url (e.g. localhost,127.0.0.1 for Ollama).
+    llm_allowed_hosts: str = ""
+
+    # Compatibility aliases for external deployments that expose a custom
+    # OpenAI-compatible endpoint via ANTHROPIC_* env names.
+    anthropic_base_url: str = ""
+    anthropic_auth_token: str = ""
+    anthropic_model: str = ""
+    anthropic_default_haiku_model: str = ""
+    anthropic_default_sonnet_model: str = ""
+    anthropic_default_opus_model: str = ""
 
     # Pipeline
     pipeline_api_key: str = ""
@@ -89,9 +101,14 @@ class Settings(BaseSettings):
     # Plan/Act dual-mode for IM gateway
     # When True: clarifier-success → planner produces a short plan → wait for IM
     #            user to reply 通过/开干/approve before executing.
-    # When False (default): clarifier-success creates and dispatches the task
+    # When False: clarifier-success creates and dispatches the task
     #            immediately (legacy behavior).
-    gateway_plan_mode: bool = False
+    gateway_plan_mode: bool = True
+
+    # When True, pipeline stages always use LLM_MODEL + LLM_API_URL (e.g. Ollama),
+    # ignoring planner_worker tier routing (glm/qwen/deepseek, etc.).
+    # Use this when cloud keys exist but you want all execution on local OpenAI-compat.
+    pipeline_force_local_llm: bool = False
 
     # Rate limiting (per-IP, sliding 60s window).
     # 600/min ≈ 10 req/sec — enough headroom for the dashboard's polling fan-out
@@ -146,6 +163,36 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
+
+    @model_validator(mode="after")
+    def apply_anthropic_aliases(self) -> "Settings":
+        """Allow ANTHROPIC_* env vars to hydrate the default LLM config.
+
+        Some external stacks (for example company-hosted "gamma" gateways)
+        name a generic OpenAI-compatible endpoint as ANTHROPIC_BASE_URL /
+        ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL. This app natively reads LLM_*,
+        so when LLM_* is absent we map the aliases here.
+        """
+        if not self.llm_api_url and self.anthropic_base_url:
+            base = self.anthropic_base_url.strip().rstrip("/")
+            if base.endswith("/v1/chat/completions"):
+                self.llm_api_url = base
+            else:
+                self.llm_api_url = f"{base}/v1/chat/completions"
+
+        if not self.llm_api_key and self.anthropic_auth_token:
+            self.llm_api_key = self.anthropic_auth_token
+
+        alias_model = (
+            self.anthropic_model
+            or self.anthropic_default_sonnet_model
+            or self.anthropic_default_haiku_model
+            or self.anthropic_default_opus_model
+        )
+        if alias_model and (not self.llm_model or self.llm_model == "deepseek-chat"):
+            self.llm_model = alias_model
+
+        return self
 
     def get_provider_keys(self) -> Dict[str, str]:
         keys: Dict[str, str] = {}

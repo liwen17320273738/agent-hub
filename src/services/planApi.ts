@@ -31,6 +31,8 @@ export interface PlanSummary {
   rotation_count: number
   started_at: number | null
   max_rotations: number
+  auto_final_accept?: boolean
+  source_message_id?: string
 }
 
 export interface PlanDetail {
@@ -42,6 +44,8 @@ export interface PlanDetail {
   rotation_count: number
   started_at: number | null
   max_rotations: number
+  auto_final_accept?: boolean
+  source_message_id?: string
 }
 
 export async function listPlans(): Promise<{ count: number; items: PlanSummary[] }> {
@@ -55,7 +59,7 @@ export async function getPlan(source: string, userId: string): Promise<PlanDetai
 export async function approvePlan(
   source: string,
   userId: string,
-): Promise<{ ok: boolean; action: string; taskId: string; pipelineTriggered: boolean }> {
+): Promise<{ ok: boolean; action: string; taskId: string; pipelineTriggered: boolean; autoFinalAccept?: boolean }> {
   return apiFetch(
     `/plans/${encodeURIComponent(source)}/${encodeURIComponent(userId)}/approve`,
     { method: 'POST' },

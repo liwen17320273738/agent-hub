@@ -53,6 +53,30 @@ def task_action_buttons(task_id: str) -> List[Dict[str, Any]]:
     ]
 
 
+def final_acceptance_buttons(task_id: str) -> List[Dict[str, Any]]:
+    """Wave 5 / G3 — Slack equivalent of Feishu's final-acceptance buttons.
+
+    These map to ``final_accept`` / ``final_reject`` actions which the slack
+    interactivity handler routes through ``_handle_plan_card_action``.
+    """
+    return [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "✅ 接受交付"},
+            "style": "primary",
+            "action_id": "final_accept",
+            "value": json.dumps({"action": "final_accept", "task_id": task_id}),
+        },
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "↩ 打回重做"},
+            "style": "danger",
+            "action_id": "final_reject",
+            "value": json.dumps({"action": "final_reject", "task_id": task_id}),
+        },
+    ]
+
+
 def _plan_buttons(source: str, user_id: str, can_revise: bool) -> List[Dict[str, Any]]:
     btns: List[Dict[str, Any]] = [
         {
@@ -332,6 +356,7 @@ def extract_card_action(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "action": action_name,
         "source": str(value.get("source") or "slack"),
         "user_id": user_id,
+        "task_id": str(value.get("task_id") or ""),
         "raw_value": value,
         "response_url": payload.get("response_url") or "",
     }

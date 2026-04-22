@@ -165,7 +165,8 @@ Redis Pub/Sub for real-time pipeline updates:
 Unified message intake from external platforms:
 - **Feishu**: Webhook with signature verification
 - **QQ**: Webhook with token validation
-- **OpenClaw**: API key authentication
+- **OpenClaw**: API key authentication + optional Plan/Act approval flow
+- **Plan/Act**: Clarifier + planner can pause tasks before execution until a user or trusted API approves / revises / cancels
 - All create `PipelineTask` records and emit SSE events
 
 ### Skills (`skills/`)

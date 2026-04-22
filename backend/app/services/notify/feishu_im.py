@@ -165,6 +165,29 @@ def task_action_buttons(task_id: str) -> List[Dict[str, Any]]:
     ]
 
 
+def final_acceptance_buttons(task_id: str) -> List[Dict[str, Any]]:
+    """Wave 5 / G3 — interactive buttons for the final-acceptance terminus.
+
+    These pump back through the Feishu webhook → ``_handle_final_acceptance_card_action``
+    in the gateway. The action ids match the public API verbs so the gateway
+    handler is a thin keyword router.
+    """
+    return [
+        {
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "✅ 接受交付"},
+            "type": "primary",
+            "value": {"action": "final_accept", "task_id": task_id},
+        },
+        {
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "↩ 打回重做"},
+            "type": "danger",
+            "value": {"action": "final_reject", "task_id": task_id},
+        },
+    ]
+
+
 # ───── Plan approval card ─────────────────────────────────────────
 #
 # Schema for the button `value` payload (round-trips through Feishu's

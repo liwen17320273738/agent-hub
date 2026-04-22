@@ -76,7 +76,7 @@ async function approve(p: PlanSummary) {
         confirmButtonText: '去看看',
         cancelButtonText: '留在这',
       })
-        .then(() => router.push(`/pipeline/${r.taskId}`))
+        .then(() => router.push(`/pipeline/task/${r.taskId}`))
         .catch(() => {
           /* stay */
         })
@@ -166,6 +166,9 @@ onBeforeUnmount(() => {
         <p class="page-subtitle">
           IM 投递的待确认计划都在这里。批准后立即创建 pipeline 任务，与用户回复"开干"等价。
         </p>
+        <p class="page-subtitle">
+          现在也支持 `OpenClaw / API` 先出方案；这里会显示该计划是“人工最终验收”还是“自动上线”。
+        </p>
       </div>
       <div class="actions">
         <el-button :loading="loading" plain @click="refresh">刷新</el-button>
@@ -174,7 +177,7 @@ onBeforeUnmount(() => {
 
     <div v-if="!loading && !plans.length" class="empty">
       <p>当前没有待确认的计划。</p>
-      <p class="empty-sub">从 IM (Slack/Lark) 发起新需求后，澄清完会落到这里。</p>
+      <p class="empty-sub">从 IM（飞书 / QQ / Slack）或 OpenClaw 发起新需求后，澄清完会落到这里。</p>
     </div>
 
     <div v-else class="layout">
@@ -191,6 +194,13 @@ onBeforeUnmount(() => {
           <div class="row-meta">
             <el-tag size="small" effect="plain">{{ p.source }}</el-tag>
             <el-tag size="small" effect="plain" type="info">{{ p.step_count }} 步</el-tag>
+            <el-tag
+              size="small"
+              effect="plain"
+              :type="p.auto_final_accept ? 'success' : 'warning'"
+            >
+              {{ p.auto_final_accept ? '自动上线' : '人工验收' }}
+            </el-tag>
             <el-tag
               v-if="p.rotation_count > 0"
               size="small"
@@ -213,6 +223,12 @@ onBeforeUnmount(() => {
               <div class="detail-meta">
                 <el-tag size="small">{{ focusedDetail.source }}</el-tag>
                 <el-tag size="small" type="info">用户：{{ focusedDetail.user_id }}</el-tag>
+                <el-tag
+                  size="small"
+                  :type="focusedDetail.auto_final_accept ? 'success' : 'warning'"
+                >
+                  {{ focusedDetail.auto_final_accept ? 'autoFinalAccept=on' : 'autoFinalAccept=off' }}
+                </el-tag>
                 <el-tag
                   v-if="focusedDetail.rotation_count > 0"
                   size="small"
@@ -254,6 +270,12 @@ onBeforeUnmount(() => {
 
           <div class="card">
             <div class="section-h">原始需求</div>
+            <div class="request-meta">
+              <span>来源消息：{{ focusedDetail.source_message_id || '未记录' }}</span>
+              <span>
+                最终验收：{{ focusedDetail.auto_final_accept ? '跳过人工终点，直接上线' : '保留人工验收终点' }}
+              </span>
+            </div>
             <pre class="desc">{{ focusedDetail.description || '(无)' }}</pre>
           </div>
 
@@ -485,6 +507,14 @@ onBeforeUnmount(() => {
   font-family: inherit;
   max-height: 240px;
   overflow: auto;
+}
+.request-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #909399);
 }
 .plan-summary {
   margin: 0 0 14px 0;

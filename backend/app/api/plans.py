@@ -44,6 +44,7 @@ def _summarize(entry: Dict[str, Any]) -> Dict[str, Any]:
     payload = entry.get("payload") or {}
     plan = payload.get("plan") or {}
     steps = plan.get("steps") or []
+    options = _runtime_options(payload)
     return {
         "source": entry["source"],
         "user_id": entry["user_id"],
@@ -53,11 +54,14 @@ def _summarize(entry: Dict[str, Any]) -> Dict[str, Any]:
         "rotation_count": int(payload.get("rotation_count") or 0),
         "started_at": payload.get("started_at"),
         "max_rotations": plan_session.MAX_ROTATIONS,
+        "auto_final_accept": options["auto_final_accept"],
+        "source_message_id": options["source_message_id"],
     }
 
 
 def _full(entry: Dict[str, Any]) -> Dict[str, Any]:
     payload = entry.get("payload") or {}
+    options = _runtime_options(payload)
     return {
         "source": entry["source"],
         "user_id": entry["user_id"],
@@ -67,6 +71,18 @@ def _full(entry: Dict[str, Any]) -> Dict[str, Any]:
         "rotation_count": int(payload.get("rotation_count") or 0),
         "started_at": payload.get("started_at"),
         "max_rotations": plan_session.MAX_ROTATIONS,
+        "auto_final_accept": options["auto_final_accept"],
+        "source_message_id": options["source_message_id"],
+    }
+
+
+def _runtime_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    meta = payload.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return {
+        "auto_final_accept": bool(meta.get("auto_final_accept", False)),
+        "source_message_id": str(meta.get("source_message_id") or ""),
     }
 
 
@@ -110,12 +126,25 @@ async def approve_plan(
         raise HTTPException(status_code=400, detail="plan has no title; cannot create task")
 
     await plan_session.clear_plan(source, user_id)
+    options = _runtime_options(payload)
     task = await gateway._create_task_from_gateway(
-        db, title, description, source, "", user_id,
+        db,
+        title,
+        description,
+        source,
+        options.get("source_message_id") or "",
+        user_id,
     )
     await db.flush()
+    if options["auto_final_accept"]:
+        task.auto_final_accept = True
+        await db.flush()
     background_tasks.add_task(
-        gateway._run_pipeline_background, str(task.id), title, description,
+        gateway._run_pipeline_background,
+        str(task.id),
+        title,
+        description,
+        pause_for_acceptance=not options["auto_final_accept"],
     )
 
     try:
@@ -133,6 +162,7 @@ async def approve_plan(
         "action": "plan_approved",
         "taskId": str(task.id),
         "pipelineTriggered": True,
+        "autoFinalAccept": options["auto_final_accept"],
     }
 
 
@@ -184,6 +214,7 @@ async def revise_plan(
 
     title = str(payload.get("title") or "")
     description = str(payload.get("description") or "")
+    options = _runtime_options(payload)
 
     result = await gateway._present_plan_and_wait(
         source=source,
@@ -191,6 +222,10 @@ async def revise_plan(
         title=title,
         description=description,
         feedback_addendum=body.feedback,
+        metadata={
+            "auto_final_accept": options["auto_final_accept"],
+            "source_message_id": options["source_message_id"],
+        },
     )
 
     new_pending = await plan_session.load_plan(source, user_id)

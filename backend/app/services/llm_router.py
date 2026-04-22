@@ -106,6 +106,14 @@ def _validate_api_url(url: str) -> str:
     if not hostname:
         raise ValueError("Invalid URL: missing hostname")
 
+    extra_hosts_env = (getattr(settings, "llm_allowed_hosts", None) or "").strip()
+    extra = {h.strip().lower() for h in extra_hosts_env.split(",") if h.strip()}
+    allowed = _ALLOWED_API_HOSTS | extra
+
+    # Explicit allow (public providers + LLM_ALLOWED_HOSTS for local Ollama, etc.).
+    if hostname.lower() in allowed:
+        return url
+
     try:
         addr = ip_address(hostname)
         if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
@@ -114,17 +122,10 @@ def _validate_api_url(url: str) -> str:
         if "does not appear to be" not in str(e):
             raise
 
-    extra_hosts_env = settings.__dict__.get("llm_allowed_hosts", "")
-    extra = {h.strip().lower() for h in extra_hosts_env.split(",") if h.strip()} if extra_hosts_env else set()
-    allowed = _ALLOWED_API_HOSTS | extra
-
-    if hostname.lower() not in allowed:
-        raise ValueError(
-            f"URL host '{hostname}' is not in the allowed list. "
-            f"Allowed: {', '.join(sorted(allowed))}"
-        )
-
-    return url
+    raise ValueError(
+        f"URL host '{hostname}' is not in the allowed list. "
+        f"Allowed: {', '.join(sorted(allowed))}"
+    )
 
 
 def infer_provider(model: str, api_url: str = "") -> str:
@@ -360,6 +361,12 @@ async def chat_completion(
     imgs = image_attachments if image_attachments is not None else anthropic_image_attachments
     try:
         api_url = _validate_api_url(api_url)
+        if (
+            not api_url
+            and (getattr(settings, "llm_api_url", "") or "").strip()
+            and (settings.llm_model or "").strip() == (model or "").strip()
+        ):
+            api_url = _validate_api_url(settings.llm_api_url)
     except ValueError as e:
         return {"error": str(e), "status": 400}
 
@@ -500,6 +507,12 @@ async def chat_completion_stream(
     imgs = image_attachments if image_attachments is not None else anthropic_image_attachments
     try:
         api_url = _validate_api_url(api_url)
+        if (
+            not api_url
+            and (getattr(settings, "llm_api_url", "") or "").strip()
+            and (settings.llm_model or "").strip() == (model or "").strip()
+        ):
+            api_url = _validate_api_url(settings.llm_api_url)
     except ValueError as e:
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
         return

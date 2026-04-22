@@ -73,8 +73,21 @@ async def _create_task_from_gateway(
     return task
 
 
-async def _run_pipeline_background(task_id: str, title: str, description: str):
-    """Run FULL end-to-end flow: pipeline → codegen → build → deploy → preview."""
+async def _run_pipeline_background(
+    task_id: str,
+    title: str,
+    description: str,
+    *,
+    pause_for_acceptance: bool = True,
+):
+    """Run FULL end-to-end flow: pipeline → codegen → build → deploy → preview.
+
+    Wave 5 / G6: by default IM-originated tasks pause at the
+    ``awaiting_final_acceptance`` terminus — the user clicks 接受 / 打回
+    in the IM card to publish or rework. Pass ``pause_for_acceptance=False``
+    (or ``OpenClawIntakeRequest.auto_final_accept=True``) to keep the old
+    auto-publish behaviour for trusted automation.
+    """
     from ..services.e2e_orchestrator import run_full_e2e
 
     try:
@@ -87,14 +100,37 @@ async def _run_pipeline_background(task_id: str, title: str, description: str):
                     task_description=description,
                     auto_deploy=True,
                     dag_template="full",
+                    pause_for_acceptance=pause_for_acceptance,
                 )
                 phases = {k: v.get("ok", False) for k, v in result.get("phases", {}).items()}
                 logger.info(
                     f"[gateway] E2E completed for task {task_id}: "
-                    f"ok={result.get('ok')} url={result.get('url', '')} phases={phases}"
+                    f"ok={result.get('ok')} url={result.get('url', '')} "
+                    f"awaiting={result.get('awaitingFinalAcceptance', False)} "
+                    f"phases={phases}"
                 )
     except Exception as e:
         logger.error(f"[gateway] E2E failed for task {task_id}: {e}")
+
+
+def _should_use_plan_mode(source: str, explicit: Optional[bool] = None) -> bool:
+    """Resolve whether this gateway request should pause at the plan stage."""
+    if explicit is not None:
+        return bool(explicit)
+    if not settings.gateway_plan_mode:
+        return False
+    return (source or "").strip().lower() in ("feishu", "qq", "slack", "openclaw", "api")
+
+
+def _plan_runtime_options(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract execution-affecting options stored with a pending plan."""
+    meta = payload.get("metadata") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return {
+        "auto_final_accept": bool(meta.get("auto_final_accept", False)),
+        "source_message_id": str(meta.get("source_message_id") or ""),
+    }
 
 
 _FEEDBACK_KEYWORDS = (
@@ -102,6 +138,37 @@ _FEEDBACK_KEYWORDS = (
     "改", "修改", "调整", "revision", "fix", "重做",
     "bug", "报错", "崩了", "404", "500", "白屏",
 )
+
+# Wave 5 / G5: when a task is at the awaiting_final_acceptance terminus we
+# route IM feedback to the dedicated /final-accept | /final-reject APIs
+# instead of the (older, intra-stage) feedback_loop. These keyword sets
+# decide which verb the natural-language reply maps to.
+_FINAL_ACCEPT_KEYWORDS = (
+    "通过", "approve", "ok", "确认", "上线", "lgtm", "approved",
+    "接受", "accept", "ship", "release", "publish", "好了", "可以",
+)
+_FINAL_REJECT_KEYWORDS = (
+    "改", "修改", "调整", "revision", "fix", "重做", "回炉",
+    "reject", "redo", "rework", "退回", "打回", "不行", "不通过",
+)
+
+
+def _classify_final_acceptance_intent(text: str) -> Optional[str]:
+    """Return ``'accept'``, ``'reject'``, or ``None`` for an IM reply.
+
+    Reject wins ties — if the user wrote "通过但是要改 X" we treat it as a
+    rejection so they don't accidentally publish a not-ready build.
+    """
+    if not text:
+        return None
+    lowered = text.strip().lower()
+    has_reject = any(kw in lowered for kw in _FINAL_REJECT_KEYWORDS)
+    if has_reject:
+        return "reject"
+    has_accept = any(kw in lowered for kw in _FINAL_ACCEPT_KEYWORDS)
+    if has_accept:
+        return "accept"
+    return None
 
 
 async def _resolve_feedback_task(
@@ -143,15 +210,209 @@ async def _try_parse_feedback(
     source: str,
     user_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """Check if message is feedback for an existing task and dispatch it."""
+    """Check if message is feedback for an existing task and dispatch it.
+
+    Wave 5 / G5 split: if the resolved task is at ``awaiting_final_acceptance``,
+    we route through the new acceptance APIs (publish vs rework-from-stage)
+    rather than the older intra-stage feedback loop.
+    """
     task_id, content = await _resolve_feedback_task(text, source, user_id)
     if not task_id:
         return None
+
+    # Probe the task's status; if it's parked at the terminus, prefer the
+    # acceptance verb-router. We open a fresh session because this is called
+    # from the request path before the dispatcher's own session begins.
+    try:
+        async with async_session_factory() as probe:
+            from sqlalchemy import select as _select
+            import uuid as _uuid
+            row = await probe.execute(
+                _select(PipelineTask).where(PipelineTask.id == _uuid.UUID(task_id))
+            )
+            probe_task = row.scalar_one_or_none()
+    except Exception:
+        probe_task = None
+
+    if probe_task and probe_task.status == "awaiting_final_acceptance":
+        intent = _classify_final_acceptance_intent(content)
+        if intent in ("accept", "reject"):
+            return await _apply_final_acceptance_from_im(
+                task_id=task_id,
+                intent=intent,
+                source=source,
+                user_id=user_id,
+                raw_text=content,
+            )
+        # Unrecognised reply on a parked task — drop a hint instead of
+        # silently kicking the old feedback loop (which would have no effect).
+        try:
+            from ..services.notify import notify_user_text
+            await notify_user_text(
+                source=source, user_id=user_id,
+                title="🤔 没明白你的意思",
+                body=(
+                    "这个任务正在等你最终验收：\n"
+                    "• 回复「通过」或「上线」 → 接受交付\n"
+                    "• 回复「重做：原因」 → 打回重做"
+                ),
+            )
+        except Exception:
+            pass
+        return {
+            "ok": True, "action": "final_acceptance_prompt", "taskId": task_id,
+        }
 
     from ..services.interaction.feedback import feedback_loop
     item = await feedback_loop.parse_im_feedback(task_id, content, source, user_id)
     result = await feedback_loop.process_feedback(item.id)
     return {"ok": True, "action": "feedback", "feedbackId": item.id, "taskId": task_id, **result}
+
+
+async def _apply_final_acceptance_from_im(
+    *,
+    task_id: str,
+    intent: str,
+    source: str,
+    user_id: str,
+    raw_text: str,
+) -> Dict[str, Any]:
+    """Translate an IM reply into a /final-accept or /final-reject call.
+
+    We replicate the API's side-effects directly (no HTTP hop): mutate the
+    PipelineTask row, emit the SSE event, send a confirmation card. For
+    rejects we extract the reason after the colon if present (e.g. ``"重做：登录页崩了"``)
+    and try to recover a stage hint from a ``@stage:xxx`` token; otherwise
+    we just pause for an operator to decide which stage to rerun.
+    """
+    from datetime import datetime as _dt
+    import re as _re
+    from sqlalchemy.orm import selectinload as _selectinload
+    from sqlalchemy import select as _select
+    import uuid as _uuid
+    from ..services.notify import notify_user_text
+
+    actor_label = f"im:{source}:{user_id}" if user_id else f"im:{source}"
+
+    async with async_session_factory() as db:
+        async with db.begin():
+            row = await db.execute(
+                _select(PipelineTask)
+                .options(_selectinload(PipelineTask.stages))
+                .where(PipelineTask.id == _uuid.UUID(task_id))
+            )
+            task = row.scalar_one_or_none()
+            if not task:
+                return {"ok": False, "action": "final_acceptance_missing_task", "taskId": task_id}
+            if task.status != "awaiting_final_acceptance":
+                return {
+                    "ok": False, "action": "final_acceptance_state_mismatch",
+                    "taskId": task_id, "status": task.status,
+                }
+
+            if intent == "accept":
+                task.status = "done"
+                task.current_stage_id = "done"
+                task.final_acceptance_status = "accepted"
+                task.final_acceptance_by = actor_label
+                task.final_acceptance_at = _dt.utcnow()
+                task.final_acceptance_feedback = (raw_text or "").strip()[:500] or None
+
+                await emit_event("pipeline:final-accepted", {
+                    "taskId": task_id,
+                    "by": actor_label,
+                    "via": "im",
+                    "notes": (raw_text or "")[:200],
+                })
+
+                # Confirm in IM (best effort).
+                try:
+                    await notify_user_text(
+                        source=source, user_id=user_id,
+                        title="✅ 已上线",
+                        body=f"任务「{task.title}」已通过验收并上线，干得漂亮！",
+                    )
+                except Exception:
+                    pass
+                return {
+                    "ok": True, "action": "final_accepted_from_im",
+                    "taskId": task_id, "by": actor_label,
+                }
+
+            # intent == "reject"
+            reason = raw_text or ""
+            for sep in ("：", ":"):
+                if sep in reason:
+                    reason = reason.split(sep, 1)[1]
+                    break
+            reason = (reason or "需要修改").strip()[:1000]
+
+            stage_hint: Optional[str] = None
+            m = _re.search(r"@?stage[:：]\s*([a-zA-Z0-9_\-]+)", raw_text)
+            if m:
+                stage_hint = m.group(1)
+                if not any(s.stage_id == stage_hint for s in task.stages):
+                    stage_hint = None  # ignore unknown stage hints
+
+            task.final_acceptance_status = "rejected"
+            task.final_acceptance_by = actor_label
+            task.final_acceptance_at = _dt.utcnow()
+            task.final_acceptance_feedback = reason
+
+            if stage_hint:
+                target_stage = next(
+                    (s for s in task.stages if s.stage_id == stage_hint), None,
+                )
+                if target_stage:
+                    target_order = target_stage.sort_order
+                    for s in task.stages:
+                        if s.sort_order >= target_order:
+                            s.status = "pending"
+                            s.completed_at = None
+                            if s.stage_id == stage_hint:
+                                s.last_error = reason[:1000]
+                                if hasattr(s, "reject_feedback"):
+                                    s.reject_feedback = (
+                                        f"用户在 IM 最终验收阶段打回，要求从此阶段重做：{reason}"
+                                    )
+                    task.status = "active"
+                    task.current_stage_id = stage_hint
+            else:
+                task.status = "paused"
+
+    await emit_event("pipeline:final-rejected", {
+        "taskId": task_id,
+        "by": actor_label,
+        "via": "im",
+        "reason": reason[:500],
+        "restartFromStage": stage_hint,
+    })
+
+    try:
+        if stage_hint:
+            await notify_user_text(
+                source=source, user_id=user_id,
+                title="↩ 已打回",
+                body=f"已记下你的反馈，从 {stage_hint} 重新生成。\n原因：{reason[:200]}",
+            )
+        else:
+            await notify_user_text(
+                source=source, user_id=user_id,
+                title="↩ 已打回",
+                body=(
+                    f"已记下你的反馈，任务暂停等待操作员决定从哪一步重做。\n"
+                    f"原因：{reason[:200]}\n"
+                    f"小提示：下次可以加上「@stage:你想重做的阶段」自动从该阶段重跑。"
+                ),
+            )
+    except Exception:
+        pass
+
+    return {
+        "ok": True, "action": "final_rejected_from_im",
+        "taskId": task_id, "by": actor_label,
+        "restartFromStage": stage_hint,
+    }
 
 
 async def _clarify_or_create_task(
@@ -190,7 +451,7 @@ async def _clarify_or_create_task(
         if source_user_id:
             await clarifier_session.save_session(source, source_user_id, session)
 
-        if source_user_id and source in ("feishu", "qq"):
+        if source_user_id and source in ("feishu", "qq", "slack"):
             from ..services.notify import notify_user_text
             try:
                 await notify_user_text(
@@ -221,7 +482,7 @@ async def _clarify_or_create_task(
     ).strip()
 
     # Plan/Act dual-mode: produce a plan and WAIT for user approval.
-    if settings.gateway_plan_mode and source_user_id and source in ("feishu", "qq"):
+    if source_user_id and _should_use_plan_mode(source):
         return await _present_plan_and_wait(
             source=source,
             source_user_id=source_user_id,
@@ -264,6 +525,7 @@ async def _present_plan_and_wait(
     asked_rounds: int = 0,
     rationale: str = "",
     feedback_addendum: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Generate an execution plan, push it to the user via IM, and persist
     a plan_session waiting for approval.
@@ -278,7 +540,7 @@ async def _present_plan_and_wait(
 
     plan = await make_plan(title=title, description=plan_input_desc)
     plan_dict = plan.to_dict()
-    payload = plan_session.make_payload(title, description, plan_dict)
+    payload = plan_session.make_payload(title, description, plan_dict, metadata=metadata)
     await plan_session.save_plan(source, source_user_id, payload)
 
     # Rich interactive card on Feishu (with approve / revise / cancel buttons
@@ -368,15 +630,24 @@ async def _try_handle_plan_reply(
     intent = plan_session.detect_intent(text)
     title = str(pending.get("title") or "")
     description = str(pending.get("description") or "")
+    options = _plan_runtime_options(pending)
 
     if intent["intent"] == "approve":
         await plan_session.clear_plan(source, source_user_id)
         task = await _create_task_from_gateway(
             db, title, description, source,
-            source_message_id, source_user_id,
+            options.get("source_message_id") or source_message_id,
+            source_user_id,
         )
+        if options["auto_final_accept"]:
+            task.auto_final_accept = True
+            await db.flush()
         background_tasks.add_task(
-            _run_pipeline_background, str(task.id), title, description,
+            _run_pipeline_background,
+            str(task.id),
+            title,
+            description,
+            pause_for_acceptance=not options["auto_final_accept"],
         )
         try:
             await notify_user_text(
@@ -469,6 +740,26 @@ async def _handle_plan_card_action(
     if not user_id:
         return {"ok": False, "action": "plan_card_invalid", "reason": "no_user_id"}
 
+    # Wave 5 / G4: final-acceptance buttons don't have an associated plan
+    # session — they reference a task_id directly. Handle them upfront so
+    # we don't fall into the "plan_card_expired" early-return below.
+    if action in ("final_accept", "final_reject"):
+        target_task_id = str(card.get("task_id") or "").strip()
+        if not target_task_id:
+            return {"ok": False, "action": f"{action}_invalid", "reason": "no_task_id"}
+        intent = "accept" if action == "final_accept" else "reject"
+        synth = (
+            "[card] 通过" if intent == "accept"
+            else "[card] 重做：用户点击了「打回重做」按钮"
+        )
+        return await _apply_final_acceptance_from_im(
+            task_id=target_task_id,
+            intent=intent,
+            source=source,
+            user_id=user_id,
+            raw_text=synth,
+        )
+
     pending = await plan_session.load_plan(source, user_id)
     if not pending:
         try:
@@ -483,14 +774,27 @@ async def _handle_plan_card_action(
 
     title = str(pending.get("title") or "")
     description = str(pending.get("description") or "")
+    options = _plan_runtime_options(pending)
 
     if action == "plan_approve":
         await plan_session.clear_plan(source, user_id)
         task = await _create_task_from_gateway(
-            db, title, description, source, "", user_id,
+            db,
+            title,
+            description,
+            source,
+            options.get("source_message_id") or "",
+            user_id,
         )
+        if options["auto_final_accept"]:
+            task.auto_final_accept = True
+            await db.flush()
         background_tasks.add_task(
-            _run_pipeline_background, str(task.id), title, description,
+            _run_pipeline_background,
+            str(task.id),
+            title,
+            description,
+            pause_for_acceptance=not options["auto_final_accept"],
         )
         try:
             await notify_user_text(
@@ -549,6 +853,37 @@ class OpenClawIntakeRequest(BaseModel):
     source: str = "api"
     messageId: str = ""
     userId: str = ""
+    planMode: Optional[bool] = None
+    # Wave 5 / G6: trusted automation can opt out of the human terminus
+    # and let the e2e auto-publish straight after build/test/deploy/preview.
+    autoFinalAccept: bool = False
+
+
+class OpenClawPlanReviseRequest(BaseModel):
+    feedback: str
+
+
+def _extract_gateway_bearer(request: Request) -> str:
+    auth = request.headers.get("authorization", "")
+    return auth.replace("Bearer ", "").strip() if auth.startswith("Bearer ") else ""
+
+
+def _require_openclaw_secret(request: Request) -> None:
+    secret = settings.pipeline_api_key
+    if not secret:
+        raise HTTPException(status_code=503, detail="Gateway not configured: PIPELINE_API_KEY is required")
+    token = _extract_gateway_bearer(request)
+    if not _secrets.compare_digest(token, secret):
+        raise HTTPException(status_code=403, detail="Invalid gateway secret")
+
+
+def _openclaw_plan_links(source: str, user_id: str) -> Dict[str, str]:
+    base = f"/api/gateway/openclaw/plans/{source}/{user_id}"
+    return {
+        "approve": f"{base}/approve",
+        "reject": f"{base}/reject",
+        "revise": f"{base}/revise",
+    }
 
 
 @router.post("/openclaw/intake")
@@ -558,21 +893,46 @@ async def openclaw_intake(
     background_tasks: BackgroundTasks,
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
-    secret = settings.pipeline_api_key
-    if not secret:
-        raise HTTPException(status_code=503, detail="Gateway not configured: PIPELINE_API_KEY is required")
-    auth = request.headers.get("authorization", "")
-    token = auth.replace("Bearer ", "").strip() if auth.startswith("Bearer ") else ""
-    if not _secrets.compare_digest(token, secret):
-        raise HTTPException(status_code=403, detail="Invalid gateway secret")
+    _require_openclaw_secret(request)
 
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="title is required")
 
+    source = (body.source or "api").strip() or "api"
+    use_plan_mode = _should_use_plan_mode(source, body.planMode)
+    if use_plan_mode and not body.userId.strip():
+        raise HTTPException(status_code=400, detail="userId is required when planMode is enabled")
+
+    if use_plan_mode:
+        result = await _present_plan_and_wait(
+            source=source,
+            source_user_id=body.userId.strip(),
+            title=body.title.strip(),
+            description=(body.description or body.title).strip(),
+            rationale="openclaw_direct",
+            metadata={
+                "auto_final_accept": bool(body.autoFinalAccept),
+                "source_message_id": body.messageId,
+            },
+        )
+        result["planMode"] = True
+        result["autoFinalAccept"] = bool(body.autoFinalAccept)
+        result["planSession"] = {
+            "source": source,
+            "userId": body.userId.strip(),
+            "links": _openclaw_plan_links(source, body.userId.strip()),
+        }
+        result["pipelineTriggered"] = False
+        return result
+
     task = await _create_task_from_gateway(
-        db, body.title, body.description, body.source,
+        db, body.title, body.description, source,
         body.messageId, body.userId,
     )
+
+    if body.autoFinalAccept:
+        task.auto_final_accept = True
+        await db.flush()
 
     result = await db.execute(
         select(PipelineTask)
@@ -582,15 +942,134 @@ async def openclaw_intake(
     full_task = result.scalar_one()
 
     background_tasks.add_task(
-        _run_pipeline_background, str(task.id), body.title, body.description,
+        _run_pipeline_background,
+        str(task.id), body.title, body.description,
+        pause_for_acceptance=not body.autoFinalAccept,
     )
 
-    return {"ok": True, "taskId": str(task.id), "pipelineTriggered": True, "task": full_task}
+    return {
+        "ok": True, "taskId": str(task.id), "pipelineTriggered": True,
+        "planMode": False,
+        "autoFinalAccept": bool(body.autoFinalAccept),
+        "task": full_task,
+    }
 
 
 @router.get("/openclaw/status")
 async def openclaw_status():
     return {"gateway": "openclaw", "status": "online"}
+
+
+@router.post("/openclaw/plans/{source}/{user_id}/approve")
+async def openclaw_approve_plan(
+    source: str,
+    user_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    from ..services import plan_session
+
+    _require_openclaw_secret(request)
+    payload = await plan_session.load_plan(source, user_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="no pending plan")
+
+    title = str(payload.get("title") or "")
+    description = str(payload.get("description") or "")
+    if not title:
+        raise HTTPException(status_code=400, detail="plan has no title; cannot create task")
+
+    options = _plan_runtime_options(payload)
+    await plan_session.clear_plan(source, user_id)
+    task = await _create_task_from_gateway(
+        db,
+        title,
+        description,
+        source,
+        options.get("source_message_id") or "",
+        user_id,
+    )
+    if options["auto_final_accept"]:
+        task.auto_final_accept = True
+        await db.flush()
+    background_tasks.add_task(
+        _run_pipeline_background,
+        str(task.id),
+        title,
+        description,
+        pause_for_acceptance=not options["auto_final_accept"],
+    )
+    return {
+        "ok": True,
+        "action": "plan_approved",
+        "taskId": str(task.id),
+        "pipelineTriggered": True,
+        "autoFinalAccept": options["auto_final_accept"],
+    }
+
+
+@router.post("/openclaw/plans/{source}/{user_id}/reject")
+async def openclaw_reject_plan(
+    source: str,
+    user_id: str,
+    request: Request,
+):
+    from ..services import plan_session
+
+    _require_openclaw_secret(request)
+    payload = await plan_session.load_plan(source, user_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="no pending plan")
+    await plan_session.clear_plan(source, user_id)
+    return {"ok": True, "action": "plan_rejected"}
+
+
+@router.post("/openclaw/plans/{source}/{user_id}/revise")
+async def openclaw_revise_plan(
+    source: str,
+    user_id: str,
+    body: OpenClawPlanReviseRequest,
+    request: Request,
+):
+    from ..services import plan_session
+
+    _require_openclaw_secret(request)
+    payload = await plan_session.load_plan(source, user_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="no pending plan")
+
+    rotation = int(payload.get("rotation_count") or 0)
+    if rotation >= plan_session.MAX_ROTATIONS:
+        await plan_session.clear_plan(source, user_id)
+        raise HTTPException(
+            status_code=400,
+            detail=f"max rotations reached ({plan_session.MAX_ROTATIONS}); please re-submit a new requirement",
+        )
+
+    title = str(payload.get("title") or "")
+    description = str(payload.get("description") or "")
+    result = await _present_plan_and_wait(
+        source=source,
+        source_user_id=user_id,
+        title=title,
+        description=description,
+        feedback_addendum=body.feedback,
+        metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+    )
+    new_pending = await plan_session.load_plan(source, user_id)
+    if new_pending:
+        new_pending["rotation_count"] = rotation + 1
+        await plan_session.save_plan(source, user_id, new_pending)
+    result["rotation_count"] = rotation + 1
+    result["planMode"] = True
+    result["planSession"] = {
+        "source": source,
+        "userId": user_id,
+        "links": _openclaw_plan_links(source, user_id),
+    }
+    result["pipelineTriggered"] = False
+    return result
 
 
 # --- Feishu Webhook (Event v2) ---
@@ -645,6 +1124,9 @@ async def feishu_webhook(
     # `message` node and would otherwise fall through to "ignored".
     card = extract_card_action(payload)
     if card:
+        # _handle_plan_card_action also routes Wave 5 final_accept/final_reject
+        # button clicks (G4); the task_id from the button value flows through
+        # via the card dict.
         card_response = await _handle_plan_card_action(
             db, background_tasks, card,
         )
@@ -851,13 +1333,19 @@ async def slack_webhook(
             return {"ok": True, "action": "ignored", "reason": "invalid_payload"}
 
         action = slack_im.extract_card_action(payload)
-        if action and action["action"].startswith("plan_"):
+        if action and (
+            action["action"].startswith("plan_")
+            or action["action"] in ("final_accept", "final_reject")
+        ):
             resp = await _handle_plan_card_action(
                 db, background_tasks,
                 {
                     "action": action["action"],
                     "source": "slack",
                     "user_id": action["user_id"],
+                    # Wave 5 / G4: forward task_id so final_accept/final_reject
+                    # buttons can target the right task.
+                    "task_id": action.get("task_id") or "",
                 },
             )
             # Best-effort acknowledgement back to Slack channel where the
@@ -870,6 +1358,10 @@ async def slack_webhook(
                     ack = "🛑 已取消"
                 elif resp.get("action") == "plan_revise_prompt":
                     ack = "请回复修改要求"
+                elif resp.get("action") == "final_accepted_from_im":
+                    ack = "✅ 已接受验收，准备上线"
+                elif resp.get("action") == "final_rejected_from_im":
+                    ack = "↩ 已打回，等待重新生成"
             elif resp:
                 ack = f"❌ 处理失败：{resp.get('reason') or resp.get('action') or 'unknown'}"
             if ack and action.get("response_url"):

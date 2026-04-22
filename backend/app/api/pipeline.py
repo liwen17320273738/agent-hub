@@ -1516,12 +1516,54 @@ async def final_accept_task(
         "notes": body.notes or "",
     })
 
+    # Wave 5 / G2: if the task came in from Feishu/QQ, push a "已上线" card
+    # back to the originator so the loop closes inside their IM client
+    # without them having to look at the dashboard.
+    deploy_url = await _lookup_deploy_url(db, task)
+    try:
+        from ..services.notify import notify_task_event
+        await notify_task_event(
+            task,
+            event="completed",
+            message=(
+                f"已通过最终验收（by {user.email}）"
+                + (f"\n备注：{body.notes}" if body.notes else "")
+            ),
+            url=deploy_url,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[pipeline] post-accept notify failed: %s", e)
+
     return {
         "ok": True,
         "taskId": task_id,
         "by": user.email,
         "acceptedAt": task.final_acceptance_at.isoformat(),
+        "deployUrl": deploy_url,
     }
+
+
+async def _lookup_deploy_url(db: AsyncSession, task: PipelineTask) -> str:
+    """Best-effort: find the most recent ``deployment`` artifact's URL."""
+    try:
+        rows = await db.execute(
+            select(PipelineArtifact)
+            .where(
+                PipelineArtifact.task_id == task.id,
+                PipelineArtifact.artifact_type == "deployment",
+            )
+            .order_by(PipelineArtifact.created_at.desc())
+            .limit(1)
+        )
+        art = rows.scalar_one_or_none()
+        if not art or not art.content:
+            return ""
+        for line in art.content.splitlines():
+            if line.lower().startswith("url:"):
+                return line.split(":", 1)[1].strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 @router.post("/tasks/{task_id}/final-reject")
@@ -1613,6 +1655,18 @@ async def final_reject_task(
             "restartFromStage": target_stage,
         })
 
+        # Wave 5 / G2: notify the originating IM channel so the operator
+        # sees the rework start without polling the dashboard.
+        try:
+            from ..services.notify import notify_task_event
+            await notify_task_event(
+                task,
+                event="iterating",
+                message=f"已打回，从 {target_stage} 重新生成\n原因：{body.reason[:200]}",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[pipeline] post-reject notify failed: %s", e)
+
         # Re-enqueue the DAG. We use the existing dag_run path so the resume
         # mechanism (skip already-DONE stages) takes care of the rest.
         if background_tasks is not None:
@@ -1650,6 +1704,15 @@ async def final_reject_task(
             "reason": body.reason[:500],
             "restartFromStage": None,
         })
+        try:
+            from ..services.notify import notify_task_event
+            await notify_task_event(
+                task,
+                event="failed",
+                message=f"已打回，等待操作员决定下一步\n原因：{body.reason[:200]}",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[pipeline] post-reject (paused) notify failed: %s", e)
         return {
             "ok": True,
             "paused": True,

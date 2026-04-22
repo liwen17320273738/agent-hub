@@ -47,6 +47,7 @@ from .api import (
     scheduler as scheduler_api,
     integrations as integrations_api,
     workflows as workflows_api,
+    openai_compat,
 )
 
 logging.basicConfig(
@@ -282,6 +283,9 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(scheduler_api.router)
     application.include_router(integrations_api.router)
     application.include_router(workflows_api.router, prefix="/api")
+
+    # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
+    application.include_router(openai_compat.router)
 
     # ── Health & Config ──────────────────────────────────────────────────
 

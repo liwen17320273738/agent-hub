@@ -21,6 +21,10 @@
     </header>
 
     <section class="pipeline-stats">
+      <div class="stat-card stat-card--clickable" @click="router.push('/plan-inbox')">
+        <div class="stat-number" :class="{ 'stat-highlight': pendingPlanCount > 0 }">{{ pendingPlanCount }}</div>
+        <div class="stat-label">待审批计划</div>
+      </div>
       <div class="stat-card">
         <div class="stat-number">{{ pipelineStore.activeTasks.length }}</div>
         <div class="stat-label">进行中</div>
@@ -360,6 +364,7 @@ import {
   uploadTaskAttachment,
   validateLocalPath,
 } from '@/services/pipelineApi'
+import { listPlans } from '@/services/planApi'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import type { SDLCTemplate } from '@/services/pipelineApi'
 import type { PipelineEvent, PipelineTask } from '@/agents/types'
@@ -367,6 +372,8 @@ import type { PipelineEvent, PipelineTask } from '@/agents/types'
 const router = useRouter()
 
 const pipelineStore = usePipelineStore()
+
+const pendingPlanCount = ref(0)
 
 const showCreateDialog = ref(false)
 const creating = ref(false)
@@ -747,6 +754,17 @@ async function handleCreateTask() {
   }
 }
 
+let planPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function refreshPendingPlanCount() {
+  try {
+    const res = await listPlans()
+    pendingPlanCount.value = res.count ?? res.items?.length ?? 0
+  } catch {
+    /* plan inbox optional */
+  }
+}
+
 onMounted(async () => {
   localProjectParent.value = localStorage.getItem(LOCAL_PROJECT_PARENT_KEY) || ''
   pipelineStore.loadTasks()
@@ -767,10 +785,13 @@ onMounted(async () => {
     /* sdlc templates optional */
   }
   loadObsData()
+  refreshPendingPlanCount()
+  planPollTimer = setInterval(refreshPendingPlanCount, 15_000)
 })
 
 onUnmounted(() => {
   pipelineStore.stopEventStream()
+  if (planPollTimer) clearInterval(planPollTimer)
 })
 </script>
 
@@ -826,10 +847,30 @@ onUnmounted(() => {
   text-align: center;
 }
 
+.stat-card--clickable {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.stat-card--clickable:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
 .stat-number {
   font-size: 32px;
   font-weight: 700;
   color: var(--accent);
+}
+
+.stat-highlight {
+  color: #e6a23c;
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
 }
 
 .stat-label {

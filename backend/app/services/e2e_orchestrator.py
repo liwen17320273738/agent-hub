@@ -71,6 +71,7 @@ async def run_full_e2e(
     auto_deploy: bool = True,
     dag_template: str = "full",
     existing_project_dir: Optional[str] = None,
+    pause_for_acceptance: bool = False,
 ) -> Dict[str, Any]:
     """Execute the FULL end-to-end flow:
 
@@ -78,8 +79,17 @@ async def run_full_e2e(
     Phase 2: Code Generation via Claude Code — writes real files in projects/{slug}
     Phase 3: Build + Test → Fix loop — build, run tests, auto-fix up to N times
     Phase 4: Review Pipeline (testing → reviewing) — QA validates the real code
-    Phase 5: Deploy — Vercel / Cloudflare / miniprogram
+    Phase 5: Deploy — Vercel / Cloudflare / miniprogram (preview/staging URL)
     Phase 6: Preview + Notify — screenshot + channel notification
+
+    ``pause_for_acceptance`` (Wave 5 / G1):
+        When True, instead of auto-marking the task ``done`` after Phase 5.5,
+        we park it at ``awaiting_final_acceptance`` and push an interactive
+        acceptance card to the originating IM channel. The user clicks
+        接受 / 打回 — accept marks the task done & sends a "已上线" follow-up;
+        reject re-runs the chosen stage. This is the toggle the gateway
+        flips for Feishu/QQ-originated tasks so deploy → human gate →
+        promote becomes a real loop instead of a silent auto-publish.
 
     Returns a comprehensive result dict.
     """
@@ -131,14 +141,28 @@ async def run_full_e2e(
 
     from .dag_orchestrator import execute_dag_pipeline
 
-    pipeline_result = await execute_dag_pipeline(
-        db,
-        task_id=task_id,
-        task_title=task_title,
-        task_description=effective_description,
-        template=dag_template,
-        project_path=existing_project_dir,
-    )
+    # The DAG owns its own awaiting_final_acceptance gate (Wave 4 / D),
+    # but inside e2e the user's real "is this done?" gate is post-deploy.
+    # We temporarily flip auto_final_accept so the DAG does not park,
+    # then restore the user's preference when we own the decision below.
+    user_auto_final_accept = bool(getattr(db_task, "auto_final_accept", False)) if db_task else False
+    if db_task is not None and not user_auto_final_accept:
+        db_task.auto_final_accept = True
+        await db.flush()
+
+    try:
+        pipeline_result = await execute_dag_pipeline(
+            db,
+            task_id=task_id,
+            task_title=task_title,
+            task_description=effective_description,
+            template=dag_template,
+            project_path=existing_project_dir,
+        )
+    finally:
+        if db_task is not None and not user_auto_final_accept:
+            db_task.auto_final_accept = False
+            await db.flush()
 
     e2e_result["phases"]["design_pipeline"] = {
         "ok": pipeline_result.get("ok", False),
@@ -424,9 +448,41 @@ async def run_full_e2e(
     e2e_result["ok"] = all_ok
     e2e_result["url"] = preview_url
 
-    if db_task and all_ok:
+    # Wave 5 / G1: when the gateway asked us to pause, hand off to the
+    # human acceptance terminus instead of auto-publishing. The DAG
+    # orchestrator may have already moved the task into a terminal state
+    # (because we let it run to completion above); here we explicitly
+    # override it so we own the decision.
+    pause_now = pause_for_acceptance and all_ok and bool(db_task)
+
+    if db_task and all_ok and not pause_now:
         db_task.status = "done"
+        # Auto-publish path: stamp the auto-acceptance so the dashboard's
+        # final-acceptance banner doesn't blink for already-done tasks.
+        if not (db_task.final_acceptance_status or "").strip():
+            from datetime import datetime as _dt
+            db_task.final_acceptance_status = "accepted"
+            db_task.final_acceptance_by = "auto"
+            db_task.final_acceptance_at = _dt.utcnow()
         await db.flush()
+    elif pause_now:
+        from datetime import datetime as _dt
+        db_task.status = "awaiting_final_acceptance"
+        db_task.current_stage_id = "final_acceptance"
+        db_task.final_acceptance_status = "pending"
+        db_task.final_acceptance_at = None
+        db_task.final_acceptance_by = None
+        await db.flush()
+        e2e_result["awaitingFinalAcceptance"] = True
+        await emit_event("pipeline:awaiting-final-acceptance", {
+            "taskId": task_id,
+            "title": task_title,
+            "url": preview_url,
+            "stagesCompleted": pipeline_result.get("summary", {}).get("stagesCompleted", 0),
+            "stagesTotal": pipeline_result.get("summary", {}).get("stagesTotal", 0),
+            "overallQualityScore": getattr(db_task, "overall_quality_score", None),
+            "previewReady": bool(preview_url),
+        })
 
     await emit_event("e2e:complete", {
         "taskId": task_id,
@@ -434,9 +490,21 @@ async def run_full_e2e(
         "url": preview_url,
         "engine": codegen_result.get("engine", "unknown"),
         "phases": {k: v.get("ok", False) for k, v in e2e_result["phases"].items()},
+        "awaitingAcceptance": pause_now,
     })
 
-    if all_ok:
+    if all_ok and pause_now:
+        # Push the interactive acceptance card with preview URL + score.
+        await _notify(
+            "awaiting_acceptance",
+            message="预览已就绪，请验收：通过 / 打回重做",
+            url=preview_url,
+            extras={
+                "代码生成": codegen_result.get("engine", "unknown"),
+                "质量分": getattr(db_task, "overall_quality_score", None),
+            },
+        )
+    elif all_ok:
         await _notify(
             "completed",
             message="项目已上线，开始体验吧",

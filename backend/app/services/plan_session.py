@@ -77,14 +77,22 @@ async def clear_plan(source: str, user_id: str) -> None:
         pass
 
 
-def make_payload(title: str, description: str, plan: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+def make_payload(
+    title: str,
+    description: str,
+    plan: Dict[str, Any],
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = {
         "title": title,
         "description": description,
         "plan": plan,
         "rotation_count": 0,
         "started_at": time.time(),
     }
+    if metadata:
+        payload["metadata"] = metadata
+    return payload
 
 
 async def list_pending(prefix: str = "gateway:plan:") -> list[Dict[str, Any]]:
