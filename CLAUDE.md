@@ -62,12 +62,16 @@ agent-hub/
 │   │   │   ├── collaboration.py  # Pipeline stages definition
 │   │   │   ├── planner_worker.py # Model resolution
 │   │   │   ├── model_registry.py # Model catalog
-│   │   │   └── token_tracker.py  # Usage tracking
+│   │   │   ├── token_tracker.py  # Usage tracking
+│   │   │   ├── artifact_writer.py # Stage→TaskArtifact v2 bridge
+│   │   │   ├── manifest_sync.py  # Rebuild manifest.json from DB
+│   │   │   └── workspace_archiver.py # Archive old task worktrees
 │   │   ├── models/               # SQLAlchemy ORM
 │   │   │   ├── user.py           # Org + User
 │   │   │   ├── workspace.py      # Workspace + WorkspaceMember
 │   │   │   ├── credential.py    # Fernet-encrypted vault
 │   │   │   ├── pipeline.py       # PipelineTask + Stage + Artifact
+│   │   │   ├── task_artifact.py  # TaskArtifact v2 + ArtifactTypeRegistry (12 types)
 │   │   │   ├── workflow.py       # Saved workflow DAGs
 │   │   │   ├── agent.py          # AgentDefinition + skills/rules
 │   │   │   └── observability.py  # Traces, spans, audit logs
@@ -86,12 +90,15 @@ agent-hub/
 │   │   ├── Workflow.vue          # Visual workflow builder + run
 │   │   ├── Assets.vue            # Models, skills, integrations
 │   │   ├── SharePage.vue         # Public share (no auth) + acceptance
-│   │   └── PipelineTaskDetail.vue # 3-tab: overview/deliverables/swimlane
+│   │   └── PipelineTaskDetail.vue # 4-tab: artifacts(8-tab)/overview/deliverables/swimlane
 │   ├── components/
 │   │   ├── workspace/WorkspaceSwitcher.vue
 │   │   ├── task/FailureCard.vue  # RCA 4-field business card
 │   │   ├── task/DeliverableCards.vue # 8 doc cards (reused in SharePage)
 │   │   ├── task/ArtifactCompletionBar.vue
+│   │   ├── task/TaskArtifactTabs.vue  # 8-Tab delivery view (the core issuse21 UI)
+│   │   ├── task/TaskDocTab.vue        # Markdown + version switcher + superseded
+│   │   ├── task/TaskCodeTab.vue       # Code artifact (repo/branch/commits)
 │   │   └── inbox/TaskTable.vue   # Task list with cost column
 │   ├── services/                 # API clients
 │   └── stores/                   # Pinia stores
@@ -257,6 +264,16 @@ from app.config import settings
 - vue-i18n with zh/en locale files
 - All 5 sidebar entries + Dashboard + Inbox covered
 - Language toggle in sidebar footer, persisted to localStorage
+
+### Artifact System (issuse21)
+- **DB as source of truth**: `TaskArtifact` with version tracking + `is_latest` flag
+- **12 registered types**: brief, prd, ui_spec, architecture, implementation, test_report, acceptance, ops_runbook, code_link, screenshot, attachment, deploy_manifest
+- **Version history**: Each write auto-increments version, old row → `is_latest=False`
+- **Supersede on reject**: `POST /tasks/{id}/artifacts/{type}/supersede` marks as `superseded`
+- **Manifest cache**: `manifest.json` rebuilt async from DB after each write (fallback to DB if stale)
+- **8-Tab delivery UI**: `TaskArtifactTabs.vue` as default task detail view — user finds PRD/UI/code/tests in 10s
+- **Archiver**: Tasks accepted >30d or cancelled >7d → worktree compressed to `_archive/`
+- **Pipeline integration**: `artifact_writer.py` auto-writes v2 artifact when stage completes
 
 ### Pipeline & Workflow
 - 14-role agent team with DAG orchestration

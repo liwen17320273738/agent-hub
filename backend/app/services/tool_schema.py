@@ -17,7 +17,7 @@ import time
 from enum import Enum
 from typing import Optional, Dict, Any, List
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,9 @@ class SkillSchema(BaseModel):
     required_tools: List[str] = []
     side_effects: List[str] = []  # e.g. ["file_write", "api_call", "database_write"]
 
-    @validator("id")
-    def validate_id(cls, v):
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
         if not v or not v.replace("-", "").replace("_", "").isalnum():
             raise ValueError("Skill ID must be alphanumeric with hyphens/underscores")
         return v

@@ -13,6 +13,7 @@ from .learning import LearningSignal, PromptOverride
 from .workflow import Workflow
 from .workspace import Workspace, WorkspaceMember
 from .credential import Credential
+from .task_artifact import TaskArtifact, ArtifactTypeRegistry
 
 __all__ = [
     "AgentMessage",
@@ -45,4 +46,6 @@ __all__ = [
     "Workspace",
     "WorkspaceMember",
     "Credential",
+    "TaskArtifact",
+    "ArtifactTypeRegistry",
 ]

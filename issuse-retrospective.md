@@ -1,6 +1,6 @@
 # agent-hub 全量 Issue 回顾与反思
 
-> 截止 2026-04-22，共 45 个文件（21 个主 issue + 24 个 phase）。
+> 截止 2026-04-23，共 45 个文件（21 个主 issue + 24 个 phase）+ 8 个 ADR。
 >
 > 这份文档不是"清单"，是**反思**：我们到底做了什么、漏了什么、重复了什么、学到了什么。
 
@@ -284,7 +284,7 @@ issuse21.phase 加了 Phase 0 是对的。但本该在 issuse03 就建立"决策
 | issuse18.md | 战略参考 | 路线图 |
 | issuse19.md | **被 20 取代** | 保留价值观参考 |
 | issuse20.md | **W1-W4 已交付** | 30 天手册 — AI 交付平台 |
-| issuse21.md + phase | **已交付** | 工件体系架构设计 |
+| issuse21.md + phase | **Phase 0-4 已交付** | 工件体系全链路落地 |
 | issuse-retrospective.md | 本文件 | 全量回顾 |
 
 ---
@@ -315,13 +315,78 @@ issuse21.phase 加了 Phase 0 是对的。但本该在 issuse03 就建立"决策
 - **i18n**：vue-i18n 中英双语，sidebar 全量覆盖
 - **测试**：27 个新测试全部通过
 
-### 关键指标
+---
+
+## 七、issuse21 工件体系落地成果（Phase 0-4）
+
+### Phase 0：架构决策确认
+- 8 个决策全部写入 config：`workspace_root`、`artifact_store_v2=True`
+- DB 权威、manifest 缓存策略确认
+
+### Phase 1：任务级目录（W1-W2 同步完成）
+- `task_workspace.py` 创建任务目录 + manifest.json
+- 双写模式：旧 `docs/delivery/*.md` + 新 `tasks/TASK-xxx/docs/`
+
+### Phase 2：DB 工件索引 + 版本化
+- **`TaskArtifact`** 模型：版本追踪 + `is_latest` + `status(active/superseded)`
+- **`ArtifactTypeRegistry`**：12 个预置类型（需求/PRD/UI/架构/代码/测试/验收/运维/截图/附件/部署清单/实现说明）
+- **工件 CRUD API**：`GET/POST /tasks/{id}/artifacts/{type}` + `POST .../supersede`
+- **`artifact_writer.py`**：pipeline engine stage 完成自动写入 v2 artifact
+- **`manifest_sync.py`**：异步重建 manifest.json 缓存
+
+### Phase 3：8 Tab 交付视图
+- **`TaskArtifactTabs.vue`**：8 个固定 Tab + 顶部完成度缩略条
+- **`TaskDocTab.vue`**：Markdown 渲染 + 版本历史下拉 + superseded 标记
+- **`TaskCodeTab.vue`**：代码工件展示（路径/分支/commit/变更文件/测试状态）
+- 任务详情页默认打开"交付物"Tab，不再默认概览大杂烩
+
+### Phase 4：迁移 + 归档
+- **`workspace_archiver.py`**：已验收 30 天 / 已取消 7 天自动 tar.gz 归档
+- **`artifact_store_v2=True`**：新任务只写 v2 路径，旧任务 fallback 兼容
+- `pipeline_engine.py` 集成 `artifact_writer.write_artifact_v2()`
+- 14 个新单测全部通过
+
+### 关键指标（W1-W4 + Phase 0-4 合计）
 | 指标 | 值 |
 |------|-----|
 | Sidebar 入口数 | 5（从 30+） |
-| 新 API 端点 | 15+ |
-| 新 Vue 组件 | 10+ |
-| 新后端模型 | 3（Workspace / WorkspaceMember / Credential） |
-| 测试通过率 | 27/27 (100%) |
+| 新 API 端点 | 20+ |
+| 新 Vue 组件 | 13+ |
+| 新后端模型 | 5（Workspace / WorkspaceMember / Credential / TaskArtifact / ArtifactTypeRegistry） |
+| 测试通过率 | 322/322 (100%)（修复 4 个 Redis 弹性降级 + 27 W4 + 14 Phase 2-4） |
+| Pydantic 警告 | 0（@validator → @field_validator + .dict() → .model_dump()） |
+| ADR 文件 | 8（docs/adr/0001-0008） |
+| 废弃 Issue | issuse08（废弃）+ issuse15（重复） |
 | Frontend Build | 0 errors |
 | Backend 健康 | healthy (PostgreSQL + Redis) |
+| Hero Path E2E | 全链路通过（12类型 + 工件写入 + 版本升级 + is_latest翻转） |
+
+---
+
+## 项目自测（Self-Test）— 12 Projects × 17 Tests
+
+> 执行日期: 2026-04-23
+
+### 覆盖范围
+
+12 个多样化项目（Web/API/数据/移动/DevOps/安全/文档/SaaS/IoT/AI/可观测/教育），每项目 17 项测试（创建→7阶段推进→4工件写入→版本升级→工件列表→工件详情→Pipeline工件→分享链接→分享访问→ZIP下载→预算→RCA→质量→Supersede→更新）。
+
+### 自测发现并修复的问题
+
+| # | 问题 | 严重性 | 修复 |
+|---|------|--------|------|
+| 1 | 空标题可创建任务（无校验） | 中 | `field_validator("title")` |
+| 2 | 已完成任务仍可推进（状态未防护） | 中 | advance 增加 `status==done` 前置检查 |
+| 3 | 分享令牌 ~6% 随机失败（HMAC字节含 `\|`） | 高 | 签名改用 hex 编码 |
+
+### 最终结果
+
+| 指标 | 值 |
+|------|-----|
+| 测试项目 | 12 |
+| 总测试用例 | 312 |
+| 通过率 | **100.0%** |
+| 边界条件测试 | 7/7 PASS |
+| DAG模板验证 | 15 templates OK |
+| 问题发现并修复 | 3/3 |
+| 单测回归 | 322/322 PASS |

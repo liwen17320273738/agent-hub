@@ -142,29 +142,39 @@ async def _get_cached_embedding(content_hash: str) -> Optional[List[float]]:
 
 async def set_working_context(task_id: str, key: str, value: Any) -> None:
     """Store ephemeral working context for an active task."""
-    r = get_redis()
-    redis_key = f"working_memory:{task_id}"
-    await r.hset(redis_key, key, json.dumps(value, ensure_ascii=False, default=str))
-    await r.expire(redis_key, _WORKING_MEMORY_TTL)
+    try:
+        r = get_redis()
+        redis_key = f"working_memory:{task_id}"
+        await r.hset(redis_key, key, json.dumps(value, ensure_ascii=False, default=str))
+        await r.expire(redis_key, _WORKING_MEMORY_TTL)
+    except Exception as e:
+        logger.warning(f"[memory] Redis unavailable for set_working_context: {e}")
 
 
 async def get_working_context(task_id: str) -> Dict[str, Any]:
     """Retrieve all working context for a task."""
-    r = get_redis()
-    redis_key = f"working_memory:{task_id}"
-    raw = await r.hgetall(redis_key)
-    result = {}
-    for k, v in raw.items():
-        try:
-            result[k] = json.loads(v)
-        except (json.JSONDecodeError, TypeError):
-            result[k] = v
-    return result
+    try:
+        r = get_redis()
+        redis_key = f"working_memory:{task_id}"
+        raw = await r.hgetall(redis_key)
+        result = {}
+        for k, v in raw.items():
+            try:
+                result[k] = json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                result[k] = v
+        return result
+    except Exception as e:
+        logger.warning(f"[memory] Redis unavailable for get_working_context: {e}")
+        return {}
 
 
 async def clear_working_context(task_id: str) -> None:
-    r = get_redis()
-    await r.delete(f"working_memory:{task_id}")
+    try:
+        r = get_redis()
+        await r.delete(f"working_memory:{task_id}")
+    except Exception as e:
+        logger.warning(f"[memory] Redis unavailable for clear_working_context: {e}")
 
 
 async def store_memory(

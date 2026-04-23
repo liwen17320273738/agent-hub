@@ -10,7 +10,7 @@ from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +44,13 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 class CreateTaskRequest(BaseModel):
     title: str
     description: str = ""
+
+    @field_validator("title")
+    @classmethod
+    def title_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("标题不能为空")
+        return v.strip()
     source: str = "web"
     template: Optional[str] = None
     repo_url: Optional[str] = None
@@ -364,6 +371,9 @@ async def advance_task(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     task = await _get_task_or_404(db, task_id, user)
+
+    if task.status == "done":
+        raise HTTPException(status_code=400, detail="任务已完成，无法继续推进")
 
     sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
     current_idx = next(

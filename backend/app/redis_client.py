@@ -338,11 +338,14 @@ redis = _LazyRedis()
 
 
 async def cache_get(key: str) -> Optional[Any]:
-    r = get_redis()
-    raw = await r.get(key)
-    if raw is None:
+    try:
+        r = get_redis()
+        raw = await r.get(key)
+        if raw is None:
+            return None
+        return json.loads(raw)
+    except Exception:
         return None
-    return json.loads(raw)
 
 
 async def cache_set(key: str, data: Any, ttl: Optional[int] = None) -> None:

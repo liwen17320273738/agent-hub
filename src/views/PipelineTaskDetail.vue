@@ -41,9 +41,10 @@
       </div>
     </header>
 
-    <ArtifactCompletionBar :stages="task.stages" />
-
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
+      <el-tab-pane label="交付物" name="artifacts">
+        <TaskArtifactTabs :task-id="task.id" />
+      </el-tab-pane>
       <el-tab-pane label="概览" name="overview">
     <section v-if="qualitySummary.total > 0" class="quality-summary">
       <div class="quality-bar">
@@ -725,6 +726,7 @@ import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
+import TaskArtifactTabs from '@/components/task/TaskArtifactTabs.vue'
 import FailureCard from '@/components/task/FailureCard.vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
@@ -740,7 +742,7 @@ const pipelineStore = usePipelineStore()
 
 const task = ref<PipelineTask | null>(null)
 const loadError = ref('')
-const activeMainTab = ref('overview')
+const activeMainTab = ref('artifacts')
 
 // Approval SLA — drives the "stuck for N min" pill and overdue toast.
 // onCritical fires once per stage per page session — the user gets one

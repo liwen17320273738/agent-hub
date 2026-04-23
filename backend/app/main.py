@@ -52,6 +52,7 @@ from .api import (
     workspaces as workspaces_api,
     credentials as credentials_api,
     deliverables as deliverables_api,
+    task_artifacts as task_artifacts_api,
 )
 
 logging.basicConfig(
@@ -137,6 +138,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await db.commit()
     logger.info("Seed data loaded.")
 
+    async with async_session() as db:
+        await _seed_artifact_types(db)
+        await db.commit()
+
     from .services.skill_loader import discover_skills, sync_skills_to_db
     skills_found = discover_skills()
     logger.info(f"Loaded {len(skills_found)} filesystem skills.")
@@ -176,6 +181,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     await engine.dispose()
     logger.info("Agent Hub backend stopped.")
+
+
+async def _seed_artifact_types(db):
+    from sqlalchemy import select
+    from .models.task_artifact import ArtifactTypeRegistry, BUILTIN_ARTIFACT_TYPES
+
+    existing = await db.execute(select(ArtifactTypeRegistry.type_key))
+    existing_keys = {r[0] for r in existing.all()}
+    added = 0
+    for spec in BUILTIN_ARTIFACT_TYPES:
+        if spec["type_key"] not in existing_keys:
+            db.add(ArtifactTypeRegistry(**spec))
+            added += 1
+    if added:
+        await db.flush()
+        logger.info(f"Seeded {added} artifact types.")
 
 
 async def _bootstrap_admin(db):
@@ -291,6 +312,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(workspaces_api.router, prefix="/api")
     application.include_router(credentials_api.router, prefix="/api")
     application.include_router(deliverables_api.router)
+    application.include_router(task_artifacts_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)

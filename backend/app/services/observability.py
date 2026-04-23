@@ -509,35 +509,38 @@ async def get_task_traces(task_id: str) -> List[PipelineTrace]:
 
 async def get_recent_traces(limit: int = 20) -> List[Dict[str, Any]]:
     """Get recent traces — Redis sorted set first, DB fallback."""
-    r = get_redis()
-    raw = await r.zrevrange("traces:recent", 0, limit - 1)
-    trace_ids = [tid.decode() if isinstance(tid, bytes) else tid for tid in (raw or [])]
-
     results: List[Dict[str, Any]] = []
 
-    if trace_ids:
-        for tid in trace_ids:
-            trace = await _load_trace(tid)
-            if not trace:
-                continue
-            span_ids = await _get_trace_span_ids(tid)
-            results.append({
-                "trace_id": trace.trace_id,
-                "task_id": trace.task_id,
-                "task_title": trace.task_title,
-                "status": trace.status,
-                "duration_ms": trace.duration_ms,
-                "total_tokens": trace.total_tokens,
-                "total_cost_usd": trace.total_cost_usd,
-                "total_llm_calls": trace.total_llm_calls,
-                "models_used": trace.models_used,
-                "stage_durations": trace.stage_durations,
-                "span_count": len(span_ids),
-                "started_at": trace.started_at,
-                "completed_at": trace.completed_at,
-            })
-        if results:
-            return results
+    try:
+        r = get_redis()
+        raw = await r.zrevrange("traces:recent", 0, limit - 1)
+        trace_ids = [tid.decode() if isinstance(tid, bytes) else tid for tid in (raw or [])]
+
+        if trace_ids:
+            for tid in trace_ids:
+                trace = await _load_trace(tid)
+                if not trace:
+                    continue
+                span_ids = await _get_trace_span_ids(tid)
+                results.append({
+                    "trace_id": trace.trace_id,
+                    "task_id": trace.task_id,
+                    "task_title": trace.task_title,
+                    "status": trace.status,
+                    "duration_ms": trace.duration_ms,
+                    "total_tokens": trace.total_tokens,
+                    "total_cost_usd": trace.total_cost_usd,
+                    "total_llm_calls": trace.total_llm_calls,
+                    "models_used": trace.models_used,
+                    "stage_durations": trace.stage_durations,
+                    "span_count": len(span_ids),
+                    "started_at": trace.started_at,
+                    "completed_at": trace.completed_at,
+                })
+            if results:
+                return results
+    except Exception as redis_err:
+        logger.warning(f"[trace] Redis unavailable for recent traces, falling back to DB: {redis_err}")
 
     try:
         async with async_session() as db:

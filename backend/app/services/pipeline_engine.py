@@ -1516,6 +1516,12 @@ async def execute_full_pipeline(
         except Exception as ws_err:
             logger.warning(f"[pipeline] Failed to write task workspace doc for {stage_id}: {ws_err}")
 
+        try:
+            from .artifact_writer import write_artifact_v2
+            await write_artifact_v2(db, task_id, stage_id, content)
+        except Exception as art_err:
+            logger.warning(f"[pipeline] Failed to write v2 artifact for {stage_id}: {art_err}")
+
         # --- Quality Gate Evaluation ---
         gate_result = None
         try:

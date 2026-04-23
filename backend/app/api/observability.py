@@ -85,7 +85,7 @@ async def list_approvals(
     _user=Depends(get_current_user),
 ):
     approvals = await get_pending_approvals(task_id)
-    return {"approvals": [a.dict() for a in approvals]}
+    return {"approvals": [a.model_dump() for a in approvals]}
 
 
 class ResolveApprovalRequest(BaseModel):
@@ -125,7 +125,7 @@ async def resolve_approval_endpoint(
     )
     if not result:
         raise HTTPException(status_code=404, detail="Approval request not found")
-    return {"approval": result.dict()}
+    return {"approval": result.model_dump()}
 
 
 # --- Audit Log ---
@@ -137,7 +137,7 @@ async def get_audit_log_endpoint(
     _user=Depends(get_current_user),
 ):
     entries = await get_audit_log(task_id=task_id, limit=limit)
-    return {"entries": [e.dict() for e in entries]}
+    return {"entries": [e.model_dump() for e in entries]}
 
 
 # --- Dashboard Snapshot ---

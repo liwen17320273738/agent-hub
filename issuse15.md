@@ -1,3 +1,9 @@
+> **⚠️ 重复 (DUPLICATE)** — 本文件内容与 `issuse14.md` 完全相同，编号重复。
+> 正式版本请参考 `issuse14.md` + `issuse14.phase.md`。
+> `issuse15.phase.md`（OpenAI 兼容桥接层）是独立内容，仍然有效。
+
+---
+
 Issue 14｜Plan/Act 双模态产品化：让飞书 / QQ / OpenClaw 发任务先出方案，再开干
 
 目标

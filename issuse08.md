@@ -1,3 +1,8 @@
+> **⚠️ 废弃 (DEPRECATED)** — 本文件是未展开的 Gateway 片段，已被 `issuse15.phase.md`（OpenAI 兼容桥接层）取代。
+> 保留仅供历史参考，不作为开发依据。
+
+---
+
 果你下一步要真正切流，目标接口就是：
 
 POST /api/gateway/openclaw/intake

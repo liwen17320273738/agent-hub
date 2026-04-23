@@ -338,21 +338,24 @@ async def resolve_approval(
 
 async def get_pending_approvals(task_id: Optional[str] = None) -> List[ApprovalRequest]:
     """Get all pending approval requests — Redis first, DB fallback."""
-    r = get_redis()
+    approvals: List[ApprovalRequest] = []
 
-    if task_id:
-        ids = await r.zrange(f"approvals:task:{task_id}", 0, -1)
-    else:
-        ids = await r.smembers("approvals:pending")
+    try:
+        r = get_redis()
+        if task_id:
+            ids = await r.zrange(f"approvals:task:{task_id}", 0, -1)
+        else:
+            ids = await r.smembers("approvals:pending")
 
-    approvals = []
-    for aid in ids:
-        a = await _get_approval(aid)
-        if a and a.status == ApprovalStatus.PENDING:
-            approvals.append(a)
+        for aid in ids:
+            a = await _get_approval(aid)
+            if a and a.status == ApprovalStatus.PENDING:
+                approvals.append(a)
 
-    if approvals:
-        return approvals
+        if approvals:
+            return approvals
+    except Exception as redis_err:
+        logger.warning(f"[guardrail] Redis unavailable for approvals, falling back to DB: {redis_err}")
 
     try:
         async with async_session() as db:
@@ -382,21 +385,24 @@ async def get_audit_log(
     limit: int = 100,
 ) -> List[AuditEntry]:
     """Get audit log entries, newest first — Redis first, DB fallback."""
-    r = get_redis()
+    entries: List[AuditEntry] = []
 
-    if task_id:
-        ids = await r.zrevrange(f"audit:task:{task_id}", 0, limit - 1)
-    else:
-        ids = await r.zrevrange("audit:log", 0, limit - 1)
+    try:
+        r = get_redis()
+        if task_id:
+            ids = await r.zrevrange(f"audit:task:{task_id}", 0, limit - 1)
+        else:
+            ids = await r.zrevrange("audit:log", 0, limit - 1)
 
-    entries = []
-    for eid in ids:
-        data = await cache_get(_audit_entry_key(eid))
-        if data:
-            entries.append(AuditEntry(**data))
+        for eid in ids:
+            data = await cache_get(_audit_entry_key(eid))
+            if data:
+                entries.append(AuditEntry(**data))
 
-    if entries:
-        return entries
+        if entries:
+            return entries
+    except Exception as redis_err:
+        logger.warning(f"[guardrail] Redis unavailable for audit log, falling back to DB: {redis_err}")
 
     try:
         async with async_session() as db:

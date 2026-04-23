@@ -61,15 +61,33 @@ docker compose up --build -d
 ```
 src/               前端 Vue 3 应用
   views/           页面组件（5 入口 + 深链页面）
-  components/      通用组件
+  components/      通用组件（8-Tab 交付视图、工作区切换、RCA 卡片等）
   services/        API 调用 + 业务逻辑
   stores/          Pinia 状态管理
+  i18n/            国际化（中/英双语）
 backend/           FastAPI 后端
-  app/api/         路由层
-  app/services/    业务服务层
-  app/models/      SQLAlchemy 数据模型
+  app/api/         路由层（20+ 端点）
+  app/services/    业务服务层（pipeline + artifacts + archiver）
+  app/models/      SQLAlchemy 数据模型（5 核心模型）
+  tests/           Pytest 测试（322 tests, 100% pass）
 data/workspace/    任务工作区（按任务隔离）
+docs/adr/          架构决策记录（8 ADR）
 ```
+
+## 工件体系
+
+每个任务自动生成 8 类交付物，全部通过 DB 索引 + 版本追踪：
+
+| 类型 | 文件 | 说明 |
+|------|------|------|
+| 需求简报 | `00-brief.md` | 任务需求描述 |
+| PRD | `01-prd.md` | 产品需求文档 |
+| UI 规格 | `02-ui-spec.md` | 界面设计说明 |
+| 技术方案 | `03-architecture.md` | 架构选型与设计 |
+| 代码 | code_link | 仓库路径 + 分支 + 测试状态 |
+| 测试报告 | `05-test-report.md` | 测试结果与覆盖率 |
+| 验收记录 | `06-acceptance.md` | 签字确认 + 打回历史 |
+| 运维手册 | `07-ops-runbook.md` | 部署 + 回滚方案 |
 
 ## 环境变量
 

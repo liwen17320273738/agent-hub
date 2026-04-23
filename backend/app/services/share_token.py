@@ -24,7 +24,8 @@ def create_share_token(task_id: str, ttl_days: int = 7) -> str:
     expires = int(time.time()) + ttl_days * 86400
     payload = f"{task_id}|{expires}".encode()
     sig = hmac.new(_secret(), payload, hashlib.sha256).digest()[:16]
-    raw = payload + b"|" + sig
+    sig_hex = sig.hex()
+    raw = payload + b"|" + sig_hex.encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
@@ -38,7 +39,11 @@ def verify_share_token(token: str) -> Optional[str]:
         parts = raw.rsplit(b"|", 1)
         if len(parts) != 2:
             return None
-        payload, sig = parts
+        payload, sig_part = parts
+        try:
+            sig = bytes.fromhex(sig_part.decode())
+        except (ValueError, UnicodeDecodeError):
+            sig = sig_part
         expected = hmac.new(_secret(), payload, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(sig, expected):
             return None

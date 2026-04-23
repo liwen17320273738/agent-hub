@@ -75,6 +75,8 @@ class Settings(BaseSettings):
 
     # Task workspace (issuse21 D1)
     workspace_root: str = ""
+    # Artifact store v2 — when True, new tasks only write task-scoped dirs (issuse21 D8)
+    artifact_store_v2: bool = True
 
     # Git clone allowlist (comma-separated hostnames). Empty = use defaults.
     git_allowed_hosts: str = "github.com,gitee.com,gitlab.com,bitbucket.org,codeup.aliyun.com"
