@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings as app_settings
 from .llm_router import chat_completion
 from .planner_worker import resolve_model
 from .memory import get_context_from_history, store_memory
@@ -131,6 +132,8 @@ class AgentRuntime:
                 "messages": messages,
                 "temperature": self.temperature,
             }
+            if getattr(app_settings, "pipeline_force_local_llm", False):
+                call_kwargs["api_url"] = app_settings.llm_api_url or ""
             if self.tools:
                 # 直接传 function 定义列表，llm_router 负责按 provider 格式包装
                 call_kwargs["tools"] = self.tools

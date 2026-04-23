@@ -36,6 +36,79 @@ from .sse import emit_event
 
 logger = logging.getLogger(__name__)
 
+_STAGE_MIN_OUTPUT_HINTS: Dict[str, int] = {
+    "planning": 1200,
+    "design": 1800,
+    "architecture": 1600,
+    "development": 2500,
+    "testing": 1200,
+    "reviewing": 600,
+}
+
+
+def _needs_output_top_up(stage_id: str, content: str) -> bool:
+    text = (content or "").strip()
+    min_len = _STAGE_MIN_OUTPUT_HINTS.get(stage_id)
+    if not min_len:
+        return False
+    if len(text) >= min_len:
+        return False
+    # Short responses that end mid-word / mid-table are common with some
+    # OpenAI-compatible reasoning gateways; give them one continuation shot.
+    tail = text[-120:]
+    return bool(text) and (
+        text[-1:].isalnum()
+        or tail.endswith("|")
+        or "## " not in text
+        or len(text) < int(min_len * 0.7)
+    )
+
+
+async def _top_up_stage_output(
+    *,
+    stage_id: str,
+    model: str,
+    api_url: str,
+    system_prompt: str,
+    partial_content: str,
+    repair_feedback: str = "",
+) -> str:
+    required = {
+        "planning": "## 目标用户\n## 功能范围\n## 用户故事\n## 验收标准\n## 非功能需求\n## 里程碑计划",
+        "design": "## 设计原则\n## 设计 Token\n## 核心页面布局\n## 组件清单\n## 交互流程\n## 无障碍",
+        "architecture": "## 系统架构\n## 数据模型\n## API 设计\n## 前端架构\n## 实现路线图\n## 风险与降级\n## 文件清单",
+        "development": "## 项目结构\n## 核心代码\n## 数据库\n## API 实现\n## 前端实现\n## 配置文件\n## 开发说明",
+        "testing": "## 测试范围\n## 测试矩阵\n## 测试用例\n## 边界分析\n## 安全审查\n## 性能预估\n## 结论",
+        "reviewing": "## 评估\n## 验收结论\n## 关键证据\n## 风险与建议",
+    }.get(stage_id, "缺失章节")
+
+    prompt = (
+        "你上一条阶段产出明显过短或被截断了。"
+        "不要重复已有内容，请从中断处继续，补齐缺失章节，并返回完整的剩余正文。\n\n"
+        f"## 当前阶段\n{stage_id}\n"
+        "## 必须使用的精确 Markdown 标题\n"
+        f"{required}\n\n"
+        f"## 修复要求\n{repair_feedback or '优先补齐缺失章节并确保文档完整，不要停在半句或半张表。'}\n\n"
+        "## 已生成内容（不要原样重复）\n"
+        f"{partial_content[-3000:]}\n\n"
+        "请继续输出缺失内容，直到该阶段文档完整可交付。"
+    )
+    result = await llm_chat_with_fallback(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ],
+        api_url=api_url,
+        max_tokens=8192,
+    )
+    extra = (result.get("content") or "").strip()
+    if not extra:
+        return partial_content
+    if extra in partial_content:
+        return partial_content
+    return f"{partial_content.rstrip()}\n\n{extra}".strip()
+
 _AGENT_KEY_TO_SEED_ID = {
     "ceo-agent":         "wayne-ceo",
     "architect-agent":   "wayne-cto",
@@ -1074,6 +1147,23 @@ async def execute_stage(
         })
         return {"ok": False, "error": str(e)}
 
+    if tier == "local":
+        api_url = app_settings.llm_api_url or ""
+        if api_url and _needs_output_top_up(stage_id, content):
+            try:
+                content = await _top_up_stage_output(
+                    stage_id=stage_id,
+                    model=model,
+                    api_url=api_url,
+                    system_prompt=system_prompt,
+                    partial_content=content,
+                )
+            except Exception as top_up_err:
+                logger.warning(
+                    "[pipeline] Stage %s output top-up failed: %s",
+                    stage_id, top_up_err,
+                )
+
     # --- Layer 5: Self-Verify → validate output ---
     verification = verify_stage_output(
         stage_id=stage_id,
@@ -1081,6 +1171,36 @@ async def execute_stage(
         output=content,
         previous_outputs=previous_outputs,
     )
+
+    if tier == "local" and verification.overall_status == VerifyStatus.FAIL:
+        api_url = app_settings.llm_api_url or ""
+        if api_url and stage_id in _STAGE_MIN_OUTPUT_HINTS:
+            repair_feedback = "; ".join(
+                c.message for c in verification.checks
+                if getattr(c, "status", None) == VerifyStatus.FAIL
+            )
+            try:
+                repaired = await _top_up_stage_output(
+                    stage_id=stage_id,
+                    model=model,
+                    api_url=api_url,
+                    system_prompt=system_prompt,
+                    partial_content=content,
+                    repair_feedback=repair_feedback,
+                )
+                if repaired != content:
+                    content = repaired
+                    verification = verify_stage_output(
+                        stage_id=stage_id,
+                        role=role,
+                        output=content,
+                        previous_outputs=previous_outputs,
+                    )
+            except Exception as top_up_err:
+                logger.warning(
+                    "[pipeline] Stage %s repair top-up failed: %s",
+                    stage_id, top_up_err,
+                )
 
     # --- Layer 3 + 6: Tool Schema (record execution) ---
     provider = llm_result.get("provider", "openai") if llm_result else "openai"

@@ -73,6 +73,22 @@ async def _create_task_from_gateway(
     return task
 
 
+async def _commit_task_before_background(
+    db: AsyncSession,
+    task: PipelineTask,
+) -> PipelineTask:
+    """Persist the task row before spawning a background worker.
+
+    FastAPI background tasks may start before the request-scoped `get_db()`
+    dependency reaches its post-yield `commit()`. The worker uses a fresh DB
+    session, so without an explicit commit it can fail to see the newly created
+    `pipeline_tasks` row and trip FK errors when writing checkpoints/artifacts.
+    """
+    await db.commit()
+    await db.refresh(task)
+    return task
+
+
 async def _run_pipeline_background(
     task_id: str,
     title: str,
@@ -92,23 +108,23 @@ async def _run_pipeline_background(
 
     try:
         async with async_session_factory() as db:
-            async with db.begin():
-                result = await run_full_e2e(
-                    db,
-                    task_id=task_id,
-                    task_title=title,
-                    task_description=description,
-                    auto_deploy=True,
-                    dag_template="full",
-                    pause_for_acceptance=pause_for_acceptance,
-                )
-                phases = {k: v.get("ok", False) for k, v in result.get("phases", {}).items()}
-                logger.info(
-                    f"[gateway] E2E completed for task {task_id}: "
-                    f"ok={result.get('ok')} url={result.get('url', '')} "
-                    f"awaiting={result.get('awaitingFinalAcceptance', False)} "
-                    f"phases={phases}"
-                )
+            result = await run_full_e2e(
+                db,
+                task_id=task_id,
+                task_title=title,
+                task_description=description,
+                auto_deploy=True,
+                dag_template="full",
+                pause_for_acceptance=pause_for_acceptance,
+            )
+            await db.commit()
+            phases = {k: v.get("ok", False) for k, v in result.get("phases", {}).items()}
+            logger.info(
+                f"[gateway] E2E completed for task {task_id}: "
+                f"ok={result.get('ok')} url={result.get('url', '')} "
+                f"awaiting={result.get('awaitingFinalAcceptance', False)} "
+                f"phases={phases}"
+            )
     except Exception as e:
         logger.error(f"[gateway] E2E failed for task {task_id}: {e}")
 
@@ -496,6 +512,7 @@ async def _clarify_or_create_task(
         db, final_title, final_description, source,
         source_message_id, source_user_id,
     )
+    await _commit_task_before_background(db, task)
 
     background_tasks.add_task(
         _run_pipeline_background, str(task.id), final_title, final_description,
@@ -642,6 +659,7 @@ async def _try_handle_plan_reply(
         if options["auto_final_accept"]:
             task.auto_final_accept = True
             await db.flush()
+        await _commit_task_before_background(db, task)
         background_tasks.add_task(
             _run_pipeline_background,
             str(task.id),
@@ -789,6 +807,7 @@ async def _handle_plan_card_action(
         if options["auto_final_accept"]:
             task.auto_final_accept = True
             await db.flush()
+        await _commit_task_before_background(db, task)
         background_tasks.add_task(
             _run_pipeline_background,
             str(task.id),
@@ -940,6 +959,7 @@ async def openclaw_intake(
         .where(PipelineTask.id == task.id)
     )
     full_task = result.scalar_one()
+    await _commit_task_before_background(db, task)
 
     background_tasks.add_task(
         _run_pipeline_background,
@@ -993,6 +1013,7 @@ async def openclaw_approve_plan(
     if options["auto_final_accept"]:
         task.auto_final_accept = True
         await db.flush()
+    await _commit_task_before_background(db, task)
     background_tasks.add_task(
         _run_pipeline_background,
         str(task.id),

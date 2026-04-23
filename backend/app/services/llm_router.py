@@ -187,6 +187,69 @@ def _messages_openai_multimodal(
     return out
 
 
+def _stringify_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append(str(item.get("text", "")))
+                elif item.get("type") == "image_url":
+                    parts.append("[image omitted]")
+            else:
+                parts.append(str(item))
+        return "\n".join(p for p in parts if p)
+    return str(content or "")
+
+
+def _flatten_openai_tool_history(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert tool-call conversation into plain text-only messages.
+
+    Some third-party OpenAI-compatible gateways accept basic chat completions
+    but reject OpenAI tool-call history (`role=tool`, `tool_calls`) inside the
+    `messages` array. For those endpoints we degrade the history into ordinary
+    system/user/assistant turns and retry once.
+    """
+    flat: List[Dict[str, Any]] = []
+    for msg in messages:
+        role = str(msg.get("role") or "")
+        if role not in ("system", "user", "assistant", "tool"):
+            continue
+
+        content = _stringify_message_content(msg.get("content", ""))
+        if role == "assistant" and msg.get("tool_calls"):
+            tool_lines: List[str] = []
+            for tc in msg.get("tool_calls") or []:
+                fn = ((tc or {}).get("function") or {}).get("name", "tool")
+                args = ((tc or {}).get("function") or {}).get("arguments", "{}")
+                tool_lines.append(f"[tool call] {fn}({args})")
+            merged = "\n".join(p for p in [content.strip(), *tool_lines] if p).strip()
+            flat.append({"role": "assistant", "content": merged or "[tool call requested]"})
+            continue
+
+        if role == "tool":
+            tool_id = str(msg.get("tool_call_id") or "").strip()
+            prefix = f"[tool result {tool_id}]" if tool_id else "[tool result]"
+            merged = "\n".join(p for p in [prefix, content.strip()] if p).strip()
+            flat.append({"role": "user", "content": merged})
+            continue
+
+        flat.append({"role": role, "content": content})
+    return flat
+
+
+def _is_custom_openai_compat(provider: str, api_url: str) -> bool:
+    if provider != "openai" or not api_url:
+        return False
+    try:
+        host = (urlparse(api_url).hostname or "").lower()
+    except Exception:
+        return False
+    return bool(host) and host not in _ALLOWED_API_HOSTS
+
+
 def _extract_system_and_messages(messages: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]]]:
     system_parts = [m["content"] for m in messages if m.get("role") == "system"]
     system = "\n\n".join(system_parts).strip()
@@ -339,6 +402,44 @@ def _parse_gemini_response(data: Dict[str, Any]) -> Tuple[str, Optional[Dict[str
     return content, usage
 
 
+def _extract_openai_message_text(message: Dict[str, Any]) -> str:
+    """Extract the most useful text from an OpenAI-compatible message.
+
+    Some third-party compatible gateways return an empty `content` but include
+    text inside non-standard fields like `reasoning` / `reasoning_content`.
+    """
+    content = message.get("content", "")
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+        merged = "\n".join(p for p in parts if p).strip()
+        if merged:
+            return merged
+
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+    if isinstance(reasoning, list):
+        parts = []
+        for item in reasoning:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", "")))
+            else:
+                parts.append(str(item))
+        merged = "\n".join(p for p in parts if p).strip()
+        if merged:
+            return merged
+
+    reasoning_content = message.get("reasoning_content")
+    if isinstance(reasoning_content, str) and reasoning_content.strip():
+        return reasoning_content
+    return ""
+
+
 async def chat_completion(
     *,
     model: str,
@@ -461,11 +562,21 @@ async def chat_completion(
                 body["messages"] = messages
                 resp = await client.post(url, headers=headers, json=body)
                 latency_ms = int((time.monotonic() - started) * 1000)
+            if resp.status_code == 400 and _is_custom_openai_compat(provider, url):
+                err_text = resp.text[:2000]
+                if "messages" in err_text.lower():
+                    logger.warning(
+                        "[llm] Custom OpenAI-compatible endpoint rejected messages; "
+                        "retrying with flattened tool history"
+                    )
+                    body["messages"] = _flatten_openai_tool_history(messages)
+                    resp = await client.post(url, headers=headers, json=body)
+                    latency_ms = int((time.monotonic() - started) * 1000)
             if resp.status_code != 200:
                 return {"error": resp.text[:2000], "status": resp.status_code, "latency_ms": latency_ms}
             data = resp.json()
             choice = data.get("choices", [{}])[0]
-            content = choice.get("message", {}).get("content", "")
+            content = _extract_openai_message_text(choice.get("message", {}) or {})
             usage = data.get("usage")
             result = {
                 "content": content, "usage": usage,

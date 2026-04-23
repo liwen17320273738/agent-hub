@@ -389,9 +389,16 @@ async def _persist_stage_state(
             return
         if db_status:
             row.status = db_status
+        if stage.output:
+            row.output = stage.output
         row.retry_count = stage.retry_count
         row.last_error = (stage.error or "")[:5000] if stage.error else None
+        if (db_status or "").lower() == "done":
+            row.completed_at = datetime.utcnow()
+        elif db_status:
+            row.completed_at = None
         await db.flush()
+        await db.commit()
     except Exception as e:
         logger.debug(f"[dag] persist_stage_state failed for {stage.stage_id}: {e}")
 
@@ -852,6 +859,9 @@ async def execute_dag_pipeline(
                     logger.warning(f"[dag] Quality gate evaluation failed for {stage.stage_id}: {gate_err}")
 
                 if stage.status == StageStatus.DONE:
+                    await _persist_stage_state(
+                        stage_db, task_id, stage, db_status="done",
+                    )
                     await emit_event("stage:completed", {
                         "taskId": task_id, "stageId": stage.stage_id,
                     })
@@ -1109,22 +1119,25 @@ async def execute_dag_pipeline(
     db_task = db_result.scalar_one_or_none()
     if db_task:
         for stage in stages:
-            if stage.output:
-                db_stage = next(
-                    (s for s in db_task.stages if s.stage_id == stage.stage_id), None
-                )
-                if db_stage:
-                    db_stage.output = stage.output
-                    if stage.status == StageStatus.DONE:
-                        db_stage.status = "done"
-                        db_stage.completed_at = datetime.utcnow()
-                    elif stage.status == StageStatus.BLOCKED:
-                        # Preserve "awaiting_approval" written by the
-                        # human-gate hook — don't downgrade it to "blocked".
-                        if db_stage.status != "awaiting_approval":
-                            db_stage.status = "blocked"
-                        db_stage.completed_at = None
+            db_stage = next(
+                (s for s in db_task.stages if s.stage_id == stage.stage_id), None
+            )
+            if db_stage:
+                db_stage.output = stage.output or db_stage.output
+                if stage.status == StageStatus.DONE:
+                    db_stage.status = "done"
+                    db_stage.completed_at = datetime.utcnow()
+                elif stage.status == StageStatus.BLOCKED:
+                    # Preserve "awaiting_approval" written by the
+                    # human-gate hook — don't downgrade it to "blocked".
+                    if db_stage.status != "awaiting_approval":
+                        db_stage.status = "blocked"
+                    db_stage.completed_at = None
+                elif stage.status == StageStatus.FAILED:
+                    db_stage.status = "error"
+                    db_stage.completed_at = None
 
+            if stage.output:
                 artifact = PipelineArtifact(
                     task_id=db_task.id,
                     artifact_type="document",
