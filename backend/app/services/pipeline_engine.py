@@ -843,6 +843,7 @@ async def execute_stage(
     project_path: Optional[str] = None,
     reject_feedback: Optional[str] = None,
     reject_count: int = 0,
+    gate_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Execute a single pipeline stage with all 6 maturation layers.
@@ -920,6 +921,80 @@ async def execute_stage(
             "rejectCount": reject_count,
             "feedbackPreview": snippet[:200],
         })
+
+    # --- Layer 0.6: Gate self-heal — inject quality-gate failure feedback ---
+    # Mirror of the reject_feedback layer above, but for the *quality
+    # gate* failure path. When the user clicks "让 AI 重跑这个阶段" after
+    # a gate failure, the API hands us the previous gate result here.
+    # Without this layer the agent would regenerate the same output that
+    # already failed the gate (35% → 35% → 35% loop). We inline the
+    # failing checks + suggestions so the new attempt actually targets
+    # what the gate flagged.
+    if gate_feedback:
+        try:
+            details = gate_feedback.get("details") or {}
+            checks = details.get("checks") or []
+            suggestions = details.get("suggestions") or []
+            block_reason = details.get("block_reason") or ""
+            score = gate_feedback.get("score")
+            score_pct = (
+                f"{round(score * 100)}%" if isinstance(score, (int, float)) else "未知"
+            )
+
+            failing = [
+                c for c in checks
+                if str(c.get("status", "")).lower() in ("fail", "failed", "warn", "warning")
+            ]
+            failing.sort(
+                key=lambda c: (
+                    0 if str(c.get("status", "")).lower().startswith("fail") else 1,
+                    c.get("score", 1.0),
+                ),
+            )
+            top_failing = failing[:8]
+
+            check_lines = "\n".join(
+                f"- [{str(c.get('status','')).upper()}] "
+                f"{c.get('category','misc')}/{c.get('name','?')} "
+                f"({round((c.get('score') or 0) * 100)}%): {c.get('message','—')}"
+                for c in top_failing
+            ) or "（门禁未给出明细 check 列表）"
+
+            suggestion_lines = "\n".join(f"- {s}" for s in suggestions[:8]) \
+                or "（门禁未给出修复建议）"
+
+            attempt = int(gate_feedback.get("attempt", 1))
+            gate_section = (
+                f"\n\n<!-- gate-self-heal attempt={attempt} stage={stage_id} -->\n"
+                f"## ⛔️ 上一次产出未通过质量门禁（综合分 {score_pct}）\n"
+                + (f"\n**门禁阻断原因**：{block_reason}\n" if block_reason else "")
+                + "\n**未通过的检查项**（按严重度排序，请逐条修正）：\n"
+                f"{check_lines}\n"
+                "\n**门禁给出的修复建议**：\n"
+                f"{suggestion_lines}\n"
+                "\n## 重跑要求\n"
+                "1. 在产出顶部用「本轮门禁修订摘要」明确列出你针对每条 FAIL/"
+                "WARN 检查项做了什么调整；\n"
+                "2. 不要原样保留上一次的失败片段——必须实质修改被点名的部分；\n"
+                "3. 同时保持本阶段的标准结构与交付物完整性，不能为了过门禁而"
+                "删减必需章节。\n"
+            )
+            system_prompt += gate_section
+
+            await emit_event("learning:gate-self-heal-injected", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "attempt": attempt,
+                "score": score,
+                "failingCount": len(failing),
+                "suggestionCount": len(suggestions),
+            })
+        except Exception as gate_inj_err:
+            # Never let prompt-injection bookkeeping kill the actual run.
+            logger.warning(
+                f"[pipeline] Failed to inject gate feedback for "
+                f"{task_id}/{stage_id}: {gate_inj_err}"
+            )
 
     if trace is None:
         trace = await start_trace(task_id, task_title)
@@ -1429,12 +1504,17 @@ async def execute_full_pipeline(
             db_stages[stage_id].quality_score = quality_score
         await db.flush()
 
-        # Write to delivery docs on disk
+        # Write to delivery docs on disk (dual-write: global legacy + task-scoped)
         try:
             from ..api.delivery_docs import write_stage_output
             await write_stage_output(stage_id, content)
         except Exception as doc_err:
-            logger.warning(f"[pipeline] Failed to write delivery doc for {stage_id}: {doc_err}")
+            logger.warning(f"[pipeline] Failed to write legacy delivery doc for {stage_id}: {doc_err}")
+        try:
+            from .task_workspace import write_stage_output_v2
+            await write_stage_output_v2(task_id, task_title, stage_id, content)
+        except Exception as ws_err:
+            logger.warning(f"[pipeline] Failed to write task workspace doc for {stage_id}: {ws_err}")
 
         # --- Quality Gate Evaluation ---
         gate_result = None

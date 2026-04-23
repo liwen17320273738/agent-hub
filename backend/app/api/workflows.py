@@ -174,3 +174,28 @@ async def delete_workflow(
     wf = await _get_or_404(db, wf_id, user)
     await db.delete(wf)
     return None
+
+
+@router.post("/{wf_id}/run")
+async def run_workflow_endpoint(
+    wf_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Compile and execute a saved workflow."""
+    from ..services.workflow_compiler import compile_workflow
+    from ..services.workflow_runner import run_workflow
+
+    wf = await _get_or_404(db, wf_id, user)
+    doc = wf.doc or {}
+
+    if not doc.get("nodes"):
+        raise HTTPException(status_code=400, detail="Workflow has no nodes")
+
+    try:
+        compiled = compile_workflow(doc)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Compile error: {e}") from None
+
+    result = await run_workflow(compiled)
+    return {"run": result.to_dict()}

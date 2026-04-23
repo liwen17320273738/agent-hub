@@ -35,6 +35,9 @@ class Workflow(Base):
     org_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         GUID(), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True,
     )
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True,
+    )
     created_by: Mapped[str] = mapped_column(String(200), default="system")
 
     name: Mapped[str] = mapped_column(String(200))

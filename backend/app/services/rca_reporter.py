@@ -285,7 +285,7 @@ async def generate_rca(
     except Exception:
         return {**base, "llm_raw": raw[:1000], "evidence": evidence_text}
 
-    return {
+    result = {
         **base,
         "summary": str(parsed.get("summary") or "")[:600],
         "root_cause": str(parsed.get("root_cause") or "")[:1000],
@@ -295,3 +295,49 @@ async def generate_rca(
         "blast_radius": str(parsed.get("blast_radius") or "this task")[:60],
         "evidence": evidence_text,
     }
+
+    result["business_card"] = _build_business_card(result, failed_stages)
+    return result
+
+
+def _build_business_card(
+    rca: Dict[str, Any],
+    failed_stages: List[Dict[str, Any]],
+) -> Dict[str, str]:
+    """Distill the RCA into 4 human-readable fields for the FailureCard UI."""
+    first = failed_stages[0] if failed_stages else {}
+    role_name = first.get("owner_role") or "agent"
+    label = first.get("label") or first.get("stage_id") or "未知阶段"
+    error = first.get("last_error") or ""
+
+    stuck_at = f"{label}（{role_name}）执行时出错"
+
+    reason = rca.get("root_cause") or error or "未知原因"
+    if len(reason) > 120:
+        reason = reason[:117] + "…"
+
+    owner = _infer_owner(error, role_name)
+
+    actions = rca.get("recommended_actions") or []
+    next_step = actions[0] if actions else "检查日志后重试"
+
+    return {
+        "stuck_at": stuck_at,
+        "reason": reason,
+        "owner": owner,
+        "next_step": next_step,
+        "severity": rca.get("severity", "medium"),
+    }
+
+
+def _infer_owner(error: str, role: str) -> str:
+    e = (error or "").lower()
+    if any(k in e for k in ("api key", "auth", "401", "403", "credential")):
+        return "Admin 需要检查密钥配置"
+    if any(k in e for k in ("rate_limit", "429", "quota", "超限")):
+        return "Admin 需要调整额度或降级模型"
+    if any(k in e for k in ("context_length", "too long", "上下文")):
+        return "用户需要精简输入内容"
+    if any(k in e for k in ("timeout", "超时", "timed out")):
+        return "Agent 可以自动重试"
+    return "Agent 可以自动重试"

@@ -62,6 +62,8 @@ class CreateTaskRequest(BaseModel):
     # builder (stage_id / label / role / depends_on / max_retries /
     # on_failure / human_gate / skip_condition).
     custom_stages: Optional[List[Dict[str, object]]] = None
+    budget_usd: Optional[float] = None
+    workspace_id: Optional[str] = None
 
 
 class AdvanceRequest(BaseModel):
@@ -254,6 +256,8 @@ async def create_task(
         project_path=project_path or body.project_path,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
+        workspace_id=uuid.UUID(body.workspace_id) if body.workspace_id else None,
+        budget_usd=body.budget_usd,
         current_stage_id=first_stage,
         custom_stages=persist_custom,
     )
@@ -660,10 +664,35 @@ def _build_run_stage(params):
             select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
         )
         db_task = db_result.scalar_one_or_none()
+        gate_feedback: Optional[Dict[str, Any]] = None
         if db_task:
             for s in sorted(db_task.stages, key=lambda x: x.sort_order):
                 if s.output:
                     prev[s.stage_id] = s.output
+
+            # If the stage we're about to re-run previously failed its
+            # quality gate, hand the failure details to execute_stage so
+            # the agent's prompt actually targets what the gate flagged.
+            # Without this we tend to regenerate the same broken output
+            # that already scored 35% — the user perceives this as the
+            # AI "ignoring" them.
+            cur_stage = next(
+                (s for s in db_task.stages if s.stage_id == stage_id),
+                None,
+            )
+            if (
+                cur_stage is not None
+                and (cur_stage.gate_status or "").lower() == "failed"
+                and cur_stage.gate_details
+            ):
+                gate_feedback = {
+                    "score": cur_stage.gate_score,
+                    "details": cur_stage.gate_details,
+                    "attempt": int(
+                        (cur_stage.gate_details or {}).get("attempt") or 1
+                    )
+                    + 1,
+                }
 
         result = await execute_stage(
             bg_db,
@@ -673,6 +702,7 @@ def _build_run_stage(params):
             stage_id=stage_id,
             previous_outputs=prev,
             project_path=params.get("project_path"),
+            gate_feedback=gate_feedback,
         )
 
         if result.get("ok") and db_task:

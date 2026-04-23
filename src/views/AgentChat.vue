@@ -133,8 +133,8 @@
       <div v-else-if="showWayneRouterPanel" class="wayne-router-panel">
         <div class="wayne-router-header">
           <div>
-            <h3>Wayne 总控分流台</h3>
-            <p>输入任务后，系统会推荐下一个 Wayne 角色与推荐模型，并支持一键转交。</p>
+            <h3>Agent Hub 总控分流台</h3>
+            <p>输入任务后，系统会推荐下一个角色与推荐模型，并支持一键转交。</p>
           </div>
           <el-tag type="warning" effect="plain">Orchestrator</el-tag>
         </div>

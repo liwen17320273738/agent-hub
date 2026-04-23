@@ -103,7 +103,7 @@
 
       <el-form :model="form" label-width="120px" label-position="left">
         <el-form-item label="档案名称">
-          <el-input v-model="profileName" placeholder="例如：Wayne Product / GPT-4.5" />
+          <el-input v-model="profileName" placeholder="例如：Product Agent / GPT-4.5" />
         </el-form-item>
         <el-form-item label="API 地址">
           <el-select v-model="form.provider" class="provider-select" placeholder="选择 Provider">
@@ -187,7 +187,7 @@
       </template>
       <el-form :model="form" label-width="120px" label-position="left">
         <el-form-item label="档案名称">
-          <el-input v-model="profileName" placeholder="例如：Wayne Judge / Opus 4.6" />
+          <el-input v-model="profileName" placeholder="例如：Judge Agent / Opus 4.6" />
         </el-form-item>
         <el-form-item label="模型">
           <el-select v-model="form.provider" class="provider-select" placeholder="选择 Provider">
@@ -257,7 +257,7 @@
             开启后模型可调用内置工具：当前时间、文本统计、随机整数。走非流式多轮请求；若接口报错，请关闭此项。
           </div>
         </el-form-item>
-        <el-form-item label="Wayne 成本模式">
+        <el-form-item label="成本模式">
           <el-select v-model="form.wayneCostMode" class="provider-select">
             <el-option
               v-for="item in WAYNE_COST_MODE_OPTIONS"

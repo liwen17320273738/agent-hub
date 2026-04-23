@@ -2,9 +2,9 @@
   <div class="wayne-console-page">
     <header class="console-header">
       <div>
-        <h1>Wayne Console</h1>
+        <h1>Agent Console</h1>
         <p class="subtitle">
-          这是 Wayne Stack 在 Agent Hub 里的控制台入口。按阶段点击卡片，系统会把你送到合适的 Wayne agent，并自动带入建议提示词。
+          按阶段点击卡片，系统会把你送到合适的 Agent，并自动带入建议提示词。
         </p>
       </div>
       <div class="console-actions">
@@ -14,7 +14,7 @@
 
     <el-alert class="console-alert" type="success" :closable="false" show-icon>
       <template #title>推荐使用方式</template>
-      先从 `Wayne Stack 总控` 判断当前阶段，再进入产品、开发、QA 对应智能体。这样最接近真正的 Wayne Stack 工作流。
+      先从总控判断当前阶段，再进入产品、开发、QA 对应智能体。这样最接近真正的交付工作流。
     </el-alert>
 
     <el-alert class="console-alert" type="warning" :closable="false" show-icon>
@@ -64,7 +64,7 @@
     <el-card class="workflow-card">
       <template #header>
         <div class="scenario-head">
-          <span>Wayne Workflow 状态机</span>
+          <span>Agent Hub Workflow 状态机</span>
           <el-tag :type="currentWorkflow ? 'success' : 'info'" effect="plain">
             {{ currentWorkflow ? '运行中' : '未启动' }}
           </el-tag>
@@ -201,8 +201,8 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>三、Wayne Agents</h2>
-        <p>这些是当前已经接入 Agent Hub 的 Wayne 核心角色。核心角色排在前面，中文本土化角色也已加入。</p>
+        <h2>三、Agent Hub Agents</h2>
+        <p>这些是当前已接入 Agent Hub 的核心角色。核心角色排在前面，中文本土化角色也已加入。</p>
       </div>
 
       <div class="agent-grid">
@@ -348,7 +348,7 @@ const settingsStore = useSettingsStore()
 const consoleProfileId = ref(settingsStore.activeProfileId)
 const roleProfileDrafts = reactive<Record<string, string>>({})
 const workflowForm = reactive({
-  title: workflowStore.workflow?.title || 'Wayne 新工作流',
+  title: workflowStore.workflow?.title || 'Agent Hub 新工作流',
   goal: workflowStore.workflow?.goal || '',
 })
 const deliveryDocs = ref<DeliveryDocMeta[]>([])
@@ -384,44 +384,44 @@ const stages = [
     id: 'orchestrate',
     step: '01',
     title: '判断当前阶段',
-    agent: 'Wayne Stack 总控',
+    agent: 'Agent Hub 总控',
     agentId: 'wayne-orchestrator',
     description: '先让总控判断这是 PRD、开发、QA 还是发布阶段，避免一上来就乱做。',
     output: '阶段判断 / 下一步动作',
-    seed: '请判断这个任务现在处于 Wayne Stack 的哪个阶段，并给出下一步最小动作。',
+    seed: '请判断这个任务现在处于 Agent Hub 的哪个阶段，并给出下一步最小动作。',
     recommendedModel: 'Opus 4.6',
   },
   {
     id: 'prd',
     step: '02',
     title: '生成 PRD',
-    agent: 'Wayne 产品经理',
+    agent: 'Agent Hub 产品经理',
     agentId: 'wayne-product-manager',
     description: '把模糊需求整理成目标、范围、非目标、用户故事和验收标准。',
     output: '01-prd.md',
-    seed: '请把这个想法整理成一版 Wayne Stack PRD，包含目标、范围、非目标、用户故事、验收标准和开放问题。',
+    seed: '请把这个想法整理成一版 Agent Hub PRD，包含目标、范围、非目标、用户故事、验收标准和开放问题。',
     recommendedModel: 'GPT-4.5',
   },
   {
     id: 'build',
     step: '03',
     title: '进入开发',
-    agent: 'Wayne 开发工程师',
+    agent: 'Agent Hub 开发工程师',
     agentId: 'wayne-developer',
     description: '根据已确认需求输出最小实现方案、涉及模块、验证方式和潜在风险。',
     output: '实现方案 / 开发任务',
-    seed: '根据当前需求，给我一版 Wayne Stack 的最小实现方案，列出涉及模块、改动点、验证方式和风险。',
+    seed: '根据当前需求，给我一版 Agent Hub 的最小实现方案，列出涉及模块、改动点、验证方式和风险。',
     recommendedModel: 'Sonnet 4.6',
   },
   {
     id: 'qa',
     step: '04',
     title: '质量验证',
-    agent: 'Wayne QA 负责人',
+    agent: 'Agent Hub QA 负责人',
     agentId: 'wayne-qa-lead',
     description: '把验收标准转成 QA 检查清单，并输出 PASS / NEEDS WORK 的判断模板。',
     output: '测试计划 / 风险结论',
-    seed: '请基于这项工作生成 Wayne Stack QA 检查清单，重点覆盖主路径、边界、回归风险，并给出 PASS / NEEDS WORK 模板。',
+    seed: '请基于这项工作生成 Agent Hub QA 检查清单，重点覆盖主路径、边界、回归风险，并给出 PASS / NEEDS WORK 模板。',
     recommendedModel: 'Gemini 4',
   },
 ]
@@ -436,7 +436,7 @@ const scenarios = [
       {
         label: '先找总控',
         agentId: 'wayne-orchestrator',
-        seed: '我要开始一个新功能，请先判断 Wayne Stack 的推进顺序和最小起步动作。',
+        seed: '我要开始一个新功能，请先判断 Agent Hub 的推进顺序和最小起步动作。',
         recommendedModel: 'Opus 4.6',
       },
       {
@@ -462,7 +462,7 @@ const scenarios = [
       {
         label: '开发前把关',
         agentId: 'wayne-orchestrator',
-        seed: '开发前请检查我还缺哪些上游产物，避免 Wayne Stack 跳阶段。',
+        seed: '开发前请检查我还缺哪些上游产物，避免 Agent Hub 跳阶段。',
         recommendedModel: 'Opus 4.6',
       },
     ],
@@ -476,13 +476,13 @@ const scenarios = [
       {
         label: '跑 QA',
         agentId: 'wayne-qa-lead',
-        seed: '请从 Wayne Stack QA 视角检查当前功能，给出风险点和是否建议发布。',
+        seed: '请从 Agent Hub QA 视角检查当前功能，给出风险点和是否建议发布。',
         recommendedModel: 'Gemini 4',
       },
       {
         label: '总控判断',
         agentId: 'wayne-orchestrator',
-        seed: '结合当前 QA 结论，判断是否可以进入 Wayne Stack 的发布阶段。',
+        seed: '结合当前 QA 结论，判断是否可以进入 Agent Hub 的发布阶段。',
         recommendedModel: 'Opus 4.6',
       },
     ],
@@ -512,7 +512,7 @@ const scenarios = [
 const agents = [
   {
     id: 'wayne-orchestrator',
-    name: 'Wayne Stack 总控',
+    name: 'Agent Hub 总控',
     title: 'Orchestrator',
     icon: 'Connection',
     color: '#7c5cff',
@@ -521,7 +521,7 @@ const agents = [
   },
   {
     id: 'wayne-product-manager',
-    name: 'Wayne 产品经理',
+    name: 'Agent Hub 产品经理',
     title: 'Product Manager',
     icon: 'Memo',
     color: '#3b82f6',
@@ -530,7 +530,7 @@ const agents = [
   },
   {
     id: 'wayne-developer',
-    name: 'Wayne 开发工程师',
+    name: 'Agent Hub 开发工程师',
     title: 'Developer',
     icon: 'Cpu',
     color: '#14b8a6',
@@ -539,7 +539,7 @@ const agents = [
   },
   {
     id: 'wayne-qa-lead',
-    name: 'Wayne QA 负责人',
+    name: 'Agent Hub QA 负责人',
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
     color: '#f59e0b',
@@ -548,7 +548,7 @@ const agents = [
   },
   {
     id: 'wayne-china-strategist',
-    name: 'Wayne 中文策略',
+    name: 'Agent Hub 中文策略',
     title: 'China Strategist',
     icon: 'ChatLineSquare',
     color: '#ef4444',
@@ -560,27 +560,27 @@ const agents = [
 const coreModelRoles = [
   {
     model: 'Opus 4.6',
-    role: 'Wayne Stack 总控 / 架构裁决',
+    role: 'Agent Hub 总控 / 架构裁决',
     summary: '做复杂权衡、冲突仲裁、架构收口和高风险发布判断。',
   },
   {
     model: 'Sonnet 4.6',
-    role: 'Wayne 开发工程师',
+    role: 'Agent Hub 开发工程师',
     summary: '作为主力施工模型，负责连续编码、修复和仓库级执行。',
   },
   {
     model: 'GPT-4.5',
-    role: 'Wayne 产品经理',
+    role: 'Agent Hub 产品经理',
     summary: '负责 PRD、结构化输出、需求澄清和对人友好的高质量总结。',
   },
   {
     model: 'Gemini 4',
-    role: 'Wayne QA / 研究挑战者',
+    role: 'Agent Hub QA / 研究挑战者',
     summary: '负责长上下文研究、风险挑战、方案对比和 QA 补充视角。',
   },
   {
     model: '智谱 GLM-4.5',
-    role: 'Wayne 中文策略 / 本土化',
+    role: 'Agent Hub 中文策略 / 本土化',
     summary: '负责中文表达、本土业务语境、本土化内容和老板汇报润色。',
   },
 ]
@@ -697,7 +697,7 @@ function ensureWorkflowStarted() {
   workflowStore.startWorkflow(workflowForm.title, workflowForm.goal)
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
-  ElMessage.success('Wayne 工作流已启动')
+  ElMessage.success('Agent Hub 工作流已启动')
   return true
 }
 
@@ -712,7 +712,7 @@ function syncWorkflowMeta() {
 
 function markCurrentStageDone() {
   if (!workflowStore.hasWorkflow) return
-  workflowStore.completeCurrentStage('由 Wayne Console 推进到下一阶段')
+  workflowStore.completeCurrentStage('由 Agent Hub Console 推进到下一阶段')
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
   ElMessage.success('已推进到下一阶段')
@@ -720,15 +720,15 @@ function markCurrentStageDone() {
 
 function markCurrentStageBlocked() {
   if (!workflowStore.hasWorkflow) return
-  workflowStore.blockCurrentStage('需要 Wayne 人工判断或补齐上游产物')
+  workflowStore.blockCurrentStage('需要 Agent Hub 人工判断或补齐上游产物')
   ElMessage.warning('当前阶段已标记为阻塞')
 }
 
 function resetWorkflow() {
   workflowStore.resetWorkflow()
-  workflowForm.title = 'Wayne 新工作流'
+  workflowForm.title = 'Agent Hub 新工作流'
   workflowForm.goal = ''
-  ElMessage.success('已重置 Wayne 工作流')
+  ElMessage.success('已重置 Agent Hub 工作流')
 }
 
 async function loadDeliveryList() {

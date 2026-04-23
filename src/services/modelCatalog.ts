@@ -23,9 +23,9 @@ export interface ModelCatalogEntry {
   id: string
   provider: ModelProvider
   label: string
-  /** Wayne Stack 中最推荐承担的角色 */
+  /** Agent Hub 中最推荐承担的角色 */
   recommendedRole?: string
-  /** 是否属于 Wayne Stack 核心模型 */
+  /** 是否属于 Agent Hub 核心模型 */
   isCore?: boolean
   /** 一句话适用场景 */
   blurb: string
@@ -69,7 +69,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'claude-opus-4.6',
     provider: 'anthropic',
     label: 'Opus 4.6',
-    recommendedRole: 'Wayne Stack 总控 / 架构裁决',
+    recommendedRole: '总控 / 架构裁决',
     isCore: true,
     blurb: '负责高价值判断、架构收口、复杂取舍和发布前 go/no-go。',
     scores: S({ cost: 1, speed: 2, reasoning: 5, chinese: 4, coding: 5, instruction: 5 }),
@@ -80,9 +80,9 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'claude-sonnet-4.6',
     provider: 'anthropic',
     label: 'Sonnet 4.6',
-    recommendedRole: 'Wayne 开发工程师',
+    recommendedRole: '开发工程师',
     isCore: true,
-    blurb: 'Wayne Stack 主力施工模型，适合连续编码、修复和仓库级执行。',
+    blurb: '主力施工模型，适合连续编码、修复和仓库级执行。',
     scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 5, instruction: 5 }),
     contextK: 200,
     caution: '推荐作为 build 主力；实测建议通过兼容网关或服务端统一路由接入。',
@@ -91,7 +91,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'gpt-4.5',
     provider: 'openai',
     label: 'GPT-4.5',
-    recommendedRole: 'Wayne 产品经理',
+    recommendedRole: '产品经理',
     isCore: true,
     blurb: '适合 PRD、结构化输出、文档归纳和面向人的高质量表达。',
     scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 4, coding: 4, instruction: 5 }),
@@ -102,7 +102,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'gemini-4',
     provider: 'google',
     label: 'Gemini 4',
-    recommendedRole: 'Wayne QA / 研究挑战者',
+    recommendedRole: 'QA / 研究挑战者',
     isCore: true,
     blurb: '适合长上下文研究、方案对比、风险挑战和 QA 补充视角。',
     scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 4, instruction: 4 }),
@@ -113,7 +113,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     id: 'glm-4.5',
     provider: 'zhipu',
     label: '智谱 GLM-4.5',
-    recommendedRole: 'Wayne 中文策略 / 本土化',
+    recommendedRole: '中文策略 / 本土化',
     isCore: true,
     blurb: '适合中文表达、本土化内容、市场语境适配和中文业务沟通。',
     scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 3, instruction: 4 }),

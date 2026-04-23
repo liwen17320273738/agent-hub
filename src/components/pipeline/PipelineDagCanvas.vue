@@ -26,7 +26,7 @@
     <div class="canvas-header">
       <h2 class="section-title">
         <el-icon><Connection /></el-icon>
-        AI 军团作战图
+        任务编排图
       </h2>
       <div class="canvas-actions">
         <el-tag

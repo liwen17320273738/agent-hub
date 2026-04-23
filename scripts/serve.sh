@@ -40,8 +40,35 @@ trap cleanup INT TERM
 echo "Starting Backend API..."
 if [ "$MODE" = "--prod" ]; then
     cd backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 > "$REPO_ROOT/logs/backend.log" 2>&1 &
+elif [ "${BACKEND_NO_RELOAD:-0}" = "1" ]; then
+    # Opt-out of auto-reload. Use this when iterating on a long-running
+    # pipeline / agent run that you don't want killed every time a watched
+    # file gets rewritten by a tool, plugin, or formatter. Set
+    # BACKEND_NO_RELOAD=1 in your shell or .env. Source changes will
+    # require a manual `make stop && make dev` to pick up.
+    echo "  ⚠ BACKEND_NO_RELOAD=1 — auto-reload disabled (pipeline-safe)"
+    cd backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$REPO_ROOT/logs/backend.log" 2>&1 &
 else
-    cd backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload > "$REPO_ROOT/logs/backend.log" 2>&1 &
+    # --reload-dir confines the file watcher to the actual Python source
+    # tree. Without this, uvicorn watches everything reachable from cwd
+    # (including tests, .pyc caches, virtualenvs, generated artifacts).
+    # That used to kill in-flight pipeline runs whenever any unrelated
+    # file got rewritten — e.g. a test fixture or a tool-touched module
+    # would tear down the worker mid-stage and the user would see "AI
+    # 自己停了" with no clue why.
+    #
+    # NOTE: we still watch app/ itself, so editing real source files will
+    # restart the backend (and kill in-flight pipeline runs). If you're
+    # debugging a long pipeline, set BACKEND_NO_RELOAD=1 above.
+    cd backend && python3 -m uvicorn app.main:app \
+        --host 0.0.0.0 --port 8000 \
+        --reload \
+        --reload-dir app \
+        --reload-exclude '*.pyc' \
+        --reload-exclude '__pycache__/*' \
+        --reload-exclude '.pytest_cache/*' \
+        --reload-exclude 'tests/*' \
+        > "$REPO_ROOT/logs/backend.log" 2>&1 &
 fi
 BACKEND_PID=$!
 cd "$REPO_ROOT"

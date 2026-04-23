@@ -22,8 +22,29 @@
         <el-tag v-if="task.repoUrl" size="small" type="success">Git: {{ task.repoUrl }}</el-tag>
         <el-tag v-if="task.projectPath" size="small" type="warning">本地: {{ task.projectPath }}</el-tag>
       </div>
+      <div class="header-share">
+        <el-button size="small" @click="downloadDeliverables">
+          <el-icon><Download /></el-icon> {{ $t('task.download') }}
+        </el-button>
+        <el-dropdown @command="generateShareLink" trigger="click">
+          <el-button size="small">
+            <el-icon><Share /></el-icon> {{ $t('task.share') }}
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item :command="7">7 天有效</el-dropdown-item>
+              <el-dropdown-item :command="30">30 天有效</el-dropdown-item>
+              <el-dropdown-item :command="365">永久有效</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
     </header>
 
+    <ArtifactCompletionBar :stages="task.stages" />
+
+    <el-tabs v-model="activeMainTab" class="task-main-tabs">
+      <el-tab-pane label="概览" name="overview">
     <section v-if="qualitySummary.total > 0" class="quality-summary">
       <div class="quality-bar">
         <span class="quality-label">质量门禁</span>
@@ -258,11 +279,18 @@
           <el-button type="warning" size="large" @click="openFinalAcceptance('reject')">
             <el-icon><Close /></el-icon> 打回重做
           </el-button>
-          <el-button size="large" @click="$router.push(`/pipeline/${task.id}/deliverable`)" v-if="false">
-            <!-- Deliverable preview route is wired separately; left disabled
-                 here as a guidepost for future work. -->
-            <el-icon><Document /></el-icon> 预览交付物
-          </el-button>
+          <el-dropdown @command="generateShareLink" trigger="click">
+            <el-button size="large">
+              <el-icon><Share /></el-icon> 生成分享链接
+            </el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item :command="7">7 天有效</el-dropdown-item>
+                <el-dropdown-item :command="30">30 天有效</el-dropdown-item>
+                <el-dropdown-item :command="365">永久有效</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
     </section>
@@ -286,86 +314,138 @@
     </section>
 
     <section class="task-actions" v-else-if="task.status === 'failed'">
-      <h2 class="section-title">Pipeline 已失败</h2>
-      <div class="paused-info">
-        <p>
-          上次执行在阶段「{{ task.currentStageId }}」失败。可以从最近的检查点续跑，
-          已完成的阶段会被跳过。
-        </p>
-        <div class="action-buttons">
-          <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
-            <el-icon><Refresh /></el-icon> 从检查点续跑
-          </el-button>
-          <el-button size="large" @click="openRcaDialog" :loading="rcaLoading">
-            <el-icon><WarningFilled /></el-icon> 生成 RCA 报告
-          </el-button>
-        </div>
+      <FailureCard
+        :stages="failureStages"
+        :rca-summary="rcaSummaryText"
+        @retry="handleRetryStage"
+        @retry-with-downgrade="handleRetryDowngrade"
+        @rollback="handleRollback"
+        @escalate="handleEscalate"
+      />
+      <div class="action-buttons" style="margin-top: 12px;">
+        <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
+          <el-icon><Refresh /></el-icon> 从检查点续跑
+        </el-button>
+        <el-button size="large" @click="openRcaDialog" :loading="rcaLoading">
+          <el-icon><WarningFilled /></el-icon> 生成 RCA 报告
+        </el-button>
       </div>
     </section>
 
+    <!--
+      Operations area — collapsed from 8 ad-hoc buttons into one
+      command-line: a state banner that always tells the user what is
+      happening right now, a single primary action that is the right
+      thing to click 90% of the time, and a "side actions" dropdown
+      that hides power-user escape hatches without removing them.
+    -->
     <section class="task-actions" v-if="task.status === 'active'">
       <h2 class="section-title">操作</h2>
-      <div class="action-buttons">
-        <el-button
-          type="success"
-          size="large"
-          @click="handleSmartRun"
-          :loading="smartRunning"
-          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !smartRunning)"
-        >
-          <span style="margin-right:4px">🧠</span>
-          Lead Agent 智能执行
-        </el-button>
-        <el-button
-          @click="handleAutoRun"
-          :loading="autoRunning"
-          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !autoRunning)"
-        >
-          <el-icon><VideoPlay /></el-icon>
-          经典全自动执行
-        </el-button>
-        <el-button
-          type="primary"
-          @click="handleRunCurrentStage"
-          :loading="stageRunning"
-          :disabled="task.currentStageId === 'done' || (anyExecutionRunning && !stageRunning)"
-        >
-          <el-icon><CaretRight /></el-icon>
-          AI 执行当前阶段
-        </el-button>
-        <el-button
-          @click="handleAdvance"
-          :disabled="task.currentStageId === 'done' || anyExecutionRunning"
-        >
-          <el-icon><Right /></el-icon>
-          手动跳过
-        </el-button>
-        <el-button
-          type="warning"
-          @click="showRejectDialog = true"
-          :disabled="task.currentStageId === 'planning' || anyExecutionRunning"
-        >
-          <el-icon><Back /></el-icon>
-          打回
-        </el-button>
-        <el-button
-          v-if="task.currentStageId === 'development'"
-          @click="handleResume(false)"
-          :loading="resuming"
-          :disabled="anyExecutionRunning && !resuming"
-        >
-          <el-icon><RefreshRight /></el-icon>
-          确认构建完成 & 继续
-        </el-button>
-        <el-button
-          @click="goToAgent"
-        >
-          <el-icon><ChatDotSquare /></el-icon>
-          进入 Agent 对话
-        </el-button>
-        <el-button @click="showQualityGateConfig = true">
+
+      <div class="exec-banner" :class="execBannerClass">
+        <div class="exec-banner-icon">
+          <el-icon v-if="isRunningNow" class="spin-icon" :size="22"><Loading /></el-icon>
+          <el-icon v-else-if="task.currentStageId === 'done'" :size="22"><Check /></el-icon>
+          <el-icon v-else-if="currentStage?.status === 'awaiting_approval'" :size="22"><Bell /></el-icon>
+          <el-icon v-else-if="currentStageGateFailed" :size="22"><WarningFilled /></el-icon>
+          <el-icon v-else :size="22"><CaretRight /></el-icon>
+        </div>
+        <div class="exec-banner-text">
+          <div class="exec-banner-title">{{ execBannerTitle }}</div>
+          <div class="exec-banner-sub">{{ execBannerSub }}</div>
+        </div>
+        <div class="exec-banner-action">
+          <el-button
+            v-if="!isRunningNow && task.currentStageId !== 'done' && currentStage?.status !== 'awaiting_approval'"
+            :type="currentStageGateFailed ? 'warning' : 'primary'"
+            size="large"
+            @click="handlePrimaryRun"
+            :loading="primaryRunLoading"
+          >
+            <el-icon><CaretRight /></el-icon>
+            {{ primaryRunLabel }}
+          </el-button>
+          <el-button
+            v-else-if="isRunningNow"
+            size="large"
+            disabled
+          >
+            执行中…可切换页面
+          </el-button>
+        </div>
+      </div>
+
+      <!--
+        Inline failure-cause panel: when the current stage's quality gate
+        is failing, surface the *exact* reason right under the banner so
+        users no longer have to scroll up, find the right stage card,
+        and click to expand. Reuses QualityGatePanel — same component,
+        same data, just a more useful place to show it.
+      -->
+      <div v-if="currentStageGateFailed && currentStage" class="exec-gate-detail">
+        <div class="exec-gate-header" @click="toggleBannerGate">
+          <el-icon><WarningFilled /></el-icon>
+          <span>为什么没通过质量门禁</span>
+          <el-tag v-if="currentStage.gateScore != null" size="small" type="danger" effect="plain">
+            {{ (currentStage.gateScore * 100).toFixed(0) }}%
+          </el-tag>
+          <span class="exec-gate-spacer"></span>
+          <el-icon class="toggle-icon" :class="{ expanded: bannerGateExpanded }"><ArrowDown /></el-icon>
+        </div>
+        <div v-if="bannerGateExpanded" class="exec-gate-body">
+          <QualityGatePanel
+            :gate-status="currentStage.gateStatus"
+            :gate-score="currentStage.gateScore"
+            :gate-details="currentStage.gateDetails"
+            :overriding="overridingGate === currentStage.id"
+            @override="handleGateOverride(currentStage.id)"
+          />
+        </div>
+      </div>
+
+      <div class="side-actions">
+        <el-dropdown trigger="click" @command="handleSideAction" :disabled="isRunningNow">
+          <el-button size="small" plain :disabled="isRunningNow">
+            旁路操作 <el-icon style="margin-left:4px"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                command="skip"
+                :disabled="task.currentStageId === 'done'"
+              >
+                <el-icon><Right /></el-icon>
+                <span style="margin-left:6px">手动跳过此阶段（不让 AI 跑）</span>
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="reject"
+                :disabled="task.currentStageId === 'planning'"
+              >
+                <el-icon><Back /></el-icon>
+                <span style="margin-left:6px">打回到上一阶段重做</span>
+              </el-dropdown-item>
+              <el-dropdown-item
+                command="confirm-build"
+                v-if="task.currentStageId === 'development'"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                <span style="margin-left:6px">我已手动构建完成，继续下一阶段</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="open-agent" divided>
+                <el-icon><ChatDotSquare /></el-icon>
+                <span style="margin-left:6px">进入 Agent 对话窗口</span>
+              </el-dropdown-item>
+              <el-dropdown-item command="auto-run">
+                <el-icon><VideoPlay /></el-icon>
+                <span style="margin-left:6px">高级：一键跑完全部阶段（线性）</span>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+
+        <el-button size="small" plain @click="showQualityGateConfig = true">
           <el-icon><Setting /></el-icon>
-          门禁阈值
+          <span style="margin-left:4px">门禁阈值</span>
         </el-button>
       </div>
     </section>
@@ -514,6 +594,16 @@
         </div>
       </div>
     </section>
+      </el-tab-pane>
+
+      <el-tab-pane label="交付包" name="deliverables">
+        <DeliverableCards :task-id="task.id" />
+      </el-tab-pane>
+
+      <el-tab-pane label="角色泳道" name="swimlane">
+        <RoleSwimlane :stages="task.stages" />
+      </el-tab-pane>
+    </el-tabs>
 
     <el-dialog v-model="rcaDialog" title="RCA 根因分析报告" width="780px" :close-on-click-modal="false">
       <div v-if="rcaLoading" class="rca-loading">
@@ -614,7 +704,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
-  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Unlock,
+  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Share, Unlock,
   VideoPlay, View, Warning, WarningFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
@@ -634,6 +724,10 @@ import type { QualityReport } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
+import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
+import FailureCard from '@/components/task/FailureCard.vue'
+import DeliverableCards from '@/components/task/DeliverableCards.vue'
+import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
 import PipelineDagCanvas from '@/components/pipeline/PipelineDagCanvas.vue'
 import QualityGateConfigDrawer from '@/components/pipeline/QualityGateConfigDrawer.vue'
 import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'
@@ -646,6 +740,7 @@ const pipelineStore = usePipelineStore()
 
 const task = ref<PipelineTask | null>(null)
 const loadError = ref('')
+const activeMainTab = ref('overview')
 
 // Approval SLA — drives the "stuck for N min" pill and overdue toast.
 // onCritical fires once per stage per page session — the user gets one
@@ -846,6 +941,147 @@ const qualitySummary = computed(() => {
   return { total: withVerify.length, pass, warn, fail, avgScore }
 })
 
+// ──────────────────────────────────────────────────────────────────────────
+// Operations area helpers
+//
+// The page used to expose 8 buttons of equal weight; users had no idea
+// which to click first or what would happen. We collapse that into:
+//   1. a banner that always describes the live state in plain language,
+//   2. a single primary action that auto-picks the right runner, and
+//   3. a "side actions" dropdown for the rare escape-hatch flows.
+// The computeds below feed that banner and primary button.
+// ──────────────────────────────────────────────────────────────────────────
+const currentStage = computed(() =>
+  task.value?.stages.find(s => s.id === task.value?.currentStageId) ?? null,
+)
+
+const primaryRunLoading = computed(() =>
+  smartRunning.value || stageRunning.value,
+)
+
+// "Is something actually running right now?"
+//
+// `anyExecutionRunning` only knows about flags WE set when YOU click a
+// button in this tab. After a route change / refresh those flags reset
+// to false even if the backend is still mid-stage — that is the bug
+// that made users think "switching back killed the run".
+//
+// `processingStage` is set by `loadTask()` whenever a stage is `active`
+// without an output yet (heuristic: the engine is mid-flight) and by
+// the SSE `stage:processing` event. So OR-ing the two gives us a
+// best-effort "is the server busy on this task" that survives nav.
+const isRunningNow = computed(() =>
+  anyExecutionRunning.value || !!processingStage.value,
+)
+
+// Surface a "your last run failed the gate" hint so the banner stops
+// looking like the page just stopped for no reason. We only count it
+// as "blocked by gate" when the stage isn't currently running anymore.
+const currentStageGateFailed = computed(() => {
+  const stg = currentStage.value
+  if (!stg) return false
+  if (isRunningNow.value) return false
+  return stg.gateStatus === 'failed'
+})
+
+const execBannerClass = computed(() => {
+  if (isRunningNow.value) return 'exec-banner-running'
+  if (currentStage.value?.status === 'awaiting_approval') return 'exec-banner-warn'
+  if (currentStageGateFailed.value) return 'exec-banner-warn'
+  if (task.value?.currentStageId === 'done') return 'exec-banner-done'
+  return 'exec-banner-idle'
+})
+
+const execBannerTitle = computed(() => {
+  if (!task.value) return ''
+  if (isRunningNow.value) {
+    const stg = currentStage.value
+    return `AI 正在执行：${stg?.label ?? task.value.currentStageId}`
+  }
+  if (task.value.currentStageId === 'done') return '所有阶段已完成'
+  const stg = currentStage.value
+  if (stg?.status === 'awaiting_approval') return `等待你审批：${stg.label}`
+  if (currentStageGateFailed.value) {
+    return `质量门禁未通过：${stg?.label ?? task.value.currentStageId}`
+  }
+  return `当前阶段：${stg?.label ?? task.value.currentStageId}`
+})
+
+const execBannerSub = computed(() => {
+  if (anyExecutionRunning.value) {
+    return '后台执行中。可自由切换页面，回来后日志和进度会自动更新。'
+  }
+  if (processingStage.value && !anyExecutionRunning.value) {
+    // We came back to a page where the server still looks busy but we
+    // have no local proof — be honest about the inference.
+    return '检测到该阶段在后台仍可能执行中。如等待较久无进展，可点击「实时日志」或重新触发。'
+  }
+  if (task.value?.currentStageId === 'done') {
+    return '可在下方生成交付文档下载。'
+  }
+  const stg = currentStage.value
+  if (!stg) return ''
+  if (stg.status === 'awaiting_approval') {
+    return '请滚到上方阶段卡片里点击批准 / 驳回。'
+  }
+  if (currentStageGateFailed.value) {
+    const score = stg.gateScore != null ? `${(stg.gateScore * 100).toFixed(0)}%` : '低于阈值'
+    return `本阶段产出质量分 ${score}，未达门禁标准。可让 AI 重跑、调整门禁阈值，或在「旁路操作」里手动跳过 / 打回。`
+  }
+  if (task.value?.currentStageId === 'planning') {
+    return '计划阶段：点击右侧让 Lead Agent 智能编排并自动跑完全部阶段。'
+  }
+  return `负责角色：${stg.ownerRole}。点击右侧让 AI 跑这一阶段；其它操作请用「旁路操作」。`
+})
+
+const primaryRunLabel = computed(() => {
+  if (!task.value) return '让 AI 执行'
+  if (task.value.currentStageId === 'planning') return '让 Lead Agent 智能开跑'
+  if (currentStageGateFailed.value) return '让 AI 重跑这个阶段'
+  return '让 AI 跑这个阶段'
+})
+
+// Banner-embedded gate-detail panel starts expanded so the user
+// immediately sees *why* a stage failed without an extra click. They
+// can collapse it manually if they want a cleaner view.
+const bannerGateExpanded = ref(true)
+function toggleBannerGate() {
+  bannerGateExpanded.value = !bannerGateExpanded.value
+}
+
+async function handlePrimaryRun() {
+  // At planning we have no concrete stage to execute yet, so we route to
+  // the smart pipeline runner (Lead Agent decomposes + executes). Once
+  // we're inside a real stage, "primary" means "run *this* stage" — the
+  // user can still trigger a full auto-run from the side menu.
+  if (!task.value) return
+  if (task.value.currentStageId === 'planning') {
+    await handleSmartRun()
+  } else {
+    await handleRunCurrentStage()
+  }
+}
+
+function handleSideAction(cmd: string | number | object) {
+  switch (cmd) {
+    case 'skip':
+      handleAdvance()
+      break
+    case 'reject':
+      showRejectDialog.value = true
+      break
+    case 'confirm-build':
+      handleResume(false)
+      break
+    case 'open-agent':
+      goToAgent()
+      break
+    case 'auto-run':
+      handleAutoRun()
+      break
+  }
+}
+
 const previousStages = computed(() => {
   if (!task.value) return []
   const currentIdx = STAGE_IDS.indexOf(task.value.currentStageId)
@@ -928,6 +1164,9 @@ function formatEventName(event: string) {
     'stage:skipped': '⏭️ 阶段跳过',
     'agent:bus-message': '📨 Agent 消息',
     'pipeline:rca-generated': '🩺 RCA 报告',
+    'learning:override-injected': '🧬 历史经验已注入',
+    'learning:self-heal-injected': '🩹 评审反馈已注入到 prompt',
+    'learning:gate-self-heal-injected': '🩹 上次门禁失败原因已注入到 prompt',
   }
   return map[event] || event
 }
@@ -1015,18 +1254,32 @@ function toggleArtifact(id: string) {
 }
 
 function addLog(event: string, data?: Record<string, unknown>) {
-  const detail = data?.error
-    ? String(data.error)
-    : data?.stageId
-      ? `阶段: ${data.stageId}${data.label ? ` (${data.label})` : ''}`
-      : data?.from && data?.to
-        ? `${data.from} → ${data.to}`
-        : undefined
+  let detail: string | undefined
+  if (data?.error) {
+    detail = String(data.error)
+  } else if (event === 'learning:gate-self-heal-injected') {
+    // Make the prompt-injection traceable: tell the user *what* the
+    // backend actually fed back into the LLM so they can verify the
+    // self-heal loop instead of taking it on faith.
+    const attempt = data?.attempt ? `第 ${data.attempt} 次重跑` : ''
+    const failing = data?.failingCount ? `${data.failingCount} 项 FAIL/WARN` : ''
+    const score = typeof data?.score === 'number'
+      ? `上次 ${Math.round((data.score as number) * 100)}%`
+      : ''
+    detail = [attempt, failing, score].filter(Boolean).join(' · ')
+  } else if (event === 'learning:self-heal-injected') {
+    const attempt = data?.rejectCount ? `第 ${data.rejectCount} 次返工` : ''
+    detail = attempt || undefined
+  } else if (data?.stageId) {
+    detail = `阶段: ${data.stageId}${data.label ? ` (${data.label})` : ''}`
+  } else if (data?.from && data?.to) {
+    detail = `${data.from} → ${data.to}`
+  }
 
   stageLogs.value.push({
     event,
     timestamp: Date.now(),
-    detail: detail as string | undefined,
+    detail,
   })
 
   nextTick(() => {
@@ -1233,6 +1486,68 @@ function openFinalAcceptance(initialMode: 'accept' | 'reject') {
       el?.click()
     })
   }
+}
+
+async function generateShareLink(ttlDays: number = 7) {
+  if (!task.value) return
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE || '/api'
+    const { getAuthToken } = await import('@/services/api')
+    const token = getAuthToken()
+    const res = await fetch(`${baseUrl}/share/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ task_id: task.value.id, ttl_days: ttlDays }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      ElMessage.error(data.detail || '生成失败')
+      return
+    }
+    const fullUrl = `${window.location.origin}/#${data.url}`
+    await navigator.clipboard.writeText(fullUrl)
+    const label = ttlDays >= 365 ? '永久' : `${ttlDays}天`
+    ElMessage.success(`分享链接已复制到剪贴板（${label}有效）`)
+  } catch (e: any) {
+    ElMessage.error(e.message || '生成分享链接失败')
+  }
+}
+
+const failureStages = computed(() => {
+  if (!task.value) return []
+  return task.value.stages.map((s: any) => ({
+    id: s.id || s.stage_id,
+    label: s.label || s.id,
+    status: s.status,
+    ownerRole: s.ownerRole || s.owner_role || 'agent',
+    lastError: s.lastError || s.last_error || '',
+    output: s.output || '',
+  }))
+})
+const rcaSummaryText = ref('')
+
+function handleRetryStage(stageId: string) {
+  handleResumeDag()
+}
+function handleRetryDowngrade(stageId: string) {
+  ElMessage.info('正在用更便宜模型重试…')
+  handleResumeDag()
+}
+function handleRollback(_stageId: string) {
+  ElMessage.info('打回上一阶段')
+}
+function handleEscalate(_stageId: string) {
+  ElMessage.info('已升级到人工处理')
+}
+
+function downloadDeliverables() {
+  if (!task.value) return
+  const baseUrl = import.meta.env.VITE_API_BASE || '/api'
+  const token = localStorage.getItem('auth_token') || ''
+  window.open(`${baseUrl.replace('/api', '')}/api/tasks/${task.value.id}/deliverables.zip?token=${token}`, '_blank')
 }
 
 async function openRcaDialog() {
@@ -1800,6 +2115,118 @@ watch(() => route.params.id, () => {
   gap: 10px;
 }
 
+/*
+  Single source of truth for "what is happening right now" on a task.
+  Replaces the wall-of-buttons that confused users into back-and-forth
+  clicking. The banner stays mounted across runs so the page never goes
+  silent after a button click.
+*/
+.exec-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #2c2f36);
+  background: var(--bg-elevated, #1a1d23);
+  margin-bottom: 12px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.exec-banner-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+}
+.exec-banner-text {
+  flex: 1;
+  min-width: 0;
+}
+.exec-banner-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+.exec-banner-sub {
+  font-size: 12px;
+  color: var(--text-secondary, #8a8f99);
+  line-height: 1.5;
+}
+.exec-banner-action { flex-shrink: 0; }
+
+.exec-banner-running {
+  border-color: #1989fa;
+  background: linear-gradient(90deg, rgba(25, 137, 250, 0.10), rgba(25, 137, 250, 0.02));
+}
+.exec-banner-running .exec-banner-icon {
+  background: rgba(25, 137, 250, 0.18);
+  color: #1989fa;
+}
+.exec-banner-warn {
+  border-color: #e6a23c;
+  background: linear-gradient(90deg, rgba(230, 162, 60, 0.10), rgba(230, 162, 60, 0.02));
+}
+.exec-banner-warn .exec-banner-icon {
+  background: rgba(230, 162, 60, 0.18);
+  color: #e6a23c;
+}
+.exec-banner-done {
+  border-color: #67c23a;
+  background: linear-gradient(90deg, rgba(103, 194, 58, 0.10), rgba(103, 194, 58, 0.02));
+}
+.exec-banner-done .exec-banner-icon {
+  background: rgba(103, 194, 58, 0.18);
+  color: #67c23a;
+}
+.exec-banner-idle .exec-banner-icon { color: var(--text-secondary, #8a8f99); }
+
+.side-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/*
+  Failure-cause panel embedded right under the banner. We keep it
+  visually attached to the warn-state banner (no top border, same
+  surrounding margin) so it reads as "here is the answer to the
+  warning above" rather than as a standalone section.
+*/
+.exec-gate-detail {
+  border: 1px solid #854d0e;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: rgba(133, 77, 14, 0.06);
+  margin-top: -12px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.exec-gate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: #fbbf24;
+  font-weight: 600;
+}
+.exec-gate-header:hover { background: rgba(133, 77, 14, 0.12); }
+.exec-gate-spacer { flex: 1; }
+.exec-gate-body { padding: 0 16px 14px; }
+.exec-gate-detail .toggle-icon {
+  transition: transform 0.2s;
+}
+.exec-gate-detail .toggle-icon.expanded {
+  transform: rotate(180deg);
+}
+
 .live-log { margin-bottom: 32px; }
 
 .log-container {
@@ -2071,6 +2498,7 @@ watch(() => route.params.id, () => {
 .quality-avg { font-size: 13px; color: var(--text-muted, #909399); margin-left: auto; }
 
 .task-meta-row { margin-top: 6px; }
+.header-share { margin-top: 8px; }
 
 /* Quality Gate badges */
 .gate-badge {

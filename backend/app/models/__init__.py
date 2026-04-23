@@ -11,6 +11,8 @@ from .code_chunk import CodeChunk
 from .agent_message import AgentMessage
 from .learning import LearningSignal, PromptOverride
 from .workflow import Workflow
+from .workspace import Workspace, WorkspaceMember
+from .credential import Credential
 
 __all__ = [
     "AgentMessage",
@@ -40,4 +42,7 @@ __all__ = [
     "FeedbackRecord",
     "LearningSignal",
     "PromptOverride",
+    "Workspace",
+    "WorkspaceMember",
+    "Credential",
 ]

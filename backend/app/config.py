@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     pipeline_upload_dir: str = ""
     pipeline_upload_max_mb: int = 15
 
+    # Task workspace (issuse21 D1)
+    workspace_root: str = ""
+
     # Git clone allowlist (comma-separated hostnames). Empty = use defaults.
     git_allowed_hosts: str = "github.com,gitee.com,gitlab.com,bitbucket.org,codeup.aliyun.com"
 

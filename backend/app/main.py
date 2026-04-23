@@ -48,6 +48,10 @@ from .api import (
     integrations as integrations_api,
     workflows as workflows_api,
     openai_compat,
+    share as share_api,
+    workspaces as workspaces_api,
+    credentials as credentials_api,
+    deliverables as deliverables_api,
 )
 
 logging.basicConfig(
@@ -182,7 +186,7 @@ async def _bootstrap_admin(db):
     if count_result.scalar() > 0:
         return
 
-    org = Org(name="Wayne Stack")
+    org = Org(name="Agent Hub")
     db.add(org)
     await db.flush()
 
@@ -283,6 +287,10 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(scheduler_api.router)
     application.include_router(integrations_api.router)
     application.include_router(workflows_api.router, prefix="/api")
+    application.include_router(share_api.router, prefix="/api")
+    application.include_router(workspaces_api.router, prefix="/api")
+    application.include_router(credentials_api.router, prefix="/api")
+    application.include_router(deliverables_api.router)
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)

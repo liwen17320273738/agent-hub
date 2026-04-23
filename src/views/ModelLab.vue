@@ -10,7 +10,7 @@
     <el-card class="lab-card core-card">
       <template #header>
         <div class="core-header">
-          <span>Wayne 核心模型与角色</span>
+          <span>核心模型与角色</span>
           <el-tag type="warning" effect="dark">核心优先</el-tag>
         </div>
       </template>
@@ -28,7 +28,7 @@
         </div>
       </div>
       <p class="core-note">
-        说明：`GPT-4.5 / Opus 4.6 / Sonnet 4.6 / Gemini 4 / 智谱 GLM-4.5` 已纳入 Wayne Stack 核心映射。部分模型在当前界面更适合作为静态选型参考，实测建议通过兼容网关或统一服务端路由接入。
+        说明：`GPT-4.5 / Opus 4.6 / Sonnet 4.6 / Gemini 4 / 智谱 GLM-4.5` 已纳入 Agent Hub 核心映射。部分模型在当前界面更适合作为静态选型参考，实测建议通过兼容网关或统一服务端路由接入。
       </p>
     </el-card>
 
@@ -49,7 +49,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="label" label="名称" width="140" />
-        <el-table-column prop="recommendedRole" label="Wayne 角色" width="180" show-overflow-tooltip />
+        <el-table-column prop="recommendedRole" label="推荐角色" width="180" show-overflow-tooltip />
         <el-table-column prop="id" label="model id" min-width="130" />
         <el-table-column label="厂商" width="100">
           <template #default="{ row }">
@@ -168,7 +168,7 @@ const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 
 const benchPrompt = ref(
-  '请用约 200 字以内中文，说明「一人公司」使用 AI 的三条务实建议，每条一句话举例。',
+  '请用约 200 字以内中文，说明「企业」使用 AI 的三条务实建议，每条一句话举例。',
 )
 const benchModelIds = ref<string[]>([])
 const benchCustomIdsText = ref('')

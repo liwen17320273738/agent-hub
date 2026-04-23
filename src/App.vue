@@ -6,6 +6,8 @@
         <span class="sidebar-title">Agent Hub</span>
       </div>
 
+      <WorkspaceSwitcher />
+
       <div class="sidebar-search-wrap">
         <el-input
           v-model="searchQuery"
@@ -36,111 +38,27 @@
       <nav class="sidebar-nav">
         <router-link to="/" class="nav-item" active-class="active" exact>
           <el-icon><HomeFilled /></el-icon>
-          <span>控制台</span>
+          <span>{{ $t('nav.dashboard') }}</span>
         </router-link>
 
-        <router-link to="/model-lab" class="nav-item" active-class="active">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>模型实验室</span>
-        </router-link>
-
-        <router-link to="/wayne-stack" class="nav-item" active-class="active">
-          <el-icon><Connection /></el-icon>
-          <span>Wayne Stack</span>
-        </router-link>
-
-        <router-link to="/wayne-console" class="nav-item" active-class="active">
-          <el-icon><Operation /></el-icon>
-          <span>Wayne Console</span>
-        </router-link>
-
-        <router-link to="/pipeline" class="nav-item" active-class="active">
-          <el-icon><Aim /></el-icon>
-          <span>AI 军团流水线</span>
-        </router-link>
-
-        <router-link to="/workflow-builder" class="nav-item" active-class="active">
-          <el-icon><Share /></el-icon>
-          <span>Workflow Builder</span>
-        </router-link>
-
-        <router-link to="/agents-console" class="nav-item" active-class="active">
-          <el-icon><User /></el-icon>
-          <span>专家工作台</span>
-        </router-link>
-
-        <router-link to="/mcp-servers" class="nav-item" active-class="active">
-          <el-icon><Link /></el-icon>
-          <span>MCP 服务器</span>
-        </router-link>
-
-        <router-link to="/eval-lab" class="nav-item" active-class="active">
-          <el-icon><DataLine /></el-icon>
-          <span>评测实验室</span>
-        </router-link>
-
-        <router-link to="/plan-inbox" class="nav-item" active-class="active">
+        <router-link to="/inbox" class="nav-item" active-class="active">
           <el-icon><Files /></el-icon>
-          <span>计划收件箱</span>
+          <span>{{ $t('nav.inbox') }}</span>
         </router-link>
 
-        <router-link to="/codebase-lab" class="nav-item" active-class="active">
-          <el-icon><Reading /></el-icon>
-          <span>代码索引</span>
+        <router-link to="/team" class="nav-item" active-class="active">
+          <el-icon><User /></el-icon>
+          <span>{{ $t('nav.team') }}</span>
         </router-link>
 
-        <router-link to="/insights/digest" class="nav-item" active-class="active">
-          <el-icon><DataAnalysis /></el-icon>
-          <span>Agent 周报</span>
+        <router-link to="/workflow" class="nav-item" active-class="active">
+          <el-icon><Share /></el-icon>
+          <span>{{ $t('nav.workflow') }}</span>
         </router-link>
 
-        <router-link to="/insights/observability" class="nav-item" active-class="active">
-          <el-icon><TrendCharts /></el-icon>
-          <span>Agent 观测台</span>
-        </router-link>
-
-        <router-link to="/skills" class="nav-item" active-class="active">
+        <router-link to="/assets" class="nav-item" active-class="active">
           <el-icon><SetUp /></el-icon>
-          <span>技能中心</span>
-        </router-link>
-
-      
-        <!-- <a
-          class="nav-item"
-          :href="beihaiTripStandaloneUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-        > 
-          <el-icon><Tickets /></el-icon>
-          <span>北海行程</span>
-        </a> -->
-
-        <div class="nav-group-label">核心智能体</div>
-        <router-link
-          v-for="agent in coreAgents"
-          :key="agent.id"
-          :to="`/agent/${agent.id}`"
-          class="nav-item"
-          active-class="active"
-        >
-          <el-icon :style="{ color: agent.color }">
-            <component :is="resolveAgentIcon(agent.icon)" />
-          </el-icon>
-          <span>{{ agent.name }}</span>
-        </router-link>
-
-        <div class="nav-group-label">辅助智能体</div>
-        <router-link
-          v-for="agent in supportAgents"
-          :key="agent.id"
-          :to="`/agent/${agent.id}`"
-          class="nav-item"
-          active-class="active"
-        >
-          <el-icon :style="{ color: agent.color }">
-            <component :is="resolveAgentIcon(agent.icon)" />
-          </el-icon>
-          <span>{{ agent.name }}</span>
+          <span>{{ $t('nav.assets') }}</span>
         </router-link>
       </nav>
 
@@ -152,6 +70,10 @@
             <el-icon><SwitchButton /></el-icon>
             退出
           </el-button>
+        </div>
+        <div class="nav-item lang-toggle" @click="toggleLocale">
+          <el-icon><Opportunity /></el-icon>
+          <span>{{ $t('common.switchLang') }}</span>
         </div>
         <router-link to="/settings" class="nav-item" active-class="active">
           <el-icon><Setting /></el-icon>
@@ -168,15 +90,15 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Operation, SetUp, SwitchButton, TrendCharts } from '@element-plus/icons-vue'
-import { resolveAgentIcon } from '@/utils/agentIcon'
+import { SwitchButton } from '@element-plus/icons-vue'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
+import { setLocale, getLocale } from '@/i18n'
+import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -186,8 +108,6 @@ const authStore = useAuthStore()
 const searchQuery = ref('')
 
 const isLoginRoute = computed(() => route.name === 'login')
-
-const { coreAgents, supportAgents } = storeToRefs(agentStore)
 
 const searchHits = computed(() => chatStore.searchConversations(searchQuery.value))
 
@@ -208,6 +128,11 @@ function openSearchHit(h: ConversationSearchHit) {
     params: { id: h.agentId },
     query: { c: h.conversationId },
   })
+}
+
+function toggleLocale() {
+  const next = getLocale() === 'zh' ? 'en' : 'zh'
+  setLocale(next as 'zh' | 'en')
 }
 
 async function handleLogout() {

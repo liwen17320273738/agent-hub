@@ -1,4 +1,8 @@
-"""Delivery docs API — same contract as server/deliveryDocs.mjs (docs/delivery/*.md)."""
+"""Delivery docs API — same contract as server/deliveryDocs.mjs (docs/delivery/*.md).
+
+Legacy global endpoints kept for backward compat.
+New task-scoped endpoints under /delivery-docs/task/{task_id}/ (issuse21).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +21,13 @@ from ..database import get_db
 from ..security import get_current_user
 from ..models.user import User
 from ..models.pipeline import PipelineTask, PipelineStage
+from ..services.task_workspace import (
+    ensure_task_workspace,
+    list_task_docs,
+    read_task_doc,
+    write_task_doc,
+    DOC_SPECS as WORKSPACE_DOC_SPECS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -392,4 +403,83 @@ async def compile_task_deliverables(
         "title": "项目交付汇总",
         "content": content,
         "updatedAt": updated,
+    }
+
+
+# ── Task-scoped delivery docs (issuse21 Phase 1) ──
+
+
+_TASK_DOC_ALLOWED = {s["name"] for s in WORKSPACE_DOC_SPECS}
+
+
+async def _resolve_task(task_id: str, db: AsyncSession) -> PipelineTask:
+    result = await db.execute(
+        select(PipelineTask).where(PipelineTask.id == task_id)
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return task
+
+
+@router.post("/task/{task_id}/init")
+async def init_task_workspace(
+    task_id: str,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    task = await _resolve_task(task_id, db)
+    await ensure_task_workspace(task_id, task.title)
+    docs = await list_task_docs(task_id, task.title)
+    return {"task_id": task_id, "docs": docs}
+
+
+@router.get("/task/{task_id}")
+async def list_task_delivery_docs(
+    task_id: str,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    task = await _resolve_task(task_id, db)
+    await ensure_task_workspace(task_id, task.title)
+    docs = await list_task_docs(task_id, task.title)
+    return {"task_id": task_id, "docs": docs}
+
+
+@router.get("/task/{task_id}/{doc_name}")
+async def read_task_delivery_doc(
+    task_id: str,
+    doc_name: str,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if doc_name not in _TASK_DOC_ALLOWED:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    task = await _resolve_task(task_id, db)
+    content = await read_task_doc(task_id, task.title, doc_name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="文档未创建")
+    meta = next((s for s in WORKSPACE_DOC_SPECS if s["name"] == doc_name), {})
+    return {"name": doc_name, "title": meta.get("title", doc_name), "content": content}
+
+
+@router.put("/task/{task_id}/{doc_name}")
+async def write_task_delivery_doc(
+    task_id: str,
+    doc_name: str,
+    body: WriteBody,
+    _user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    if doc_name not in _TASK_DOC_ALLOWED:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    task = await _resolve_task(task_id, db)
+    await ensure_task_workspace(task_id, task.title)
+    path = await write_task_doc(task_id, task.title, doc_name, body.content)
+    meta = next((s for s in WORKSPACE_DOC_SPECS if s["name"] == doc_name), {})
+    return {
+        "name": doc_name,
+        "title": meta.get("title", doc_name),
+        "content": body.content,
+        "updatedAt": path.stat().st_mtime * 1000,
     }

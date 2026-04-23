@@ -2,7 +2,7 @@
   <div class="wayne-stack-page">
     <header class="page-header">
       <div>
-        <h1>Wayne Stack 运行蓝图</h1>
+        <h1>Agent Hub 运行蓝图</h1>
         <p class="subtitle">
           以 Claude Code 为执行中枢、Cursor 为驾驶舱、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
         </p>
@@ -16,13 +16,13 @@
 
     <el-alert class="summary-alert" type="info" :closable="false" show-icon>
       <template #title>一句话总结</template>
-      Wayne Stack 不是多开几个模型，而是把命令、角色、技能、工具和记忆层组织成一个可持续运转的 AI 软件公司操作系统。
+      Agent Hub 不是多开几个模型，而是把命令、角色、技能、工具和记忆层组织成一个可持续运转的 AI 交付操作系统。
     </el-alert>
 
     <section class="section-block">
       <div class="section-heading">
         <h2>一、核心模型 → 核心角色</h2>
-        <p>核心展示前置。每一个核心模型对应 Wayne Stack 的一个关键角色，不再只是抽象分工。</p>
+        <p>核心展示前置。每一个核心模型对应 Agent Hub 的一个关键角色，不再只是抽象分工。</p>
       </div>
 
       <div class="model-grid">
@@ -46,7 +46,7 @@
     <section class="section-block">
       <div class="section-heading">
         <h2>二、运行架构</h2>
-        <p>从 Wayne 的目标开始，流经 Claude Code、工作流引擎、多模型总线、角色与技能，最终落到代码、文档和记忆。</p>
+        <p>从 Agent Hub 的目标开始，流经 Claude Code、工作流引擎、多模型总线、角色与技能，最终落到代码、文档和记忆。</p>
       </div>
 
       <div class="architecture-stack">
@@ -68,7 +68,7 @@
     <section class="section-block">
       <div class="section-heading">
         <h2>三、命令路由</h2>
-        <p>Wayne 从终端发起命令，Claude Code 调 Wayne Orchestrator，再按任务类型路由到不同模型。</p>
+        <p>从终端发起命令，Claude Code 调总控编排器，再按任务类型路由到不同模型。</p>
       </div>
 
       <el-table :data="commandRoutes" stripe class="route-table">
@@ -140,7 +140,7 @@
     <section class="section-block">
       <div class="section-heading">
         <h2>六、调度模式面板</h2>
-        <p>Wayne Stack 不让四个模型同时做同一件事，而是按模式组合使用。</p>
+        <p>Agent Hub 不让四个模型同时做同一件事，而是按模式组合使用。</p>
       </div>
 
       <div class="mode-grid">
@@ -161,7 +161,7 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>七、进入 Wayne 智能体</h2>
+        <h2>七、进入 Agent Hub 智能体</h2>
         <p>下面这 4 个已经接入当前 Agent Hub，可直接点击查看聊天入口和快捷提示词。</p>
       </div>
 
@@ -221,7 +221,7 @@ const router = useRouter()
 const architectureLayers: Layer[] = [
   {
     index: '01',
-    title: 'Wayne',
+    title: 'Agent Hub',
     summary: '目标、审批、资源取舍和高风险动作的最终裁决者。',
     points: ['方向', '审批', '取舍', '人在环上'],
   },
@@ -254,35 +254,35 @@ const architectureLayers: Layer[] = [
 const modelRoles: ModelRole[] = [
   {
     name: 'Opus 4.6',
-    role: 'Wayne Stack 总控 / 架构裁决',
+    role: 'Agent Hub 总控 / 架构裁决',
     tag: 'Judgment',
     tagType: 'warning',
     items: ['复杂权衡', '架构收口', '高风险发布判断', '冲突仲裁', '最终 go/no-go'],
   },
   {
     name: 'Sonnet 4.6',
-    role: 'Wayne 开发工程师',
+    role: 'Agent Hub 开发工程师',
     tag: 'Execution',
     tagType: 'success',
     items: ['连续编码', '多轮修复', '仓库级执行', '需求实现', '开发主力'],
   },
   {
     name: 'GPT-4.5',
-    role: 'Wayne 产品经理',
+    role: 'Agent Hub 产品经理',
     tag: 'Structure',
     tagType: 'primary',
     items: ['PRD / 文档', '结构化输出', '需求澄清', '代码 review', '高质量总结'],
   },
   {
     name: 'Gemini 4',
-    role: 'Wayne QA / 研究挑战者',
+    role: 'Agent Hub QA / 研究挑战者',
     tag: 'Research',
     tagType: 'info',
     items: ['长上下文归纳', '方案对比', '架构 challenge', '风险挑战', 'QA 补充视角'],
   },
   {
     name: '智谱 GLM-4.5',
-    role: 'Wayne 中文策略 / 本土化',
+    role: 'Agent Hub 中文策略 / 本土化',
     tag: 'Localization',
     tagType: 'success',
     items: ['中文表达', '本土化内容', '中文业务沟通', '中国市场语境', '中文润色'],
@@ -323,7 +323,7 @@ const commandRoutes = [
   {
     command: '/wayne-ship',
     lead: 'Opus 4.6',
-    review: 'Wayne 最终审批',
+    review: 'Agent Hub 最终审批',
     output: '验收结论、回滚要点、发布建议',
   },
 ]
@@ -360,7 +360,7 @@ const executionFlow = [
   {
     step: '05',
     title: '发布建议',
-    owner: 'Opus 4.6 -> Wayne',
+    owner: 'Opus 4.6 -> Agent Hub',
     description: '把验收、回滚、监控和上线建议收敛成最终结论。',
     artifacts: ['06-acceptance.md', '回滚', '监控'],
   },
@@ -393,14 +393,14 @@ const executionModes: ExecutionMode[] = [
     short: '高风险',
     description: '涉及生产、权限、计费、数据风险时，必须先审查再执行。',
     tagType: 'primary',
-    steps: ['GPT-4.5 写风险摘要', 'Gemini 4 挑战假设', 'Opus 4.6 做 go/no-go', 'Wayne 审批后执行'],
+    steps: ['GPT-4.5 写风险摘要', 'Gemini 4 挑战假设', 'Opus 4.6 做 go/no-go', 'Agent Hub 审批后执行'],
   },
 ]
 
 const wayneAgents = [
   {
     id: 'wayne-orchestrator',
-    name: 'Wayne Stack 总控',
+    name: 'Agent Hub 总控',
     title: 'Orchestrator',
     icon: 'Connection',
     color: '#7c5cff',
@@ -409,7 +409,7 @@ const wayneAgents = [
   },
   {
     id: 'wayne-product-manager',
-    name: 'Wayne 产品经理',
+    name: 'Agent Hub 产品经理',
     title: 'Product Manager',
     icon: 'Memo',
     color: '#3b82f6',
@@ -418,7 +418,7 @@ const wayneAgents = [
   },
   {
     id: 'wayne-developer',
-    name: 'Wayne 开发工程师',
+    name: 'Agent Hub 开发工程师',
     title: 'Developer',
     icon: 'Cpu',
     color: '#14b8a6',
@@ -427,7 +427,7 @@ const wayneAgents = [
   },
   {
     id: 'wayne-qa-lead',
-    name: 'Wayne QA 负责人',
+    name: 'Agent Hub QA 负责人',
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
     color: '#f59e0b',
@@ -436,7 +436,7 @@ const wayneAgents = [
   },
   {
     id: 'wayne-china-strategist',
-    name: 'Wayne 中文策略',
+    name: 'Agent Hub 中文策略',
     title: 'China Strategist',
     icon: 'ChatLineSquare',
     color: '#ef4444',

@@ -43,7 +43,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     const now = Date.now()
     workflow.value = {
       id: crypto.randomUUID(),
-      title: title.trim() || 'Wayne Workflow',
+      title: title.trim() || '新工作流',
       goal: goal.trim(),
       currentStageId: 'discovery',
       stages: createWayneStages(now),

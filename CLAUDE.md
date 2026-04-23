@@ -4,11 +4,16 @@ This file provides guidance to AI coding assistants when working with code in th
 
 ## Project Overview
 
-Agent Hub is a full-stack AI agent platform with multi-provider LLM routing, pipeline orchestration (linear + DAG), persistent memory, skill marketplace, and multi-channel gateway integrations (Feishu, QQ, OpenClaw).
+Agent Hub is an **AI Delivery Platform** — enterprise clients send a one-sentence request, an AI team of 14 roles executes it, and the client sees deliverables go live.
+
+**Core Flow (Hero Path)**:
+```
+一句话需求 → 收件箱(90s方案) → 团队执行 → 验收闸门 → 部署上线 → 分享链接
+```
 
 **Architecture**:
-- **Backend** (port 8000): FastAPI — auth, LLM proxy, pipeline, agents, skills, memory, SSE events
-- **Frontend** (port 5200): Vue 3 + Vite — agent chat, pipeline dashboard, settings
+- **Backend** (port 8000): FastAPI — auth, workspace RBAC, LLM proxy, pipeline, agents, share, credentials vault, SSE events
+- **Frontend** (port 5200): Vue 3 + Vite + vue-i18n — 5-entry sidebar (控制台/收件箱/团队/工作流/资产)
 - **PostgreSQL** (port 5432): Primary database (users, agents, conversations, pipeline tasks, skills, memory)
 - **Redis** (port 6379): Cache + SSE pub/sub + working memory + rate limiting
 - **Nginx** (port 80): Reverse proxy (Docker production only)
@@ -32,17 +37,15 @@ agent-hub/
 │   │   ├── redis_client.py       # Redis client singleton
 │   │   ├── api/                  # FastAPI routers
 │   │   │   ├── auth.py           # Login, register, JWT
-│   │   │   ├── agents.py         # Agent CRUD
-│   │   │   ├── conversations.py  # Chat history
-│   │   │   ├── llm_proxy.py      # Multi-provider LLM routing
-│   │   │   ├── pipeline.py       # Pipeline tasks, stages, DAG run
-│   │   │   ├── skills.py         # Skill marketplace
-│   │   │   ├── memory.py         # Memory search/manage
-│   │   │   ├── executor.py       # Claude Code execution
-│   │   │   ├── events.py         # SSE streaming
+│   │   │   ├── pipeline.py       # Tasks, stages, DAG, budget
+│   │   │   ├── workspaces.py     # Workspace CRUD + RBAC
+│   │   │   ├── credentials.py   # Encrypted credentials vault
+│   │   │   ├── share.py          # Public share token endpoints
+│   │   │   ├── deliverables.py  # ZIP download
+│   │   │   ├── workflows.py     # Workflow CRUD + run
 │   │   │   ├── gateway.py        # Feishu/QQ/OpenClaw webhooks
-│   │   │   ├── observability.py  # Traces, audit, approvals
-│   │   │   └── models.py         # Model provider CRUD
+│   │   │   ├── events.py         # SSE streaming
+│   │   │   └── observability.py  # Traces, audit, approvals
 │   │   ├── services/             # Business logic
 │   │   │   ├── llm_router.py     # Multi-provider LLM routing
 │   │   │   ├── pipeline_engine.py # 6-layer maturation pipeline
@@ -61,25 +64,37 @@ agent-hub/
 │   │   │   ├── model_registry.py # Model catalog
 │   │   │   └── token_tracker.py  # Usage tracking
 │   │   ├── models/               # SQLAlchemy ORM
-│   │   │   ├── user.py
-│   │   │   ├── agent.py
-│   │   │   ├── conversation.py
-│   │   │   ├── pipeline.py
-│   │   │   ├── skill.py
-│   │   │   └── model_provider.py
+│   │   │   ├── user.py           # Org + User
+│   │   │   ├── workspace.py      # Workspace + WorkspaceMember
+│   │   │   ├── credential.py    # Fernet-encrypted vault
+│   │   │   ├── pipeline.py       # PipelineTask + Stage + Artifact
+│   │   │   ├── workflow.py       # Saved workflow DAGs
+│   │   │   ├── agent.py          # AgentDefinition + skills/rules
+│   │   │   └── observability.py  # Traces, spans, audit logs
 │   │   ├── schemas/              # Pydantic request/response
 │   │   └── middleware/           # Rate limiting
 │   └── tests/                    # Pytest suite
-├── frontend/                     # (alias for src/ — Vue 3 SPA)
 ├── src/                          # Vue 3 + TypeScript frontend
-│   ├── App.vue
-│   ├── main.ts
-│   ├── router/                   # Vue Router
-│   ├── views/                    # Page components
-│   ├── components/               # Shared UI components
+│   ├── App.vue                   # 5-entry sidebar + WorkspaceSwitcher + i18n
+│   ├── main.ts                   # App bootstrap (Pinia + Router + i18n)
+│   ├── i18n/                     # vue-i18n (zh + en)
+│   ├── router/                   # Vue Router (5 main + share + legacy)
+│   ├── views/
+│   │   ├── Dashboard.vue         # Hero CTA: 一句话 → 先给方案/直接执行
+│   │   ├── Inbox.vue             # Task aggregation (all/active/done/failed)
+│   │   ├── Team.vue              # Agent grid
+│   │   ├── Workflow.vue          # Visual workflow builder + run
+│   │   ├── Assets.vue            # Models, skills, integrations
+│   │   ├── SharePage.vue         # Public share (no auth) + acceptance
+│   │   └── PipelineTaskDetail.vue # 3-tab: overview/deliverables/swimlane
+│   ├── components/
+│   │   ├── workspace/WorkspaceSwitcher.vue
+│   │   ├── task/FailureCard.vue  # RCA 4-field business card
+│   │   ├── task/DeliverableCards.vue # 8 doc cards (reused in SharePage)
+│   │   ├── task/ArtifactCompletionBar.vue
+│   │   └── inbox/TaskTable.vue   # Task list with cost column
 │   ├── services/                 # API clients
-│   ├── stores/                   # Pinia stores
-│   └── agents/                   # Agent type definitions
+│   └── stores/                   # Pinia stores
 ├── skills/                       # Agent skills (deer-flow style)
 │   ├── public/                   # Built-in skills (committed)
 │   └── custom/                   # User skills (gitignored)
@@ -213,19 +228,38 @@ from app.config import settings
 
 ## Key Features
 
-### Agent Chat
-- Multi-model selection (OpenAI, Anthropic, Gemini, DeepSeek, etc.)
-- Streaming responses via SSE
-- Conversation history persistence
-- System prompt customization per agent
+### Workspace RBAC
+- Org → Workspace hierarchy with resource isolation
+- Three roles: admin / manager / member
+- Sidebar workspace switcher, `workspace_id` FK on tasks and workflows
 
-### Pipeline Dashboard
-- Task creation and management
-- Stage-by-stage execution with progress tracking
-- DAG visualization for parallel workflows
-- Artifact storage and retrieval
+### Credentials Vault
+- Fernet symmetric encryption derived from JWT_SECRET
+- API never exposes plaintext, only `has_value: true`
+- Supports API keys, OAuth tokens for GitHub/Jira/Slack/Notion
 
-### Skill Marketplace
-- Browse and install skills
-- Schema validation and idempotent execution
-- Built-in skills: PRD Expert, Code Review, Test Strategy, Deep Research, Architecture Design, Data Analysis
+### Cost Governor
+- Per-task budget with 60% soft cap (auto-downgrade to DeepSeek) and 100% hard block
+- Budget visible in Inbox task table
+- 5 fallback model candidates by cost tier
+
+### Share & Acceptance
+- HMAC-SHA256 signed tokens with configurable TTL (7/30/365 days)
+- Public SharePage: view deliverables + accept/reject without login
+- ZIP download of complete delivery package (8 docs + screenshots + manifest)
+
+### Failure RCA Card
+- 4-field business-language failure card (stuck where / why / who / next step)
+- Auto-inferred owner (Admin / User / Agent) based on error pattern
+- Action buttons: retry / retry-with-downgrade / rollback / escalate
+
+### i18n
+- vue-i18n with zh/en locale files
+- All 5 sidebar entries + Dashboard + Inbox covered
+- Language toggle in sidebar footer, persisted to localStorage
+
+### Pipeline & Workflow
+- 14-role agent team with DAG orchestration
+- Visual workflow builder → compiler → runner
+- 8 standard delivery documents per task
+- Quality gates, self-verify, guardrails at every stage

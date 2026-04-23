@@ -2,7 +2,7 @@
   <div class="pipeline-dashboard">
     <header class="pipeline-header">
       <div class="header-top">
-        <h1>AI 军团流水线</h1>
+        <h1>任务流水线</h1>
         <div class="header-actions">
           <el-tag :type="healthStatus.pipeline === 'online' ? 'success' : 'danger'" size="small">
             {{ healthStatus.pipeline === 'online' ? '在线' : '离线' }}

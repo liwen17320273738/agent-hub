@@ -283,6 +283,45 @@ issuse21.phase 加了 Phase 0 是对的。但本该在 issuse03 就建立"决策
 | issuse17.md | 运维记录 | 公网接入 |
 | issuse18.md | 战略参考 | 路线图 |
 | issuse19.md | **被 20 取代** | 保留价值观参考 |
-| issuse20.md | **当前执行** | 30 天手册 |
-| issuse21.md + phase | **当前设计** | 工件体系 |
+| issuse20.md | **W1-W4 已交付** | 30 天手册 — AI 交付平台 |
+| issuse21.md + phase | **已交付** | 工件体系架构设计 |
 | issuse-retrospective.md | 本文件 | 全量回顾 |
+
+---
+
+## 六、issuse20 四周执行成果总结（2026-04-22 → 2026-04-23）
+
+### W1：品牌统一 + Sidebar 收口
+- 全局替换 "Wayne Stack" → "Agent Hub"
+- Sidebar 30 入口收口到 5 个：控制台 / 收件箱 / 团队 / 工作流 / 资产
+
+### W2：核心工作流闭环
+- 工作流编译器 `workflow_compiler.py` + 运行器 `workflow_runner.py`
+- 任务详情页重构为 3-tab（概览 / 交付物 / 角色泳道）
+- `DeliverableCards.vue` 8 张交付文档明信片
+
+### W3：Hero 路径 + 分享
+- Dashboard CTA：一句话输入 → 先给方案 / 直接执行
+- HMAC-SHA256 分享令牌：7/30/365 天 TTL
+- `SharePage.vue` 公开页：无需登录查看交付物 + 验收闸门
+- 后端 `share.py` 5 个端点：generate / get / doc / accept / reject
+
+### W4：企业要素 + 可见性
+- **Workspace RBAC**：`Workspace` + `WorkspaceMember`（admin/manager/member）三角色
+- **Credentials Vault**：Fernet 加密存储，API 不暴露明文
+- **Cost Governor**：任务级预算，60% 自动降级 DeepSeek，100% 硬上限阻断
+- **失败 RCA 业务卡片**：4 字段（卡在哪 / 为什么 / 谁处理 / 下一步）+ 操作按钮
+- **交付包 ZIP 下载**：8 docs + screenshots + manifest.json
+- **i18n**：vue-i18n 中英双语，sidebar 全量覆盖
+- **测试**：27 个新测试全部通过
+
+### 关键指标
+| 指标 | 值 |
+|------|-----|
+| Sidebar 入口数 | 5（从 30+） |
+| 新 API 端点 | 15+ |
+| 新 Vue 组件 | 10+ |
+| 新后端模型 | 3（Workspace / WorkspaceMember / Credential） |
+| 测试通过率 | 27/27 (100%) |
+| Frontend Build | 0 errors |
+| Backend 健康 | healthy (PostgreSQL + Redis) |

@@ -25,7 +25,7 @@
       <div class="left">
         <h1>Workflow Builder</h1>
         <span class="subtitle">
-          拖拽编排 AI 军团 DAG · 每次改动自动存本地
+          拖拽编排工作流 DAG · 每次改动自动存本地
         </span>
       </div>
       <div class="right">
@@ -247,7 +247,7 @@
           :closable="false"
           show-icon
           :title="`将以 custom 模板提交 ${nodes.length} 个阶段`"
-          description="提交后画布会切换到执行视图，节点状态实时更新；任务详情可在 AI 军团流水线里查看。"
+          description="提交后画布会切换到执行视图，节点状态实时更新；任务详情可在任务流水线里查看。"
         />
       </el-form>
       <template #footer>

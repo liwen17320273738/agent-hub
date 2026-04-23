@@ -27,7 +27,7 @@
 
 Agent Hub 是一个浏览器端的「AI 团队」协作平台。用户选择角色（市场、销售、技术支持等），像与顾问交谈一样与 AI 对话，并在本地保留对话历史。
 
-企业模式下，它进一步演化为 **AI 军团流水线**（AI Legion Pipeline）：
+企业模式下，它进一步演化为 **AI 交付流水线**（AI Legion Pipeline）：
 
 - **Lead Agent** 智能分析需求、动态分解子任务
 - **Subagent** 并行执行（产品经理 → 开发 → QA → 评审）
@@ -172,7 +172,7 @@ agent-hub/
 │   ├── db.mjs                    # SQLite Schema 定义
 │   ├── store.mjs                 # 数据访问层 (SQLite/PostgreSQL)
 │   ├── events.mjs                # SSE 事件总线
-│   ├── pipeline/                 # AI 军团流水线
+│   ├── pipeline/                 # AI 交付流水线
 │   │   ├── pipelineRouter.mjs    # REST API 路由
 │   │   ├── taskModel.mjs         # 任务模型和阶段定义
 │   │   ├── taskStore.mjs         # 任务持久化
@@ -226,7 +226,7 @@ pnpm preview      # 预览构建结果
 
 ### 企业模式（前端 + 后端）
 
-API 密钥存在服务端，支持多用户、数据库持久化、AI 军团流水线。
+API 密钥存在服务端，支持多用户、数据库持久化、AI 交付流水线。
 
 ```bash
 pnpm dev:enterprise   # 并行启动 Vite (5200) + Express (8787)
@@ -245,7 +245,7 @@ pnpm start        # Express 同时服务 dist/ 和 API，端口 8787
 
 ## 核心架构
 
-### AI 军团流水线（Smart Pipeline）
+### AI 交付流水线（Smart Pipeline）
 
 ```
 用户需求

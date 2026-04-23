@@ -30,6 +30,11 @@ class PipelineTask(Base):
 
     created_by: Mapped[str] = mapped_column(String(200), default="system")
     org_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), ForeignKey("orgs.id"), nullable=True)
+    workspace_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("workspaces.id", ondelete="SET NULL"), nullable=True,
+    )
+
+    budget_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
     overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)

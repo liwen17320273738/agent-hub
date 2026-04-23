@@ -91,9 +91,9 @@ const ROUTE_RULES: RouteRule[] = [
   {
     id: 'orchestrator',
     stage: '判断阶段',
-    title: '先由 Wayne 总控判断阶段',
+    title: '先由总控判断阶段',
     targetAgentId: 'wayne-orchestrator',
-    targetAgentName: 'Wayne Stack 总控',
+    targetAgentName: 'Agent Hub 总控',
     roleKey: 'orchestrator',
     recommendedModel: 'Opus 4.6',
     reason: '适合先判断阶段、拆解路径、识别缺失产物和高风险动作。',
@@ -102,9 +102,9 @@ const ROUTE_RULES: RouteRule[] = [
   {
     id: 'product',
     stage: '需求定义',
-    title: '路由到 Wayne 产品经理',
+    title: '路由到产品经理',
     targetAgentId: 'wayne-product-manager',
-    targetAgentName: 'Wayne 产品经理',
+    targetAgentName: '产品经理',
     roleKey: 'product',
     recommendedModel: 'GPT-4.5',
     reason: '适合 PRD、范围管理、目标/非目标、验收标准、用户故事。',
@@ -113,9 +113,9 @@ const ROUTE_RULES: RouteRule[] = [
   {
     id: 'developer',
     stage: '进入开发',
-    title: '路由到 Wayne 开发工程师',
+    title: '路由到开发工程师',
     targetAgentId: 'wayne-developer',
-    targetAgentName: 'Wayne 开发工程师',
+    targetAgentName: '开发工程师',
     roleKey: 'developer',
     recommendedModel: 'Sonnet 4.6',
     reason: '适合实现方案、模块改动、开发任务拆分、代码落地。',
@@ -124,9 +124,9 @@ const ROUTE_RULES: RouteRule[] = [
   {
     id: 'qa',
     stage: '质量验证',
-    title: '路由到 Wayne QA 负责人',
+    title: '路由到 QA 负责人',
     targetAgentId: 'wayne-qa-lead',
-    targetAgentName: 'Wayne QA 负责人',
+    targetAgentName: 'QA 负责人',
     roleKey: 'qa',
     recommendedModel: 'Gemini 4',
     reason: '适合测试清单、风险验证、回归、上线前质量判断。',
@@ -135,9 +135,9 @@ const ROUTE_RULES: RouteRule[] = [
   {
     id: 'china',
     stage: '中文本土化',
-    title: '路由到 Wayne 中文策略',
+    title: '路由到中文策略',
     targetAgentId: 'wayne-china-strategist',
-    targetAgentName: 'Wayne 中文策略',
+    targetAgentName: '中文策略',
     roleKey: 'china',
     recommendedModel: '智谱 GLM-4.5',
     reason: '适合中文润色、本土化表达、老板汇报版和中国市场语境适配。',
@@ -251,8 +251,8 @@ export function buildWayneSeed(route: WayneRouteSuggestion, task: string) {
   if (!normalizedTask) return ''
 
   if (route.targetAgentId === 'wayne-orchestrator') {
-    return `请判断这个任务现在处于 Wayne Stack 的哪个阶段，并给出下一步最小动作：\n\n${normalizedTask}`
+    return `请判断这个任务现在处于 Agent Hub 的哪个阶段，并给出下一步最小动作：\n\n${normalizedTask}`
   }
 
-  return `Wayne Orchestrator 已将以下任务路由给你，请按你的角色处理，并先输出最重要的下一步：\n\n${normalizedTask}`
+  return `总控已将以下任务路由给你，请按你的角色处理，并先输出最重要的下一步：\n\n${normalizedTask}`
 }
