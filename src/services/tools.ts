@@ -49,6 +49,8 @@ export const TOOL_DEFINITIONS = [
   },
 ]
 
+import { getLocale, appLocaleToBcp47 } from '@/i18n'
+
 function safeJsonParse(s: string): Record<string, unknown> {
   try {
     const v = JSON.parse(s || '{}')
@@ -63,7 +65,8 @@ export function executeTool(name: string, argsJson: string): string {
   try {
     switch (name) {
       case 'get_current_datetime': {
-        return new Date().toLocaleString('zh-CN', {
+        const loc = appLocaleToBcp47(getLocale())
+        return new Date().toLocaleString(loc, {
           weekday: 'long',
           year: 'numeric',
           month: 'long',

@@ -5,18 +5,22 @@
         <h1>{{ t('pipelineDashboard.text_1') }}</h1>
         <div class="header-actions">
           <el-tag :type="healthStatus.pipeline === 'online' ? 'success' : 'danger'" size="small">
-            {{ healthStatus.pipeline === 'online' ? '在线' : '离线' }}
+            {{
+              healthStatus.pipeline === 'online'
+                ? t('pipelineDashboard.healthOnline')
+                : t('pipelineDashboard.healthOffline')
+            }}
           </el-tag>
           <el-tag v-if="healthStatus.feishu" type="info" size="small">{{ t('pipelineDashboard.text_2') }}</el-tag>
           <el-tag v-if="healthStatus.qq" type="info" size="small">QQ</el-tag>
           <el-button type="primary" @click="showCreateDialog = true">
             <el-icon><Plus /></el-icon>
-            创建任务
+            {{ t('pipelineDashboard.createTaskCta') }}
           </el-button>
         </div>
       </div>
       <p class="subtitle">
-        飞书/QQ → OpenClaw 网关 → 自动编排 → Claude Code 执行 → 评审验收
+        {{ t('pipelineDashboard.headerSubtitle') }}
       </p>
     </header>
 
@@ -76,7 +80,7 @@
                 type="button"
                 class="task-delete"
                 :title="t('pipelineDashboard.title_1')"
-                aria-label="删除任务"
+                :aria-label="t('pipelineDashboard.title_1')"
                 @click.stop="confirmDeletePlanningTask(task)"
               >
                 <el-icon :size="14"><Delete /></el-icon>
@@ -88,7 +92,7 @@
               </div>
             </div>
             <div v-if="!(pipelineStore.tasksByStage[stage.id] || []).length" class="stage-empty">
-              暂无任务
+              {{ t('inbox.empty') }}
             </div>
             </div>
           </div>
@@ -189,10 +193,10 @@
       <!-- Model Tiers Tab -->
       <div v-if="activeObsTab === 'tiers'" class="panel-content">
         <div class="tier-info">
-          <div class="tier-group" v-for="(info, tierName) in modelTiers" :key="tierName">
-            <h4 class="tier-name" :class="'tier-' + tierName">{{ info.label }}</h4>
+          <div class="tier-group" v-for="tier in modelTiers" :key="tier.key">
+            <h4 class="tier-name" :class="'tier-' + tier.key">{{ tier.label }}</h4>
             <div class="tier-roles">
-              <el-tag v-for="role in info.roles" :key="role" size="small" class="tier-role-tag">{{ role }}</el-tag>
+              <el-tag v-for="role in tier.roles" :key="role" size="small" class="tier-role-tag">{{ role }}</el-tag>
             </div>
           </div>
         </div>
@@ -250,7 +254,7 @@
                 <span class="template-desc">{{ tmpl.description }}</span>
               </div>
               <div class="template-badges">
-                <el-tag size="small" type="info">{{ tmpl.stageCount }} 阶段</el-tag>
+                <el-tag size="small" type="info">{{ t('pipelineDashboard.stageCount', { n: tmpl.stageCount }) }}</el-tag>
                 <el-tag v-if="tmpl.hasCustomGates" size="small" type="warning">{{ t('pipelineDashboard.text_19') }}</el-tag>
               </div>
             </div>
@@ -283,38 +287,38 @@
           </el-input>
           <div v-if="newTask.projectMode === 'local'" class="local-path-field">
             <div class="local-path-inner">
-              <span class="path-prepend">路径</span>
+              <span class="path-prepend">{{ t('pipelineDashboard.pathPrepend') }}</span>
               <el-autocomplete
                 v-model="newTask.projectPath"
                 :fetch-suggestions="fetchPathSuggestions"
                 :trigger-on-focus="true"
                 clearable
-                placeholder="绝对路径，如 /Users/wayne/Documents/my-app"
+                :placeholder="t('pipelineDashboard.localPathPlaceholder')"
                 value-key="value"
                 class="path-autocomplete"
               />
             </div>
             <div class="local-path-actions">
-              <el-button size="small" @click="pasteProjectPathFromClipboard">从剪贴板粘贴</el-button>
+              <el-button size="small" @click="pasteProjectPathFromClipboard">{{
+                t('pipelineDashboard.pasteFromClipboard')
+              }}</el-button>
               <el-button size="small" type="primary" plain @click="pickLocalDirectoryAssist">
-                选择文件夹…
+                {{ t('pipelineDashboard.pickFolder') }}
               </el-button>
             </div>
             <el-input
               v-model="localProjectParent"
-              placeholder="选填：常用项目父目录（与所选文件夹名拼接后由后端校验），如 /Users/you/Documents/YJD"
+              :placeholder="t('pipelineDashboard.parentPathPlaceholder')"
               size="small"
               class="local-project-parent-input"
               clearable
               @blur="persistLocalProjectParent"
             />
-            <p class="form-tip-small">
-              后端需要<strong>运行 Agent Hub 的那台机器上</strong>能访问的绝对路径（本机开发即本机路径）。
-              选择文件夹后，会根据<strong>最近路径 / 上方路径的同级目录 / 父目录</strong>等候选由后端校验并自动填入；仍无法匹配时请粘贴路径或使用终端 <code class="inline-code">pwd</code>。
-            </p>
+            <p class="form-tip-small">{{ t('pipelineDashboard.localPathTip1') }}</p>
+            <p class="form-tip-small">{{ t('pipelineDashboard.localPathTip2') }}</p>
           </div>
         </el-form-item>
-        <el-form-item label="附件（可选）">
+        <el-form-item :label="t('pipelineDashboard.labelAttachment')">
           <el-upload
             ref="uploadRef"
             :auto-upload="false"
@@ -323,28 +327,28 @@
             :on-change="onPendingFileChange"
             :on-remove="onPendingFileRemove"
           >
-            <el-button type="default" size="small">选择文件</el-button>
+            <el-button type="default" size="small">{{ t('pipelineDashboard.selectFiles') }}</el-button>
             <template #tip>
               <p class="form-tip-small">
-                参考图、截图、PRD、代码等。文本类会注入上下文；图片会按当前所选模型走多模态（OpenAI / Anthropic / Gemini 等）；不支持的模型会自动回退为纯文本。单文件最大 15MB。
+                {{ t('pipelineDashboard.attachmentTip') }}
               </p>
             </template>
           </el-upload>
         </el-form-item>
-        <el-form-item label="来源">
+        <el-form-item :label="t('pipelineDashboard.labelSource')">
           <el-select v-model="newTask.source" style="width: 100%">
-            <el-option label="Web 手动" value="web" />
-            <el-option label="API 接口" value="api" />
+            <el-option :label="t('pipelineDashboard.sourceWeb')" value="web" />
+            <el-option :label="t('pipelineDashboard.sourceApi')" value="api" />
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-checkbox v-model="newTask.autoRun">创建后立即全自动执行 (AI 自动跑完所有阶段)</el-checkbox>
+          <el-checkbox v-model="newTask.autoRun">{{ t('pipelineDashboard.autoRunLabel') }}</el-checkbox>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
+        <el-button @click="showCreateDialog = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" @click="handleCreateTask" :loading="creating">
-          {{ newTask.autoRun ? '创建并自动执行' : '创建任务' }}
+          {{ newTask.autoRun ? t('pipelineDashboard.createAndRun') : t('pipelineDashboard.createTask') }}
         </el-button>
       </template>
     </el-dialog>
@@ -370,8 +374,9 @@ import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import type { SDLCTemplate } from '@/services/pipelineApi'
 import type { PipelineEvent, PipelineTask } from '@/agents/types'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const router = useRouter()
 
@@ -501,13 +506,15 @@ async function pickLocalDirectoryAssist() {
       }
     }
     await ElMessageBox.alert(
-      `已选定文件夹「${name}」。未能根据最近路径或父目录自动拼出在后端机器上存在的目录。\n\n请在本机终端进入该目录后执行 pwd（Mac/Linux）复制输出，或从 Finder / 资源管理器复制绝对路径，粘贴到上方「路径」框。\n\n（路径必须与运行后端的机器一致。可在「父目录」中填写上级路径以便下次自动拼接。）`,
-      '请填写绝对路径',
-      { confirmButtonText: '知道了' },
+      t('pipelineDashboard.absPathMessage', { name }),
+      t('pipelineDashboard.absPathTitle'),
+      { confirmButtonText: t('pipelineDashboard.gotIt') },
     )
   } catch (e) {
     if ((e as Error).name === 'AbortError') return
-    ElMessage.error(`选择目录失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineDashboard.elMessagePickDir', { message: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 const healthStatus = ref<Record<string, unknown>>({})
@@ -518,26 +525,29 @@ const approvals = ref<import('@/services/pipelineApi').ApprovalItem[]>([])
 const auditEntries = ref<import('@/services/pipelineApi').AuditEntry[]>([])
 
 const obsTabs = computed(() => [
-  { id: 'traces', label: 'Traces', badge: traces.value.length || null },
-  { id: 'approvals', label: '审批', badge: approvals.value.length || null },
-  { id: 'audit', label: '审计日志', badge: null },
-  { id: 'tiers', label: '模型分级', badge: null },
+  { id: 'traces', label: t('pipelineDashboard.tabTraces'), badge: traces.value.length || null },
+  { id: 'approvals', label: t('pipelineDashboard.tabApprovals'), badge: approvals.value.length || null },
+  { id: 'audit', label: t('pipelineDashboard.tabAudit'), badge: null },
+  { id: 'tiers', label: t('pipelineDashboard.tabTiers'), badge: null },
 ])
 
-const modelTiers = {
-  planning: {
-    label: 'Tier 1 — Planning (强模型)',
+const modelTiers = computed(() => [
+  {
+    key: 'planning' as const,
+    label: t('pipelineDashboard.tier1'),
     roles: ['orchestrator', 'lead-agent', 'wayne-ceo', 'wayne-cto', 'wayne-acceptance'],
   },
-  execution: {
-    label: 'Tier 2 — Execution (平衡)',
+  {
+    key: 'execution' as const,
+    label: t('pipelineDashboard.tier2'),
     roles: ['product-manager', 'developer', 'qa-lead', 'wayne-product', 'wayne-developer'],
   },
-  routine: {
-    label: 'Tier 3 — Routine (低成本)',
+  {
+    key: 'routine' as const,
+    label: t('pipelineDashboard.tier3'),
     roles: ['wayne-marketing', 'wayne-finance', 'wayne-devops', 'openclaw'],
   },
-}
+])
 
 async function loadObsData() {
   try {
@@ -555,10 +565,12 @@ async function loadObsData() {
 async function handleApproval(id: string, approved: boolean) {
   try {
     await apiResolveApproval(id, approved)
-    ElMessage.success(approved ? '已批准' : '已拒绝')
+    ElMessage.success(approved ? t('pipelineDashboard.elMessageApproved') : t('pipelineDashboard.elMessageRejected'))
     await loadObsData()
   } catch (e) {
-    ElMessage.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineDashboard.elMessageApprovalError', { message: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -585,15 +597,15 @@ const newTask = ref({
   projectPath: '',
 })
 
-const stages = [
-  { id: 'planning', label: '需求规划' },
-  { id: 'architecture', label: '架构设计' },
-  { id: 'development', label: '开发实现' },
-  { id: 'testing', label: '测试验证' },
-  { id: 'reviewing', label: '审查验收' },
-  { id: 'deployment', label: '部署上线' },
-  { id: 'done', label: '已完成' },
-]
+const stages = computed(() => [
+  { id: 'planning', label: t('pipelineDashboard.stagePlanning') },
+  { id: 'architecture', label: t('pipelineDashboard.stageArchitecture') },
+  { id: 'development', label: t('pipelineDashboard.stageDevelopment') },
+  { id: 'testing', label: t('pipelineDashboard.stageTesting') },
+  { id: 'reviewing', label: t('pipelineDashboard.stageReviewing') },
+  { id: 'deployment', label: t('pipelineDashboard.stageDeployment') },
+  { id: 'done', label: t('pipelineDashboard.stageDone') },
+])
 
 const stageColors: Record<string, string> = {
   planning: '#6366f1',
@@ -622,19 +634,21 @@ function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'inf
 async function confirmDeletePlanningTask(task: PipelineTask) {
   try {
     await ElMessageBox.confirm(
-      `确定删除任务「${task.title}」？删除后无法恢复。`,
-      '删除任务',
+      t('pipelineDashboard.confirmDeleteTaskMessage', { title: task.title }),
+      t('pipelineDashboard.title_1'),
       {
         type: 'warning',
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
       },
     )
     await pipelineStore.removeTask(task.id)
     ElMessage.success(t('pipelineDashboard.elMessage_6'))
   } catch (e: unknown) {
     if (e === 'cancel') return
-    ElMessage.error(`删除失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineDashboard.elMessageDeleteError', { message: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -642,16 +656,20 @@ function timeAgo(ts: number | string | undefined) {
   if (!ts) return ''
   const ms = typeof ts === 'string' ? new Date(ts).getTime() : (ts < 1e12 ? ts * 1000 : ts)
   const diff = Date.now() - ms
-  if (diff < 60_000) return '刚刚'
-  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`
-  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`
-  return `${Math.floor(diff / 86400_000)}天前`
+  if (diff < 60_000) return t('taskTable.justNow')
+  if (diff < 3600_000) return t('taskTable.minutesAgo', { n: Math.floor(diff / 60_000) })
+  if (diff < 86400_000) return t('taskTable.hoursAgo', { n: Math.floor(diff / 3600_000) })
+  return t('taskTable.daysAgo', { n: Math.floor(diff / 86400_000) })
 }
 
 function formatTime(ts: number | string | undefined) {
   if (!ts) return ''
   const date = typeof ts === 'string' ? new Date(ts) : new Date(ts < 1e12 ? ts * 1000 : ts)
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return date.toLocaleTimeString(appLocaleToBcp47(locale.value), {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 const recentEvents = computed(() => {
@@ -668,44 +686,46 @@ function eventColor(event: string) {
 }
 
 function eventLabel(event: string) {
-  const labels: Record<string, string> = {
-    'task:created': '任务创建',
-    'task:updated': '任务更新',
-    'task:stage-advanced': '阶段推进',
-    'task:rejected': '阶段打回',
-    'task:deleted': '任务删除',
-    'openclaw:intake': '需求接入',
-    'stage:queued': '阶段排队',
-    'stage:processing': 'AI 处理中',
-    'stage:completed': '阶段完成',
-    'stage:error': '阶段错误',
-    'pipeline:auto-start': '🚀 自动启动',
-    'pipeline:auto-completed': '🎉 全流程完成',
-    'pipeline:auto-paused': '⏸️ 暂停等待',
-    'pipeline:auto-error': '💥 流程错误',
-    'executor:started': '执行开始',
-    'executor:completed': '执行完成',
-    'executor:error': '执行错误',
-    'stage:quality-gate': '🚦 质量门禁',
-    'stage:gate-overridden': '🔓 门禁放行',
-    'stage:peer-reviewing': '🔍 审阅中',
-    'stage:peer-review-approved': '✅ 审阅通过',
-    'stage:peer-review-rejected': '❌ 审阅驳回',
-    'stage:peer-review-error': '⚠️ 审阅出错',
-    'stage:rework': '🔄 修改中',
-    'stage:awaiting-approval': '🔔 等待审批',
-    'stage:approval-granted': '✅ 审批通过',
-    'stage:approval-denied': '❌ 审批驳回',
-    'pipeline:resumed': '▶️ 恢复执行',
-    connected: '连接建立',
+  switch (event) {
+    case 'task:created': return t('pipelineDashboard.events.taskCreated')
+    case 'task:updated': return t('pipelineDashboard.events.taskUpdated')
+    case 'task:stage-advanced': return t('pipelineDashboard.events.stageAdvanced')
+    case 'task:rejected': return t('pipelineDashboard.events.taskRejected')
+    case 'task:deleted': return t('pipelineDashboard.events.taskDeleted')
+    case 'openclaw:intake': return t('pipelineDashboard.events.openclawIntake')
+    case 'stage:queued': return t('pipelineDashboard.events.stageQueued')
+    case 'stage:processing': return t('pipelineDashboard.events.stageProcessing')
+    case 'stage:completed': return t('pipelineDashboard.events.stageCompleted')
+    case 'stage:error': return t('pipelineDashboard.events.stageError')
+    case 'pipeline:auto-start': return t('pipelineDashboard.events.autoStart')
+    case 'pipeline:auto-completed': return t('pipelineDashboard.events.autoCompleted')
+    case 'pipeline:auto-paused': return t('pipelineDashboard.events.autoPaused')
+    case 'pipeline:auto-error': return t('pipelineDashboard.events.autoError')
+    case 'executor:started': return t('pipelineDashboard.events.executorStarted')
+    case 'executor:completed': return t('pipelineDashboard.events.executorCompleted')
+    case 'executor:error': return t('pipelineDashboard.events.executorError')
+    case 'stage:quality-gate': return t('pipelineDashboard.events.qualityGate')
+    case 'stage:gate-overridden': return t('pipelineDashboard.events.gateOverridden')
+    case 'stage:peer-reviewing': return t('pipelineDashboard.events.peerReviewing')
+    case 'stage:peer-review-approved': return t('pipelineDashboard.events.peerReviewApproved')
+    case 'stage:peer-review-rejected': return t('pipelineDashboard.events.peerReviewRejected')
+    case 'stage:peer-review-error': return t('pipelineDashboard.events.peerReviewError')
+    case 'stage:rework': return t('pipelineDashboard.events.rework')
+    case 'stage:awaiting-approval': return t('pipelineDashboard.events.awaitingApproval')
+    case 'stage:approval-granted': return t('pipelineDashboard.events.approvalGranted')
+    case 'stage:approval-denied': return t('pipelineDashboard.events.approvalDenied')
+    case 'pipeline:resumed': return t('pipelineDashboard.events.pipelineResumed')
+    case 'connected': return t('pipelineDashboard.events.connected')
+    default: return event
   }
-  return labels[event] || event
 }
 
 function eventDetail(event: PipelineEvent) {
   const data = event.data as Record<string, unknown>
   if (data?.title) return String(data.title)
-  if (data?.taskId) return `任务 ${String(data.taskId).slice(0, 8)}...`
+  if (data?.taskId) {
+    return t('pipelineDashboard.eventTaskPrefix', { id: `${String(data.taskId).slice(0, 8)}...` })
+  }
   return ''
 }
 
@@ -735,7 +755,10 @@ async function handleCreateTask() {
         await uploadTaskAttachment(task.id, f)
       } catch (err) {
         ElMessage.warning(
-          `附件「${f.name}」上传失败: ${err instanceof Error ? err.message : String(err)}`,
+          t('pipelineDashboard.elMessageUploadFail', {
+            name: f.name,
+            message: err instanceof Error ? err.message : String(err),
+          }),
         )
       }
     }
@@ -752,7 +775,9 @@ async function handleCreateTask() {
 
     newTask.value = { title: '', description: '', source: 'web', template: 'full', autoRun: true, projectMode: 'none', repoUrl: '', projectPath: '' }
   } catch (e: unknown) {
-    ElMessage.error(`创建任务失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineDashboard.elMessageCreateError', { message: e instanceof Error ? e.message : String(e) }),
+    )
   } finally {
     creating.value = false
   }

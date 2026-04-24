@@ -12,8 +12,9 @@ import {
   type PlanSummary,
 } from '@/services/planApi'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const router = useRouter()
 
@@ -137,7 +138,7 @@ async function submitRevise() {
 function fmtTime(epoch: number | null): string {
   if (!epoch) return ''
   const d = new Date(epoch * 1000)
-  return d.toLocaleString('zh-CN', { hour12: false })
+  return d.toLocaleString(appLocaleToBcp47(locale.value), { hour12: false })
 }
 
 function elapsed(epoch: number | null): string {

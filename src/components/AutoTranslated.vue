@@ -11,7 +11,8 @@
  * translated version as soon as the batched request resolves.
  *
  * For Chinese locale (zh) this is a no-op — static bundle covers the UI
- * chrome and we just pass the original text through.
+ * chrome and we just pass the original text through. Other locales that need
+ * runtime translation use the same /api/translate/batch path (en/ja/ko/fr/de/es).
  */
 import { toRef } from 'vue'
 import { useAutoTranslate } from '@/composables/useAutoTranslate'

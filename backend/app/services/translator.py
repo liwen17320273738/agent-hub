@@ -47,12 +47,15 @@ CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 GLOSSARY_PATH = Path(__file__).resolve().parents[2] / "data" / "translate_glossary.json"
 
-SUPPORTED_TARGETS = {"en", "ja", "ko", "zh"}
+SUPPORTED_TARGETS = {"en", "ja", "ko", "fr", "de", "es", "zh"}
 
 _LANG_NAMES = {
     "en": "English",
     "ja": "Japanese (日本語)",
     "ko": "Korean (한국어)",
+    "fr": "French (Français)",
+    "de": "German (Deutsch)",
+    "es": "Spanish (Español)",
     "zh": "Simplified Chinese (简体中文)",
 }
 
@@ -156,7 +159,7 @@ def _needs_translation(text: str, target: str) -> bool:
 
 
 async def translate_text(text: str, target: str) -> str:
-    """Return ``text`` translated to ``target`` (BCP-47 short: en/ja/ko/zh).
+    """Return ``text`` translated to ``target`` (BCP-47 short: en/ja/ko/fr/de/es/zh).
 
     * Cache hit → returned immediately.
     * Heuristic determines we don't need translation → original returned.

@@ -1,11 +1,11 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h1>Agent Hub</h1>
+      <h1>{{ t('login.brand') }}</h1>
       <p class="subtitle">{{ t('login.subtitle') }}</p>
       <el-form :model="form" @submit.prevent="onSubmit" label-position="top" class="login-form">
         <el-form-item :label="t('login.email')">
-          <el-input v-model="form.email" type="email" autocomplete="username" placeholder="name@company.com" />
+          <el-input v-model="form.email" type="email" autocomplete="username" :placeholder="t('login.emailPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('login.password')">
           <el-input
@@ -13,7 +13,7 @@
             type="password"
             autocomplete="current-password"
             show-password
-            :placeholder="t('login.password')"
+            :placeholder="t('login.passwordPlaceholder')"
             @keyup.enter="onSubmit"
           />
         </el-form-item>

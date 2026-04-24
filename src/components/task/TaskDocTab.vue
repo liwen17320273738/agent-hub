@@ -52,8 +52,9 @@ import { Loading } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/services/markdown'
 import { getAuthToken } from '@/services/api'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 interface ArtifactDetail {
   id: string
@@ -83,7 +84,7 @@ const renderedContent = computed(() =>
 
 function formatTime(ts: string | null) {
   if (!ts) return ''
-  return new Date(ts).toLocaleString('zh-CN', {
+  return new Date(ts).toLocaleString(appLocaleToBcp47(locale.value), {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
   })
 }

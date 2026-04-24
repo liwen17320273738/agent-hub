@@ -2,7 +2,7 @@
 // i18n_sync.mjs — auto-fill missing translation keys using an LLM.
 //
 // Single source of truth: src/i18n/zh.ts.
-// For every target locale (en/ja/ko), we find keys that exist in zh but not
+// For every target locale (en/ja/ko/fr/de/es), we find keys that exist in zh but not
 // in the target, batch them, ask an OpenAI-compatible model to translate,
 // and splice the results back into the target file.
 //
@@ -30,7 +30,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(__dirname, '..')
 const I18N_DIR = path.join(ROOT, 'src', 'i18n')
 const SOURCE = 'zh'
-const DEFAULT_TARGETS = ['en', 'ja', 'ko']
+const DEFAULT_TARGETS = ['en', 'ja', 'ko', 'fr', 'de', 'es']
 
 const LANG_NAME = {
   en: 'English (en)',

@@ -26,7 +26,7 @@
 //   pnpm i18n:extract -- --files src/views/Foo.vue # limit scope
 //   pnpm i18n:extract -- --apply --files ...       # targeted apply
 //
-// After apply: run `pnpm i18n:sync` to fill en/ja/ko.
+// After apply: run `pnpm i18n:sync` to fill other locale files from zh.
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -329,7 +329,7 @@ async function main() {
   if (keysAdded > 0) {
     await writeZh(zh.header, zh.dict)
     console.log(`\n[extract] ${filesChanged} files rewritten, ${keysAdded} keys appended to src/i18n/zh.ts`)
-    console.log(`[extract] next: run \`pnpm i18n:sync\` to fill en/ja/ko for the new keys.`)
+    console.log(`[extract] next: run \`pnpm i18n:sync\` to fill en/ja/ko/fr/de/es for the new keys.`)
   } else {
     console.log(`\n[extract] no edits applied`)
   }

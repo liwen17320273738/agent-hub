@@ -70,6 +70,7 @@
 import { useI18n } from 'vue-i18n'
 import type { PipelineTask } from '@/agents/types'
 import AutoTranslated from '@/components/AutoTranslated.vue'
+import { appLocaleToBcp47 } from '@/i18n'
 
 const { t, locale } = useI18n()
 
@@ -122,8 +123,7 @@ function absDate(ts: number | string | null | undefined): string {
   if (!ts) return '-'
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
   if (isNaN(d.getTime())) return '-'
-  const loc = locale.value === 'en' ? 'en-US' : 'zh-CN'
-  return d.toLocaleString(loc, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleString(appLocaleToBcp47(locale.value), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function relativeTime(ts: number | string | null | undefined): string {
@@ -135,8 +135,7 @@ function relativeTime(ts: number | string | null | undefined): string {
   if (ms < 3_600_000) return t('taskTable.minutesAgo', { n: Math.floor(ms / 60_000) })
   if (ms < 86_400_000) return t('taskTable.hoursAgo', { n: Math.floor(ms / 3_600_000) })
   if (ms < 7 * 86_400_000) return t('taskTable.daysAgo', { n: Math.floor(ms / 86_400_000) })
-  const loc = locale.value === 'en' ? 'en-US' : 'zh-CN'
-  return d.toLocaleDateString(loc, { month: '2-digit', day: '2-digit' })
+  return d.toLocaleDateString(appLocaleToBcp47(locale.value), { month: '2-digit', day: '2-digit' })
 }
 
 // Visual freshness so stale "执行中" tasks (probably stuck) jump out.

@@ -99,6 +99,12 @@ def test_verify_architecture_output():
 1. 密码哈希性能: bcrypt rounds=12，单次 ~300ms，可接受
 2. JWT 密钥泄露: 使用环境变量注入，定期轮换
 3. 并发登录: Redis 分布式锁防止竞态
+
+## 示例配置片段
+```python
+# security.py — token 过期时间（秒）
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+```
 """
     result = verify_stage_output("architecture", "developer", output)
     assert result.overall_status in (VerifyStatus.PASS, VerifyStatus.WARN)

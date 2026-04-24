@@ -12,7 +12,7 @@
 
       <div class="message-content">
         <div class="message-meta">
-          <span class="sender">{{ message.role === 'user' ? '你' : agent?.name }}</span>
+          <span class="sender">{{ message.role === 'user' ? t('chatMessage.senderYou') : agent?.name }}</span>
           <span class="time" v-if="!streaming">{{ formatTime(message.timestamp) }}</span>
           <div class="message-actions" v-if="!streaming">
             <el-button text type="primary" size="small" @click.stop="copyContent">{{ t('chatMessage.text_1') }}</el-button>
@@ -23,7 +23,7 @@
               size="small"
               @click.stop="$emit('regenerate')"
             >
-              重新生成
+              {{ t('chatMessage.regenerate') }}
             </el-button>
             <el-button
               v-if="message.role === 'user' && showEditUser"
@@ -32,7 +32,7 @@
               size="small"
               @click.stop="$emit('editUser', message)"
             >
-              编辑
+              {{ t('chatMessage.edit') }}
             </el-button>
           </div>
         </div>
@@ -49,8 +49,9 @@ import type { ChatMessage } from '@/agents/types'
 import type { AgentConfig } from '@/agents/types'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 defineEmits<{
   regenerate: []
@@ -78,7 +79,7 @@ async function copyContent() {
 
 function formatTime(ts: number) {
   const d = new Date(ts)
-  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return d.toLocaleTimeString(appLocaleToBcp47(locale.value), { hour: '2-digit', minute: '2-digit' })
 }
 
 const renderedContent = computed(() => {

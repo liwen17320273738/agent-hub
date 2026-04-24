@@ -13,18 +13,18 @@
           <el-radio-button :value="30">{{ t('insightsObservability.text_6') }}</el-radio-button>
         </el-radio-group>
         <el-button :loading="loading" size="small" @click="reload">
-          <el-icon><Refresh /></el-icon> 刷新
+          <el-icon><Refresh /></el-icon> {{ t('insightsObservability.text_refresh') }}
         </el-button>
       </div>
     </header>
 
     <el-tabs v-model="tab" class="obs-tabs">
-      <!-- ─────────── 总览 ─────────── -->
+      <!-- Overview -->
       <el-tab-pane :label="t('insightsObservability.label_1')" name="overview">
         <div v-if="snap" class="kpi-grid">
-          <KpiCard :label="t('insightsObservability.label_2')" :value="snap.totals.tasks" suffix="个" />
-          <KpiCard :label="t('insightsObservability.label_3')" :value="snap.totals.stages_executed" suffix="次" />
-          <KpiCard :label="t('insightsObservability.label_4')" :value="snap.totals.llm_calls" suffix="次" />
+          <KpiCard :label="t('insightsObservability.label_2')" :value="snap.totals.tasks" :suffix="t('insightsObservability.suffix_unit')" />
+          <KpiCard :label="t('insightsObservability.label_3')" :value="snap.totals.stages_executed" :suffix="t('insightsObservability.suffix_times')" />
+          <KpiCard :label="t('insightsObservability.label_4')" :value="snap.totals.llm_calls" :suffix="t('insightsObservability.suffix_times')" />
           <KpiCard
             :label="t('insightsObservability.label_5')"
             :value="snap.totals.cost_usd.toFixed(4)"
@@ -81,7 +81,7 @@
                 <span class="status-count">{{ c }}</span>
               </div>
               <div v-if="!Object.keys(snap.task_status).length" class="empty-mini">
-                暂无任务
+                {{ t('insightsObservability.empty_no_tasks') }}
               </div>
             </div>
           </ChartCard>
@@ -128,7 +128,7 @@
         </div>
       </el-tab-pane>
 
-      <!-- ─────────── 阶段热力图 ─────────── -->
+      <!-- Stage heatmap -->
       <el-tab-pane :label="t('insightsObservability.label_8')" name="stages">
         <el-table v-if="snap" :data="snap.stage_heatmap" stripe size="small">
           <el-table-column prop="stage_id" :label="t('insightsObservability.label_9')" width="160">
@@ -136,38 +136,38 @@
               <span class="mono">{{ row.stage_id }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="role" label="角色" width="130" />
-          <el-table-column prop="samples" label="样本数" width="80" align="right" />
-          <el-table-column label="平均耗时" width="120" align="right">
+          <el-table-column prop="role" :label="t('insightsObservability.col_role')" width="130" />
+          <el-table-column prop="samples" :label="t('insightsObservability.col_samples')" width="80" align="right" />
+          <el-table-column :label="t('insightsObservability.col_avg_dur')" width="120" align="right">
             <template #default="{ row }">
               {{ formatDuration(row.avg_duration_ms) }}
             </template>
           </el-table-column>
-          <el-table-column label="质量门通过率" width="160">
+          <el-table-column :label="t('insightsObservability.col_gate_pass')" width="160">
             <template #default="{ row }">
               <RateBar :value="row.pass_rate" />
             </template>
           </el-table-column>
-          <el-table-column label="同行批准率" width="160">
+          <el-table-column :label="t('insightsObservability.col_peer_approve')" width="160">
             <template #default="{ row }">
               <RateBar :value="row.approve_rate" tone="approve" />
             </template>
           </el-table-column>
-          <el-table-column label="平均得分" width="120" align="right">
+          <el-table-column :label="t('insightsObservability.col_avg_score')" width="120" align="right">
             <template #default="{ row }">
               <span :class="scoreClass(row.avg_score)">{{
                 row.avg_score === null ? '—' : row.avg_score.toFixed(2)
               }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="重试率" width="100" align="right">
+          <el-table-column :label="t('insightsObservability.col_retry')" width="100" align="right">
             <template #default="{ row }">
               <span :class="row.retry_rate > 0.3 ? 'danger' : ''">
                 {{ (row.retry_rate * 100).toFixed(0) }}%
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="拒绝/失败" width="110" align="right">
+          <el-table-column :label="t('insightsObservability.col_reject_fail')" width="110" align="right">
             <template #default="{ row }">
               <span class="muted">{{ row.rejects }} / {{ row.fails }}</span>
             </template>
@@ -175,71 +175,71 @@
         </el-table>
         <el-empty
           v-if="snap && !snap.stage_heatmap.length"
-          description="时间窗内无阶段执行记录"
+          :description="t('insightsObservability.empty_no_stage_heatmap')"
         />
       </el-tab-pane>
 
-      <!-- ─────────── Agent 战绩 ─────────── -->
-      <el-tab-pane label="Agent 战绩" name="agents">
+      <!-- Agent leaderboard -->
+      <el-tab-pane :label="t('insightsObservability.tab_agents')" name="agents">
         <el-table v-if="snap" :data="snap.agent_leaderboard" stripe size="small">
-          <el-table-column prop="role" label="角色" width="180" />
-          <el-table-column prop="stages" label="处理阶段" width="100" align="right" />
-          <el-table-column prop="llm_calls" label="LLM 调用" width="100" align="right" />
-          <el-table-column label="批准率" width="160">
+          <el-table-column prop="role" :label="t('insightsObservability.col_role')" width="180" />
+          <el-table-column prop="stages" :label="t('insightsObservability.col_stages')" width="100" align="right" />
+          <el-table-column prop="llm_calls" :label="t('insightsObservability.col_llm_calls')" width="100" align="right" />
+          <el-table-column :label="t('insightsObservability.col_approve_rate')" width="160">
             <template #default="{ row }">
               <RateBar :value="row.approve_rate" tone="approve" />
             </template>
           </el-table-column>
-          <el-table-column label="平均得分" width="120" align="right">
+          <el-table-column :label="t('insightsObservability.col_avg_score')" width="120" align="right">
             <template #default="{ row }">
               <span :class="scoreClass(row.avg_score)">
                 {{ row.avg_score === null ? '—' : row.avg_score.toFixed(2) }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column label="总成本 USD" width="140" align="right">
+          <el-table-column :label="t('insightsObservability.col_cost_usd')" width="140" align="right">
             <template #default="{ row }">
               <span class="warning">${{ row.total_cost_usd.toFixed(4) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="Token" width="120" align="right">
+          <el-table-column :label="t('insightsObservability.col_token')" width="120" align="right">
             <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
           </el-table-column>
-          <el-table-column label="拒/失败" width="100" align="right">
+          <el-table-column :label="t('insightsObservability.col_rej_fail_short')" width="100" align="right">
             <template #default="{ row }">
               <span class="muted">{{ row.rejects }} / {{ row.fails }}</span>
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="snap && !snap.agent_leaderboard.length" description="暂无 agent 数据" />
+        <el-empty v-if="snap && !snap.agent_leaderboard.length" :description="t('insightsObservability.empty_no_agent')" />
       </el-tab-pane>
 
-      <!-- ─────────── 模型对比 ─────────── -->
-      <el-tab-pane label="模型对比" name="models">
+      <!-- Model comparison -->
+      <el-tab-pane :label="t('insightsObservability.tab_models')" name="models">
         <el-table v-if="snap" :data="snap.model_leaderboard" stripe size="small">
-          <el-table-column prop="model" label="模型" width="240">
+          <el-table-column prop="model" :label="t('insightsObservability.col_model')" width="240">
             <template #default="{ row }">
               <span class="mono">{{ row.model }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="tier" label="档位" width="120">
+          <el-table-column prop="tier" :label="t('insightsObservability.col_tier')" width="120">
             <template #default="{ row }">
               <el-tag size="small" :type="tierTagType(row.tier)">{{ row.tier || '—' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="calls" label="调用次数" width="100" align="right" />
-          <el-table-column label="总成本 USD" width="140" align="right">
+          <el-table-column prop="calls" :label="t('insightsObservability.col_call_count')" width="100" align="right" />
+          <el-table-column :label="t('insightsObservability.col_cost_usd')" width="140" align="right">
             <template #default="{ row }">
               <span class="warning">${{ row.total_cost_usd.toFixed(4) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="Token" width="140" align="right">
+          <el-table-column :label="t('insightsObservability.col_token')" width="140" align="right">
             <template #default="{ row }">{{ formatTokens(row.total_tokens) }}</template>
           </el-table-column>
-          <el-table-column label="平均延迟" width="120" align="right">
+          <el-table-column :label="t('insightsObservability.col_avg_lat')" width="120" align="right">
             <template #default="{ row }">{{ formatDuration(row.avg_duration_ms) }}</template>
           </el-table-column>
-          <el-table-column label="失败率" width="100" align="right">
+          <el-table-column :label="t('insightsObservability.col_fail_rate')" width="100" align="right">
             <template #default="{ row }">
               <span :class="row.failure_rate > 0.05 ? 'danger' : ''">
                 {{ (row.failure_rate * 100).toFixed(1) }}%
@@ -247,11 +247,11 @@
             </template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="snap && !snap.model_leaderboard.length" description="暂无模型调用" />
+        <el-empty v-if="snap && !snap.model_leaderboard.length" :description="t('insightsObservability.empty_no_model')" />
       </el-tab-pane>
 
-      <!-- ─────────── 失败/拒绝列表 ─────────── -->
-      <el-tab-pane label="失败 / 拒绝" name="failures">
+      <!-- Failures / rejections -->
+      <el-tab-pane :label="t('insightsObservability.tab_failures')" name="failures">
         <div v-if="snap && snap.recent_failures.length" class="failure-list">
           <div v-for="f in snap.recent_failures" :key="`${f.task_id}-${f.stage_id}`" class="failure-card">
             <div class="failure-head">
@@ -263,34 +263,34 @@
               <el-tag v-if="f.retry_count" size="small" type="warning">retry x{{ f.retry_count }}</el-tag>
             </div>
             <div v-if="f.reviewer_feedback" class="failure-body">
-              <span class="failure-label">reviewer 反馈：</span>{{ f.reviewer_feedback }}
+              <span class="failure-label">{{ t('insightsObservability.lbl_reviewer_fb') }}</span>{{ f.reviewer_feedback }}
             </div>
             <div v-if="f.last_error" class="failure-body danger">
-              <span class="failure-label">error：</span>{{ f.last_error }}
+              <span class="failure-label">error: </span>{{ f.last_error }}
             </div>
           </div>
         </div>
-        <el-empty v-else description="时间窗内无失败/拒绝事件，干得漂亮 🎉" />
+        <el-empty v-else :description="t('insightsObservability.empty_no_fail')" />
       </el-tab-pane>
 
-      <!-- ─────────── 学习闭环 ─────────── -->
+      <!-- Learning loop -->
       <el-tab-pane name="learning">
         <template #label>
-          <span>学习闭环</span>
+          <span>{{ t('insightsObservability.tab_learn') }}</span>
           <el-badge v-if="undistilledTotal" :value="undistilledTotal" class="tab-badge" />
         </template>
 
         <div v-if="learning" class="learning-grid">
           <el-table :data="learning.per_stage" size="small" stripe>
-            <el-table-column prop="stage_id" label="阶段" width="160">
+            <el-table-column prop="stage_id" :label="t('insightsObservability.label_9')" width="160">
               <template #default="{ row }">
                 <span class="mono">{{ row.stage_id }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="信号总数" width="100" align="right">
+            <el-table-column :label="t('insightsObservability.col_signals')" width="100" align="right">
               <template #default="{ row }">{{ row.signals_total }}</template>
             </el-table-column>
-            <el-table-column label="未蒸馏" width="100" align="right">
+            <el-table-column :label="t('insightsObservability.col_undistilled')" width="100" align="right">
               <template #default="{ row }">
                 <el-tag v-if="row.signals_undistilled" size="small" type="warning">
                   {{ row.signals_undistilled }}
@@ -298,39 +298,41 @@
                 <span v-else class="muted">0</span>
               </template>
             </el-table-column>
-            <el-table-column label="信号类型分布" min-width="220">
+            <el-table-column :label="t('insightsObservability.col_sig_types')" min-width="220">
               <template #default="{ row }">
                 <el-tag
-                  v-for="(c, t) in row.by_type"
-                  :key="t"
+                  v-for="(c, st) in row.by_type"
+                  :key="st"
                   size="small"
-                  :type="signalTagType(t as string)"
+                  :type="signalTagType(st as string)"
                   style="margin-right: 4px"
                 >
-                  {{ t }}: {{ c }}
+                  {{ st }}: {{ c }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="活跃补丁" min-width="220">
+            <el-table-column :label="t('insightsObservability.col_active_patch')" min-width="220">
               <template #default="{ row }">
                 <div v-if="row.active_override">
                   <span class="mono">v{{ row.active_override.version }}</span>
                   · {{ row.active_override.title }}
                   <div class="impact-mini">
-                    用过 {{ row.active_override.uses }} 次 · 通过
-                    {{ row.active_override.approves }} · 拒
-                    {{ row.active_override.rejects }}
+                    {{ t('insightsObservability.learn_patch_impact', {
+                      uses: row.active_override.uses,
+                      approves: row.active_override.approves,
+                      rejects: row.active_override.rejects,
+                    }) }}
                   </div>
                 </div>
-                <span v-else class="muted">无</span>
+                <span v-else class="muted">{{ t('insightsObservability.none_short') }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="提案/归档" width="120" align="right">
+            <el-table-column :label="t('insightsObservability.col_prop_archive')" width="120" align="right">
               <template #default="{ row }">
                 <span class="muted">{{ row.proposed_overrides }} / {{ row.archived_overrides }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220" align="center">
+            <el-table-column :label="t('insightsObservability.col_op')" width="220" align="center">
               <template #default="{ row }">
                 <el-button
                   :loading="distilling === row.stage_id"
@@ -340,7 +342,7 @@
                   :disabled="!row.signals_undistilled"
                   @click="distill(row.stage_id, false)"
                 >
-                  蒸馏 → 提案
+                  {{ t('insightsObservability.btn_distill_propose') }}
                 </el-button>
                 <el-button
                   size="small"
@@ -348,7 +350,7 @@
                   type="primary"
                   @click="openStage(row.stage_id)"
                 >
-                  详情
+                  {{ t('insightsObservability.btnDetail') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -356,21 +358,20 @@
 
           <el-empty
             v-if="!learning.per_stage.length"
-            description="尚未捕获任何学习信号 — 等流水线产出 REJECT/GATE_FAIL 后会自动出现"
+            :description="t('insightsObservability.learn_empty')"
           />
         </div>
 
-        <!-- 抽屉: 单阶段详情（提案 / 已激活 / 已归档 + 信号列表） -->
         <el-drawer
           v-model="drawerOpen"
-          :title="`阶段 · ${selectedStage}`"
+          :title="t('insightsObservability.drawer_title_stage', { id: selectedStage })"
           size="640px"
           direction="rtl"
         >
-          <div v-if="drawerLoading" class="drawer-loading">加载中…</div>
+          <div v-if="drawerLoading" class="drawer-loading">{{ t('insightsObservability.loading_short') }}</div>
           <div v-else>
-            <h3 class="drawer-h">提示补丁版本</h3>
-            <div v-if="!stageOverrides.length" class="muted">暂无</div>
+            <h3 class="drawer-h">{{ t('insightsObservability.patch_ver') }}</h3>
+            <div v-if="!stageOverrides.length" class="muted">{{ t('insightsObservability.none') }}</div>
             <div v-for="ov in stageOverrides" :key="ov.id" class="override-card">
               <div class="override-head">
                 <el-tag :type="overrideTagType(ov.status)" size="small">{{ ov.status }}</el-tag>
@@ -381,11 +382,14 @@
               <pre class="override-body">{{ ov.addendum }}</pre>
               <div class="override-foot">
                 <span class="muted">
-                  从 {{ ov.distilled_from_n }} 条信号蒸馏 ·
-                  使用 {{ ov.impact.uses }} · 通过 {{ ov.impact.approves }} · 拒
-                  {{ ov.impact.rejects }}
+                  {{ t('insightsObservability.learn_distill_meta', {
+                    n: ov.distilled_from_n,
+                    u: ov.impact.uses,
+                    a: ov.impact.approves,
+                    r: ov.impact.rejects,
+                  }) }}
                   <template v-if="ov.impact.approve_rate !== null">
-                    （近期通过率 {{ (ov.impact.approve_rate * 100).toFixed(0) }}%）
+                    {{ t('insightsObservability.learn_approve_rate_suffix', { pct: (ov.impact.approve_rate * 100).toFixed(0) }) }}
                   </template>
                 </span>
                 <span class="actions">
@@ -395,41 +399,41 @@
                     type="success"
                     plain
                     @click="act(ov.id, 'activate')"
-                  >启用</el-button>
+                  >{{ t('insightsObservability.btnEnable') }}</el-button>
                   <el-button
                     v-if="ov.status === 'active'"
                     size="small"
                     type="warning"
                     plain
                     @click="act(ov.id, 'archive')"
-                  >归档</el-button>
+                  >{{ t('insightsObservability.btnArchive') }}</el-button>
                   <el-button
                     v-if="ov.status === 'proposed'"
                     size="small"
                     type="primary"
                     plain
                     @click="act(ov.id, 'shadow')"
-                  >灰度 (A/B)</el-button>
+                  >{{ t('insightsObservability.ab_shadow') }}</el-button>
                   <el-button
                     v-if="ov.status === 'proposed'"
                     size="small"
                     type="info"
                     plain
                     @click="act(ov.id, 'disable')"
-                  >弃用</el-button>
+                  >{{ t('insightsObservability.btnDisable') }}</el-button>
                 </span>
               </div>
             </div>
 
-            <h3 class="drawer-h" style="margin-top: 24px">最近 30 条信号</h3>
-            <div v-if="!stageSignals.length" class="muted">暂无</div>
+            <h3 class="drawer-h" style="margin-top: 24px">{{ t('insightsObservability.recent_signals') }}</h3>
+            <div v-if="!stageSignals.length" class="muted">{{ t('insightsObservability.none') }}</div>
             <div v-for="sig in stageSignals" :key="sig.id" class="signal-card">
               <div class="signal-head">
                 <el-tag :type="signalTagType(sig.signal_type)" size="small">
                   {{ sig.signal_type }}
                 </el-tag>
-                <span v-if="sig.distilled" class="muted small">已蒸馏</span>
-                <span v-else class="warning small">未蒸馏</span>
+                <span v-if="sig.distilled" class="muted small">{{ t('insightsObservability.tag_distilled') }}</span>
+                <span v-else class="warning small">{{ t('insightsObservability.tag_undistilled') }}</span>
                 <span class="muted small">{{ formatTime(sig.created_at) }}</span>
               </div>
               <div v-if="sig.reviewer_feedback" class="signal-body">
@@ -443,21 +447,26 @@
         </el-drawer>
       </el-tab-pane>
 
-      <!-- ─────────── 工具沙箱 ─────────── -->
+      <!-- Tool sandbox -->
       <el-tab-pane name="sandbox">
         <template #label>
-          <span>工具沙箱</span>
+          <span>{{ t('insightsObservability.tab_sandbox') }}</span>
           <el-badge v-if="recentDenialCount" :value="recentDenialCount" class="tab-badge" type="danger" />
         </template>
 
         <div v-if="sandboxPolicy" class="sandbox-section">
           <div class="sandbox-legend">
-            <span><span class="dot dot-allow" /> 允许</span>
-            <span><span class="dot dot-deny" /> 拒绝</span>
-            <span><span class="dot dot-common" /> 全角色共享</span>
-            <span><span class="dot dot-override" /> 已被运维覆盖</span>
-            <span class="muted">{{ sandboxPolicy.all_tools.length }} 个工具 · {{ Object.keys(sandboxPolicy.roles).length }} 个角色</span>
-            <span class="muted">点击单元格可临时改变策略（管理员）</span>
+            <span><span class="dot dot-allow" /> {{ t('insightsObservability.legend_allow') }}</span>
+            <span><span class="dot dot-deny" /> {{ t('insightsObservability.legend_deny') }}</span>
+            <span><span class="dot dot-common" /> {{ t('insightsObservability.legend_common') }}</span>
+            <span><span class="dot dot-override" /> {{ t('insightsObservability.legend_ops_override') }}</span>
+            <span class="muted">{{
+              t('insightsObservability.sandbox_counts', {
+                tools: sandboxPolicy.all_tools.length,
+                roles: Object.keys(sandboxPolicy.roles).length,
+              })
+            }}</span>
+            <span class="muted">{{ t('insightsObservability.sandbox_admin_hint') }}</span>
           </div>
 
           <div class="matrix-wrap">
@@ -466,13 +475,13 @@
                 <tr>
                   <th class="corner">role \ tool</th>
                   <th
-                    v-for="t in sortedTools"
-                    :key="t"
+                    v-for="toolName in sortedTools"
+                    :key="toolName"
                     class="tool-col"
-                    :class="{ 'tool-common': sandboxPolicy.common_tools.includes(t) }"
-                    :title="t"
+                    :class="{ 'tool-common': sandboxPolicy.common_tools.includes(toolName) }"
+                    :title="toolName"
                   >
-                    <div class="tool-name">{{ t }}</div>
+                    <div class="tool-name">{{ toolName }}</div>
                   </th>
                 </tr>
               </thead>
@@ -480,14 +489,14 @@
                 <tr v-for="(summary, role) in sandboxPolicy.roles" :key="role">
                   <td class="role-col mono">{{ role }}</td>
                   <td
-                    v-for="t in sortedTools"
-                    :key="t"
+                    v-for="toolName in sortedTools"
+                    :key="toolName"
                     class="cell clickable"
-                    :class="cellClass(role as string, t)"
-                    :title="`${role} · ${t}: ${cellTitle(role as string, t)}`"
-                    @click="openCellEditor(role as string, t)"
+                    :class="cellClass(role as string, toolName)"
+                    :title="`${role} · ${toolName}: ${cellTitle(role as string, toolName)}`"
+                    @click="openCellEditor(role as string, toolName)"
                   >
-                    <span v-if="cellAllowed(role as string, t)">●</span>
+                    <span v-if="cellAllowed(role as string, toolName)">●</span>
                     <span v-else>·</span>
                   </td>
                 </tr>
@@ -495,43 +504,44 @@
             </table>
           </div>
 
-          <!-- Per-cell editor: flip allow/deny or revert to baseline -->
           <el-dialog
             v-model="cellEditor.open"
-            :title="`沙箱策略 · ${cellEditor.role} → ${cellEditor.tool}`"
+            :title="t('insightsObservability.dialog_sandbox', { role: cellEditor.role, tool: cellEditor.tool })"
             width="480px"
             destroy-on-close
           >
             <div class="cell-edit-body">
               <div class="muted">
-                代码默认: <strong>{{ cellEditor.baselineAllow ? '允许' : '拒绝' }}</strong>
+                {{ t('insightsObservability.code_default') }}:
+                <strong>{{ cellEditor.baselineAllow ? t('insightsObservability.word_allow') : t('insightsObservability.word_deny') }}</strong>
                 <span v-if="cellEditor.hasOverride">
-                  · 当前覆盖: <strong>{{ cellEditor.overrideAllow ? '允许' : '拒绝' }}</strong>
+                  · {{ t('insightsObservability.current_override') }}:
+                  <strong>{{ cellEditor.overrideAllow ? t('insightsObservability.word_allow') : t('insightsObservability.word_deny') }}</strong>
                 </span>
               </div>
               <el-radio-group v-model="cellEditor.choice" class="cell-edit-radio">
-                <el-radio value="allow">强制允许</el-radio>
-                <el-radio value="deny">强制拒绝</el-radio>
-                <el-radio value="default">恢复代码默认</el-radio>
+                <el-radio value="allow">{{ t('insightsObservability.force_allow') }}</el-radio>
+                <el-radio value="deny">{{ t('insightsObservability.force_deny') }}</el-radio>
+                <el-radio value="default">{{ t('insightsObservability.restore_baseline') }}</el-radio>
               </el-radio-group>
               <el-input
                 v-if="cellEditor.choice !== 'default'"
                 v-model="cellEditor.note"
                 type="textarea"
                 :rows="2"
-                placeholder="备注（可选）：why are you overriding, ticket ref, etc."
+                :placeholder="t('insightsObservability.note_ph')"
               />
             </div>
             <template #footer>
-              <el-button @click="cellEditor.open = false">取消</el-button>
+              <el-button @click="cellEditor.open = false">{{ t('common.cancel') }}</el-button>
               <el-button type="primary" :loading="cellEditor.saving" @click="saveCellEdit">
-                保存
+                {{ t('common.save') }}
               </el-button>
             </template>
           </el-dialog>
 
-          <h3 class="drawer-h" style="margin-top: 28px">最近拒绝事件</h3>
-          <div v-if="!sandboxDenials.length" class="muted">还没有任何被拦的调用 — 干净 ✓</div>
+          <h3 class="drawer-h" style="margin-top: 28px">{{ t('insightsObservability.recent_deny') }}</h3>
+          <div v-if="!sandboxDenials.length" class="muted">{{ t('insightsObservability.sandbox_no_deny') }}</div>
           <div v-for="d in sandboxDenials" :key="d.id" class="denial-card">
             <div class="denial-head">
               <el-tag size="small" type="danger">DENIED</el-tag>
@@ -546,13 +556,13 @@
             <div v-if="d.details" class="denial-body">{{ d.details }}</div>
           </div>
         </div>
-        <el-empty v-else description="加载沙箱策略中…" />
+        <el-empty v-else :description="t('insightsObservability.loading_sandbox')" />
       </el-tab-pane>
 
-      <!-- ─────────── 调度器 ─────────── -->
+      <!-- Scheduler -->
       <el-tab-pane name="scheduler">
         <template #label>
-          <span>调度器</span>
+          <span>{{ t('insightsObservability.tab_sched') }}</span>
           <el-badge
             v-if="scheduler && (scheduler.runningCount + scheduler.queueDepth) > 0"
             :value="scheduler.runningCount + scheduler.queueDepth"
@@ -562,21 +572,21 @@
         </template>
 
         <div v-if="scheduler" class="kpi-grid">
-          <KpiCard label="并发上限" :value="scheduler.maxConcurrent" suffix="并行" />
-          <KpiCard label="正在执行" :value="scheduler.runningCount" suffix="个" tone="warning" />
-          <KpiCard label="排队中" :value="scheduler.queueDepth" suffix="个" />
-          <KpiCard label="累计提交" :value="scheduler.lifetime.submitted" />
-          <KpiCard label="累计完成" :value="scheduler.lifetime.finished" />
+          <KpiCard :label="t('insightsObservability.sched_max_conc')" :value="scheduler.maxConcurrent" :suffix="t('insightsObservability.suffix_parallel')" />
+          <KpiCard :label="t('insightsObservability.sched_running')" :value="scheduler.runningCount" :suffix="t('insightsObservability.suffix_unit')" tone="warning" />
+          <KpiCard :label="t('insightsObservability.sched_queued')" :value="scheduler.queueDepth" :suffix="t('insightsObservability.suffix_unit')" />
+          <KpiCard :label="t('insightsObservability.sched_submitted')" :value="scheduler.lifetime.submitted" />
+          <KpiCard :label="t('insightsObservability.sched_finished')" :value="scheduler.lifetime.finished" />
           <KpiCard
-            label="累计失败"
+            :label="t('insightsObservability.sched_failed')"
             :value="scheduler.lifetime.failed"
             :tone="scheduler.lifetime.failed > 0 ? 'danger' : ''"
           />
         </div>
 
         <div v-if="scheduler" class="chart-row">
-          <ChartCard title="正在执行" :height="220">
-            <div v-if="!scheduler.running.length" class="empty-mini">空闲</div>
+          <ChartCard :title="t('insightsObservability.sched_chart_run')" :height="220">
+            <div v-if="!scheduler.running.length" class="empty-mini">{{ t('insightsObservability.sched_idle') }}</div>
             <div v-else class="sched-list">
               <div v-for="r in scheduler.running" :key="r.submission_id" class="sched-row running">
                 <el-tag size="small" type="warning">running</el-tag>
@@ -585,8 +595,8 @@
               </div>
             </div>
           </ChartCard>
-          <ChartCard title="排队中（FIFO）" :height="220">
-            <div v-if="!scheduler.queued.length" class="empty-mini">无积压</div>
+          <ChartCard :title="t('insightsObservability.sched_queue_fifo')" :height="220">
+            <div v-if="!scheduler.queued.length" class="empty-mini">{{ t('insightsObservability.sched_backlog_free') }}</div>
             <div v-else class="sched-list">
               <div
                 v-for="(r, idx) in scheduler.queued"
@@ -633,8 +643,9 @@ import {
   type SchedulerStatus,
 } from '@/services/insightsApi'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // ─── inline mini components ───
 const KpiCard = (props: { label: string; value: string | number; suffix?: string; tone?: string }) =>
@@ -662,7 +673,7 @@ const SparkBars = (props: {
   formatValue?: (v: number) => string
 }) => {
   if (!props.values.length) {
-    return h('div', { class: 'empty-mini' }, '暂无数据')
+    return h('div', { class: 'empty-mini' }, t('insightsObservability.no_chart_data'))
   }
   const max = Math.max(1, ...props.values)
   const W = 600
@@ -802,10 +813,17 @@ function cellClass(role: string, tool: string): string {
   return ov ? `${base} cell-override` : base
 }
 function cellTitle(role: string, tool: string): string {
-  if (sandboxPolicy.value?.common_tools.includes(tool)) return '全角色共享 (common)'
-  const allowed = cellAllowed(role, tool) ? '允许' : '拒绝'
+  if (sandboxPolicy.value?.common_tools.includes(tool)) return t('insightsObservability.cellTitleCommon')
+  const allowed = cellAllowed(role, tool)
+    ? t('insightsObservability.word_allow')
+    : t('insightsObservability.word_deny')
   const ov = cellHasOverride(role, tool)
-  return ov ? `${allowed} (运维已覆盖为 ${ov === 'allow' ? '允许' : '拒绝'})` : allowed
+  return ov
+    ? t('insightsObservability.cellTitleOverride', {
+        base: allowed,
+        ov: ov === 'allow' ? t('insightsObservability.word_allow') : t('insightsObservability.word_deny'),
+      })
+    : allowed
 }
 
 // ─── Per-cell editor state ─────────────────────────────────────────────────
@@ -870,7 +888,7 @@ async function saveCellEdit() {
     const p = await fetchSandboxPolicy().catch(() => null)
     if (p) sandboxPolicy.value = p
   } catch (err: any) {
-    ElMessage.error(err?.message || '保存失败')
+    ElMessage.error(err?.message || t('insightsObservability.elMessage_saveFail'))
   } finally {
     cellEditor.saving = false
   }
@@ -892,7 +910,7 @@ async function reload() {
     sandboxDenials.value = dn.denials
     if (s) scheduler.value = s
   } catch (err: any) {
-    ElMessage.error(`加载失败: ${err?.message || err}`)
+    ElMessage.error(`${t('insightsObservability.elMessage_loadFail')}: ${err?.message || err}`)
   } finally {
     loading.value = false
   }
@@ -902,13 +920,15 @@ async function distill(stageId: string, autoApply: boolean) {
   distilling.value = stageId
   try {
     const res = await distillStage(stageId, autoApply)
-    ElMessage.success(`提案已生成：${res.override.title}（v${res.override.version}）`)
+    ElMessage.success(
+      t('insightsObservability.elMessage_proposalOk', { title: res.override.title, ver: res.override.version }),
+    )
     await reload()
     if (drawerOpen.value && selectedStage.value === stageId) {
       await openStage(stageId)
     }
   } catch (err: any) {
-    ElMessage.warning(err?.message || '蒸馏失败')
+    ElMessage.warning(err?.message || t('insightsObservability.elMessage_distillFail'))
   } finally {
     distilling.value = ''
   }
@@ -926,7 +946,7 @@ async function openStage(stageId: string) {
     stageOverrides.value = ovs.overrides
     stageSignals.value = sigs.signals
   } catch (err: any) {
-    ElMessage.error(`加载阶段详情失败: ${err?.message || err}`)
+    ElMessage.error(`${t('insightsObservability.elMessage_stageLoadFail')}: ${err?.message || err}`)
   } finally {
     drawerLoading.value = false
   }
@@ -938,11 +958,11 @@ async function act(id: string, action: 'activate' | 'archive' | 'disable' | 'sha
     else if (action === 'archive') await archiveOverride(id)
     else if (action === 'shadow') await shadowOverride(id)
     else await disableOverride(id)
-    ElMessage.success(action === 'shadow' ? '已进入 A/B 灰度' : '已更新')
+    ElMessage.success(action === 'shadow' ? t('insightsObservability.elMessage_shadowOk') : t('insightsObservability.elMessage_updated'))
     await openStage(selectedStage.value)
     await reload()
   } catch (err: any) {
-    ElMessage.error(err?.message || '操作失败')
+    ElMessage.error(err?.message || t('insightsObservability.elMessage_actFail'))
   }
 }
 
@@ -960,7 +980,7 @@ function formatDuration(ms: number): string {
 }
 function formatTime(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString('zh-CN', { hour12: false })
+  return new Date(iso).toLocaleString(appLocaleToBcp47(locale.value), { hour12: false })
 }
 function scoreClass(s: number | null) {
   if (s === null) return 'muted'

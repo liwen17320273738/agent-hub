@@ -22,7 +22,7 @@
 
       <el-button class="new-chat-btn" @click="startNewChat" type="primary" plain>
         <el-icon><Plus /></el-icon>
-        新对话
+        {{ t('agentChat.newChat') }}
       </el-button>
 
       <div class="conv-search">
@@ -57,7 +57,7 @@
         <el-icon><Connection /></el-icon>
         <span>{{ t('agentChat.text_3') }}<strong>{{ pipelineTask.title }}</strong> ({{ pipelineTask.currentStageId }})</span>
         <router-link :to="`/pipeline/task/${pipelineTask.id}`" class="pipeline-link">
-          查看任务
+          {{ t('agentChat.viewTask') }}
         </router-link>
       </div>
       <div v-if="activeConv" class="chat-toolbar">
@@ -68,13 +68,16 @@
           effect="plain"
           class="recommended-model-tag"
         >
-          {{ recommendedModelApplied ? '已应用模型：' : '推荐模型：' }}{{ recommendedModelLabel }}
+          {{
+            (recommendedModelApplied ? t('agentChat.modelAppliedPrefix') : t('agentChat.modelRecommendedPrefix')) +
+            recommendedModelLabel
+          }}
         </el-tag>
         <el-button text size="small" :disabled="isThisConvGenerating" @click="exportMarkdown">
-          导出 MD
+          {{ t('agentChat.exportMd') }}
         </el-button>
         <el-button text size="small" :disabled="isThisConvGenerating" @click="exportJson">
-          导出 JSON
+          {{ t('agentChat.exportJson') }}
         </el-button>
         <el-button
           text
@@ -83,7 +86,7 @@
           :disabled="isThisConvGenerating"
           @click="generateConversationSummary"
         >
-          生成摘要
+          {{ t('agentChat.genSummary') }}
         </el-button>
         <el-select
           v-model="deliveryTargetDoc"
@@ -99,7 +102,7 @@
           :disabled="!deliveryTargetDoc || !latestAssistantMessage || isThisConvGenerating"
           @click="writeLatestAssistantToDelivery"
         >
-          写入文档
+          {{ t('agentChat.writeToDoc') }}
         </el-button>
       </div>
 
@@ -111,7 +114,7 @@
         <h2>{{ agent.name }} · {{ agent.title }}</h2>
         <p class="welcome-desc">{{ agent.description }}</p>
         <router-link :to="`/agent/${agent.id}/profile`" class="view-profile-btn">
-          <el-icon :size="14"><User /></el-icon> 查看专家档案
+          <el-icon :size="14"><User /></el-icon> {{ t('agentChat.title_1') }}
         </router-link>
 
         <div class="quick-prompts">
@@ -168,10 +171,10 @@
             <p class="wayne-suggestion-reason">{{ routeItem.reason }}</p>
             <div class="wayne-suggestion-actions">
               <el-button size="small" type="primary" @click="handoffWayneRoute(routeItem)">
-                转交给该角色
+                {{ t('agentChat.handoffToRole') }}
               </el-button>
               <el-button size="small" text @click="openRouteAgent(routeItem)">
-                仅打开角色
+                {{ t('agentChat.openRoleOnly') }}
               </el-button>
             </div>
           </div>
@@ -231,7 +234,7 @@
             plain
             @click="stopGeneration"
           >
-            停止
+            {{ t('agentChat.stop') }}
           </el-button>
           <el-button
             class="send-btn"
@@ -250,7 +253,7 @@
       <template #footer>
         <el-button @click="editDialogVisible = false">{{ t('agentChat.text_9') }}</el-button>
         <el-button type="primary" :disabled="!editDraft.trim()" @click="confirmEditUser">
-          保存并重新生成
+          {{ t('agentChat.saveAndResend') }}
         </el-button>
       </template>
     </el-dialog>
@@ -282,8 +285,9 @@ import {
 } from '@/services/wayneRouting'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -296,7 +300,7 @@ const inputText = ref('')
 const messagesRef = ref<HTMLElement>()
 const scrollAnchor = ref<HTMLElement>()
 
-/** 失败信息不入对话历史，仅当前会话内展示 */
+/** Failure copy is not appended to history; only shown in this session. */
 const requestError = ref<{ conversationId: string; message: string } | null>(null)
 const conversationAbortControllers = new Map<string, AbortController>()
 const summarizing = ref(false)
@@ -364,7 +368,7 @@ const streamingMessage = computed<ChatMessageType>(() => {
   return {
     id: 'streaming',
     role: 'assistant',
-    content: chunk || '思考中...',
+    content: chunk || t('agentChat.thinking'),
     timestamp: Date.now(),
     agentId: agent.value?.id ?? '',
   }
@@ -456,7 +460,7 @@ async function startNewChat() {
   try {
     await chatStore.createConversation(agent.value.id)
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '创建会话失败')
+    ElMessage.error(e instanceof Error ? e.message : t('agentChat.errCreateConversation'))
   }
 }
 
@@ -486,7 +490,7 @@ async function launchSeedPrompt(seed: string) {
     })
     await invokeModelCompletion(conv.id)
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '启动预设工作流失败')
+    ElMessage.error(e instanceof Error ? e.message : t('agentChat.errStartWorkflow'))
   }
 }
 
@@ -528,7 +532,10 @@ async function openRouteAgent(routeItem: WayneRouteSuggestion) {
 
   const stageId = wayneWorkflowStore.currentStage?.id ?? wayneWorkflowStore.inferStageForAgent(routeItem.targetAgentId)
   if (stageId) {
-    wayneWorkflowStore.handoffToAgent(routeItem.targetAgentId, `从总控打开角色：${routeItem.title}`)
+    wayneWorkflowStore.handoffToAgent(
+      routeItem.targetAgentId,
+      t('agentChat.handoffOpenRole', { title: routeItem.title }),
+    )
   }
 
   await router.push({
@@ -552,7 +559,10 @@ async function handoffWayneRoute(routeItem: WayneRouteSuggestion) {
   if (stageId) {
     wayneWorkflowStore.handoffToAgent(
       routeItem.targetAgentId,
-      `总控转交：${routeItem.title}。任务：${wayneRoutingTask.value.trim() || '未填写任务说明'}`,
+      t('agentChat.handoffOrchestrator', {
+        title: routeItem.title,
+        task: wayneRoutingTask.value.trim() || t('agentChat.taskUnset'),
+      }),
     )
   }
 
@@ -573,9 +583,9 @@ async function writeLatestAssistantToDelivery() {
     const current = await readDeliveryDoc(deliveryTargetDoc.value)
     const nextContent = `${current.content.trim()}\n\n---\n\n${latestAssistantMessage.value.content.trim()}\n`
     await writeDeliveryDoc(deliveryTargetDoc.value, nextContent)
-    ElMessage.success(`已写入 ${deliveryTargetDoc.value}`)
+    ElMessage.success(t('agentChat.elMessage_writeDoc', { doc: deliveryTargetDoc.value }))
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : '写入交付文档失败')
+    ElMessage.error(e instanceof Error ? e.message : t('agentChat.errWriteDoc'))
   }
 }
 
@@ -634,12 +644,12 @@ function exportMarkdown() {
   const ag = agent.value
   if (!conv || !ag) return
   let md = `# ${conv.title}\n\n`
-  md += `- 智能体: ${ag.name}\n- 导出时间: ${new Date().toLocaleString('zh-CN')}\n\n`
+  md += `- ${t('agentChat.mdAgentLabel')}: ${ag.name}\n- ${t('agentChat.mdTimeLabel')}: ${new Date().toLocaleString(appLocaleToBcp47(locale.value))}\n\n`
   if (conv.summary) {
-    md += `## 会话摘要\n\n${conv.summary}\n\n---\n\n`
+    md += `${t('agentChat.mdSummaryHeading')}\n\n${conv.summary}\n\n---\n\n`
   }
   for (const m of conv.messages) {
-    const who = m.role === 'user' ? '用户' : ag.name
+    const who = m.role === 'user' ? t('agentChat.roleUser') : ag.name
     md += `## ${who}\n\n${m.content}\n\n`
   }
   downloadBlob(
@@ -680,18 +690,16 @@ async function generateConversationSummary() {
   summarizing.value = true
   try {
     let body = conv.messages
-      .map((m) => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`)
+      .map((m) =>
+        `${m.role === 'user' ? t('agentChat.roleUser') : t('agentChat.roleAssistant')}: ${m.content}`,
+      )
       .join('\n\n')
     const max = 120_000
     if (body.length > max) body = body.slice(-max)
     const summary = await chatCompletion(
       [
-        {
-          role: 'system',
-          content:
-            '用简洁中文要点（可加小标题）总结对话：关键结论、待办、用户偏好与约束。勿编造。不超过 1200 字。',
-        },
-        { role: 'user', content: `对话记录：\n\n${body}` },
+        { role: 'system', content: t('agentChat.summarizeSystemPrompt') },
+        { role: 'user', content: `${t('agentChat.summarizeUserPrefix')}\n\n${body}` },
       ],
       settingsStore.settings,
     )
@@ -699,7 +707,7 @@ async function generateConversationSummary() {
     ElMessage.success(t('agentChat.elMessage_7'))
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e)
-    ElMessage.error(`摘要生成失败: ${message}`)
+    ElMessage.error(t('agentChat.errSummary', { message }))
   } finally {
     summarizing.value = false
   }
@@ -718,7 +726,7 @@ async function invokeModelCompletion(convId: string) {
   try {
     const s = settingsStore.settings
     const systemPrompt = s.enableTools
-      ? `${currentAgent.systemPrompt}\n\n在需要准确时间、文本长度统计或随机整数时，可调用提供的工具；若无必要不必调用。`
+      ? `${currentAgent.systemPrompt}\n\n${t('agentChat.toolsPromptSuffix')}`
       : currentAgent.systemPrompt
     const llmMessages = buildLLMMessages(systemPrompt, conv.messages, {
       maxMessages: s.contextMaxMessages,
@@ -729,7 +737,7 @@ async function invokeModelCompletion(convId: string) {
 
     let finalContent: string
     if (s.enableTools) {
-      chatStore.setStreamChunk(convId, '准备回复（工具模式无流式）…')
+      chatStore.setStreamChunk(convId, t('agentChat.streamPrepTools'))
       finalContent = await completionWithToolLoop(llmMessages, s, {
         signal: ac.signal,
         onStatus: (t) => chatStore.setStreamChunk(convId, t),
@@ -752,7 +760,7 @@ async function invokeModelCompletion(convId: string) {
     } else {
       const message = e instanceof Error ? e.message : String(e)
       requestError.value = { conversationId: convId, message }
-      ElMessage.error(`请求失败: ${message}`)
+      ElMessage.error(t('agentChat.errRequest', { message }))
     }
   } finally {
     conversationAbortControllers.delete(convId)
@@ -792,7 +800,7 @@ async function sendMessage() {
     try {
       conv = await chatStore.createConversation(currentAgent.id)
     } catch (e) {
-      ElMessage.error(e instanceof Error ? e.message : '创建会话失败')
+      ElMessage.error(e instanceof Error ? e.message : t('agentChat.errCreateConversation'))
       return
     }
   }

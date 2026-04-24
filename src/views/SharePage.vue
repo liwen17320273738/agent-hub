@@ -79,8 +79,9 @@ import { useRoute } from 'vue-router'
 import { Loading, Download } from '@element-plus/icons-vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const token = computed(() => route.params.token as string)
@@ -171,7 +172,13 @@ function downloadZip() {
 
 function formatDate(iso: string) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleString(appLocaleToBcp47(locale.value), {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 </script>
 

@@ -27,7 +27,7 @@ import { ref, watch, onScopeDispose, computed, isRef, type Ref, type MaybeRefOrG
 import { useI18n } from 'vue-i18n'
 import { apiFetch } from '@/services/api'
 
-type Target = 'en' | 'ja' | 'ko' | 'zh'
+type Target = 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'zh'
 
 /** Static languages we already have full static bundles for — no need to call the API. */
 const STATIC_LOCALES = new Set<string>(['zh'])

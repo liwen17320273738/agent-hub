@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/translate", tags=["translate"])
 
 class TranslateReq(BaseModel):
     text: str = Field(..., max_length=4000)
-    target: str = Field(..., description="Target locale: en|ja|ko|zh")
+    target: str = Field(..., description="Target locale: en|ja|ko|fr|de|es|zh")
 
 
 class TranslateResp(BaseModel):

@@ -63,8 +63,22 @@ def patch_keys(monkeypatch):
     monkeypatch.setattr(Settings, "get_provider_keys", fake_get_provider_keys)
 
 
+@pytest.fixture
+def no_same_provider_retry(monkeypatch):
+    """``chat_completion_with_fallback`` uses ``chat_completion_with_retry``, which
+    can call the stub multiple times on rate limits. These unit tests only model
+    provider *chain* behaviour, so collapse retry to a single ``chat_completion``."""
+
+    async def _once(**kwargs):
+        return await llm_router.chat_completion(**kwargs)
+
+    monkeypatch.setattr(llm_router, "chat_completion_with_retry", _once)
+
+
 @pytest.mark.asyncio
-async def test_fallback_skips_to_deepseek_on_zhipu_rate_limit(monkeypatch, patch_keys):
+async def test_fallback_skips_to_deepseek_on_zhipu_rate_limit(
+    monkeypatch, patch_keys, no_same_provider_retry,
+):
     stub = _Stub([
         # Primary (zhipu): rate-limited
         {"status": 200, "error": '{"code":"1302","message":"您的账户已达到速率限制"}'},
@@ -120,7 +134,9 @@ async def test_fallback_short_circuits_on_401(monkeypatch, patch_keys):
 
 
 @pytest.mark.asyncio
-async def test_fallback_returns_last_error_when_all_fail(monkeypatch, patch_keys):
+async def test_fallback_returns_last_error_when_all_fail(
+    monkeypatch, patch_keys, no_same_provider_retry,
+):
     stub = _Stub([
         {"status": 429, "error": "rate limit"},                        # zhipu
         {"status": 503, "error": "service unavailable"},               # deepseek
@@ -141,7 +157,7 @@ async def test_fallback_returns_last_error_when_all_fail(monkeypatch, patch_keys
 
 
 @pytest.mark.asyncio
-async def test_fallback_skips_providers_without_keys(monkeypatch):
+async def test_fallback_skips_providers_without_keys(monkeypatch, no_same_provider_retry):
     """Only deepseek has a key → primary zhipu fails → only one fallback tried."""
     def only_deepseek(self):
         return {"deepseek": "sk-d"}

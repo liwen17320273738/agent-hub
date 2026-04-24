@@ -10,22 +10,30 @@ from app.services.self_verify import (
 def test_planning_output_passes():
     output = """# PRD
 ## 目标
-Build a todo app
+Build a task list web application for personal productivity: users manage items with due dates,
+tags, and optional reminders. Success means sub-200ms API latency for list operations under normal load.
 
 ## 范围
 ### IN-SCOPE
-- CRUD operations
+- CRUD operations on tasks and lists
+- Basic filtering and sorting
 ### OUT-OF-SCOPE
-- Social features
+- Social features and shared workspaces
 
 ## 用户故事
-- As a user, I want to create tasks
-- As a user, I want to mark tasks done
-- As a user, I want to delete tasks
+- As a user, I want to create tasks so that I can track work items
+- As a user, I want to mark tasks done so that I can see progress
+- As a user, I want to delete tasks so that I can keep the list tidy
 
 ## 验收标准
-- All CRUD operations work
-- Response time < 200ms
+- All CRUD operations work end-to-end against the REST API
+- Response time p95 < 200ms for list endpoints in integration tests
+- Errors return structured JSON with a stable error code
+
+## 优先级
+- P0: create/read/update/delete tasks
+- P1: filters and sorting
+- P2: export and notifications later
 """
     result = verify_stage_output("planning", "product-manager", output)
     assert result.overall_status in (VerifyStatus.PASS, VerifyStatus.WARN)

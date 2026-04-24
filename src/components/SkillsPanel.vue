@@ -25,6 +25,7 @@ import {
   type Skill,
   type MarketplaceListing,
 } from '@/services/pipelineApi'
+import { appLocaleToBcp47 } from '@/i18n'
 
 const { t, locale } = useI18n()
 
@@ -331,8 +332,7 @@ function relativeUpdated(iso: string | null): string {
   if (ms < 86_400_000) return t('taskTable.hoursAgo', { n: Math.floor(ms / 3_600_000) })
   if (ms < 30 * 86_400_000) return t('taskTable.daysAgo', { n: Math.floor(ms / 86_400_000) })
   const d = new Date(iso)
-  const loc = locale.value === 'en' ? 'en-US' : 'zh-CN'
-  return d.toLocaleDateString(loc, { year: 'numeric', month: '2-digit' })
+  return d.toLocaleDateString(appLocaleToBcp47(locale.value), { year: 'numeric', month: '2-digit' })
 }
 
 // Lazy-load marketplace only when the tab actually becomes active —

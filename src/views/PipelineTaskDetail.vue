@@ -4,7 +4,7 @@
       <div class="header-breadcrumb">
         <router-link to="/pipeline" class="back-link">
           <el-icon><ArrowLeft /></el-icon>
-          流水线
+          {{ t('pipelineTaskDetail.breadCrumb') }}
         </router-link>
         <span class="separator">/</span>
         <span class="task-id">{{ task.id.slice(0, 8) }}</span>
@@ -18,9 +18,9 @@
       </div>
       <p v-if="task.description" class="task-description">{{ task.description }}</p>
       <div v-if="task.template || task.repoUrl || task.projectPath" class="task-meta-row">
-        <el-tag v-if="task.template" size="small" type="info">模板: {{ task.template }}</el-tag>
-        <el-tag v-if="task.repoUrl" size="small" type="success">Git: {{ task.repoUrl }}</el-tag>
-        <el-tag v-if="task.projectPath" size="small" type="warning">本地: {{ task.projectPath }}</el-tag>
+        <el-tag v-if="task.template" size="small" type="info">{{ t('pipelineTaskDetail.tagTemplate') }}: {{ task.template }}</el-tag>
+        <el-tag v-if="task.repoUrl" size="small" type="success">{{ t('pipelineTaskDetail.tagGit') }}: {{ task.repoUrl }}</el-tag>
+        <el-tag v-if="task.projectPath" size="small" type="warning">{{ t('pipelineTaskDetail.tagLocal') }}: {{ task.projectPath }}</el-tag>
       </div>
       <div class="header-share">
         <el-button size="small" @click="downloadDeliverables">
@@ -42,20 +42,20 @@
     </header>
 
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
-      <el-tab-pane label="交付物" name="artifacts">
+      <el-tab-pane :label="t('pipelineTaskDetail.tabArtifacts')" name="artifacts">
         <TaskArtifactTabs :task-id="task.id" />
       </el-tab-pane>
-      <el-tab-pane label="概览" name="overview">
+      <el-tab-pane :label="t('pipelineTaskDetail.tabOverview')" name="overview">
     <section v-if="qualitySummary.total > 0" class="quality-summary">
       <div class="quality-bar">
-        <span class="quality-label">质量门禁</span>
+        <span class="quality-label">{{ t('pipelineTaskDetail.qualityLabel') }}</span>
         <div class="quality-pills">
           <span class="quality-pill pass" v-if="qualitySummary.pass">✅ {{ qualitySummary.pass }}</span>
           <span class="quality-pill warn" v-if="qualitySummary.warn">⚠️ {{ qualitySummary.warn }}</span>
           <span class="quality-pill fail" v-if="qualitySummary.fail">❌ {{ qualitySummary.fail }}</span>
         </div>
         <span class="quality-avg" v-if="qualitySummary.avgScore > 0">
-          平均评分: ⭐ {{ qualitySummary.avgScore.toFixed(1) }}
+          {{ t('pipelineTaskDetail.avgScore') }}: ⭐ {{ qualitySummary.avgScore.toFixed(1) }}
         </span>
       </div>
     </section>
@@ -68,7 +68,7 @@
     />
 
     <section class="stage-progress">
-      <h2 class="section-title">阶段进度</h2>
+      <h2 class="section-title">{{ t('pipelineTaskDetail.sectionStageProgress') }}</h2>
       <div class="stage-timeline">
         <div
           v-for="(stage, idx) in task.stages"
@@ -95,19 +95,19 @@
             <div class="stage-label-row">
               <span class="stage-label">{{ stage.label }}</span>
               <el-tag v-if="processingStage === stage.id" size="small" type="warning" class="processing-tag">
-                AI 处理中...
+                {{ t('pipelineTaskDetail.tagAiRunning') }}
               </el-tag>
               <el-tag v-if="stage.status === 'reviewing'" size="small" type="warning">
-                审阅中
+                {{ t('pipelineTaskDetail.tagReviewing') }}
               </el-tag>
               <el-tag v-if="stage.reviewStatus === 'approved'" size="small" type="success" effect="plain">
-                ✓ 审阅通过
+                {{ t('pipelineTaskDetail.reviewApproved') }}
               </el-tag>
               <el-tag v-if="stage.reviewStatus === 'rejected'" size="small" type="danger" effect="plain">
-                ✗ 审阅未通过
+                {{ t('pipelineTaskDetail.reviewRejected') }}
               </el-tag>
               <el-tag v-if="stage.status === 'awaiting_approval'" size="small" type="danger">
-                等待审批
+                {{ t('pipelineTaskDetail.tagAwaitingApproval') }}
               </el-tag>
               <span v-if="stage.verifyStatus" class="verify-badge" :class="stage.verifyStatus">
                 {{ stage.verifyStatus === 'pass' ? '✅' : stage.verifyStatus === 'warn' ? '⚠️' : '❌' }}
@@ -126,17 +126,17 @@
             <div class="stage-role">
               {{ stage.ownerRole }}
               <span v-if="stage.reviewerAgent" class="reviewer-info">
-                · 审阅者: {{ stage.reviewerAgent }}
+                {{ t('pipelineTaskDetail.reviewerPrefix') }} {{ stage.reviewerAgent }}
                 <span v-if="stage.reviewAttempts && stage.reviewAttempts > 1" class="attempt-badge">
-                  第 {{ stage.reviewAttempts }} 轮
+                  {{ t('pipelineTaskDetail.reviewRound', { n: stage.reviewAttempts }) }}
                 </span>
               </span>
             </div>
             <div v-if="stage.startedAt" class="stage-time">
-              开始: {{ formatDate(stage.startedAt) }}
+              {{ t('pipelineTaskDetail.startedAt') }} {{ formatDate(stage.startedAt) }}
             </div>
             <div v-if="stage.completedAt" class="stage-time">
-              完成: {{ formatDate(stage.completedAt) }}
+              {{ t('pipelineTaskDetail.completedAt') }} {{ formatDate(stage.completedAt) }}
               <span class="duration" v-if="stage.startedAt">
                 ({{ formatDuration(stage.completedAt - stage.startedAt) }})
               </span>
@@ -146,7 +146,7 @@
             <div v-if="stage.reviewerFeedback" class="review-feedback">
               <div class="feedback-header" @click="toggleFeedback(stage.id)">
                 <el-icon><ChatDotSquare /></el-icon>
-                <span>审阅反馈</span>
+                <span>{{ t('pipelineTaskDetail.reviewFeedback') }}</span>
                 <el-icon class="toggle-icon" :class="{ expanded: expandedFeedback.has(stage.id) }">
                   <ArrowDown />
                 </el-icon>
@@ -163,7 +163,7 @@
             >
               <div class="gate-panel-header" @click="toggleGateDetail(stage.id)">
                 <el-icon><Warning /></el-icon>
-                <span>质量门禁</span>
+                <span>{{ t('pipelineTaskDetail.qualityGateHeader') }}</span>
                 <el-tag
                   size="small"
                   :type="gateTagType(stage.gateStatus)"
@@ -192,23 +192,23 @@
               :class="['sla-' + (approvalSLA.get(stage.id)?.level || 'normal')]"
             >
               <p class="approval-hint">
-                此阶段需要人工审批确认后才能继续
+                {{ t('pipelineTaskDetail.approvalHint') }}
                 <span
                   v-if="approvalSLA.get(stage.id)"
                   class="sla-pill"
                   :class="'sla-pill-' + approvalSLA.get(stage.id)!.level"
                 >
-                  {{ approvalSLA.get(stage.id)!.level === 'critical' ? '⏰ 严重超时' :
-                     approvalSLA.get(stage.id)!.level === 'warn' ? '⚠️ 接近超时' : '⌛' }}
-                  已等 {{ formatSLAElapsed(approvalSLA.get(stage.id)!.elapsedMs) }}
+                  {{ approvalSLA.get(stage.id)!.level === 'critical' ? t('pipelineTaskDetail.slaSevere') :
+                     approvalSLA.get(stage.id)!.level === 'warn' ? t('pipelineTaskDetail.slaNear') : t('pipelineTaskDetail.slaNormal') }}
+                  {{ t('pipelineTaskDetail.elapsedWait', { waited: formatSLAElapsed(approvalSLA.get(stage.id)!.elapsedMs) }) }}
                 </span>
               </p>
               <div class="approval-btns">
                 <el-button type="success" size="small" @click="handleApproveStage(stage.id, true)" :loading="approvingStage === stage.id">
-                  <el-icon><Check /></el-icon> 批准
+                  <el-icon><Check /></el-icon> {{ t('pipelineTaskDetail.btnApprove') }}
                 </el-button>
                 <el-button type="danger" size="small" @click="handleApproveStage(stage.id, false)" :loading="approvingStage === stage.id">
-                  <el-icon><Close /></el-icon> 驳回
+                  <el-icon><Close /></el-icon> {{ t('pipelineTaskDetail.btnReject') }}
                 </el-button>
               </div>
             </div>
@@ -216,7 +216,7 @@
             <div v-if="stage.output" class="stage-output-preview">
               <div class="output-header" @click="toggleOutput(stage.id)">
                 <el-icon><Document /></el-icon>
-                <span>查看产出</span>
+                <span>{{ t('pipelineTaskDetail.viewOutput') }}</span>
                 <el-icon class="toggle-icon" :class="{ expanded: expandedOutputs.has(stage.id) }">
                   <ArrowDown />
                 </el-icon>
@@ -230,11 +230,11 @@
       </div>
     </section>
 
-    <!-- 子任务追踪面板 (deer-flow 风格) -->
+    <!-- Subtask tracking (Lead Agent) -->
     <section class="subtask-tracking" v-if="subtasks.length">
       <h2 class="section-title">
         <span class="icon-brain">🧠</span>
-        Lead Agent 子任务
+        {{ t('pipelineTaskDetail.subtasksTitle') }}
         <el-tag size="small" type="info" style="margin-left: 8px">
           {{ completedSubtasks }}/{{ subtasks.length }}
         </el-tag>
@@ -263,32 +263,32 @@
       <div class="fab-pulse-bg"></div>
       <h2 class="section-title fab-title">
         <span class="fab-icon">🏁</span>
-        交付完成 · 等待最终验收
+        {{ t('pipelineTaskDetail.fabTitle') }}
       </h2>
       <div class="fab-info">
         <p class="fab-summary">
-          所有 {{ task.stages.length }} 个阶段已完成。
+          <span>{{ t('pipelineTaskDetail.fabAllDone', { n: task.stages.length }) }}</span>
           <span v-if="task.overallQualityScore != null">
-            综合质量分 <strong>{{ ((task.overallQualityScore ?? 0) * 100).toFixed(0) }}%</strong>。
+            {{ t('pipelineTaskDetail.fabQuality', { pct: ((task.overallQualityScore ?? 0) * 100).toFixed(0) }) }}
           </span>
-          请你作为产品负责人决定是 <strong>接受交付</strong> 还是 <strong>打回某个阶段重做</strong>。
+          <span>{{ t('pipelineTaskDetail.fabDecide') }}</span>
         </p>
         <div class="action-buttons">
           <el-button type="success" size="large" @click="openFinalAcceptance('accept')">
-            <el-icon><Check /></el-icon> 接受交付
+            <el-icon><Check /></el-icon> {{ t('pipelineTaskDetail.acceptDelivery') }}
           </el-button>
           <el-button type="warning" size="large" @click="openFinalAcceptance('reject')">
-            <el-icon><Close /></el-icon> 打回重做
+            <el-icon><Close /></el-icon> {{ t('pipelineTaskDetail.rejectRedo') }}
           </el-button>
           <el-dropdown @command="generateShareLink" trigger="click">
             <el-button size="large">
-              <el-icon><Share /></el-icon> 生成分享链接
+              <el-icon><Share /></el-icon> {{ t('pipelineTaskDetail.genShareLink') }}
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item :command="7">7 天有效</el-dropdown-item>
-                <el-dropdown-item :command="30">30 天有效</el-dropdown-item>
-                <el-dropdown-item :command="365">永久有效</el-dropdown-item>
+                <el-dropdown-item :command="7">{{ t('pipelineTaskDetail.text_1') }}</el-dropdown-item>
+                <el-dropdown-item :command="30">{{ t('pipelineTaskDetail.text_2') }}</el-dropdown-item>
+                <el-dropdown-item :command="365">{{ t('pipelineTaskDetail.text_3') }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -297,18 +297,18 @@
     </section>
 
     <section class="task-actions" v-else-if="task.status === 'paused'">
-      <h2 class="section-title">Pipeline 已暂停</h2>
+      <h2 class="section-title">{{ t('pipelineTaskDetail.pausedTitle') }}</h2>
       <div class="paused-info">
-        <p>Pipeline 在阶段「{{ task.currentStageId }}」暂停，可能需要人工审批或审阅反馈已达上限。</p>
+        <p>{{ t('pipelineTaskDetail.pausedBody', { stage: String(task.currentStageId) }) }}</p>
         <div class="action-buttons">
           <el-button type="success" size="large" @click="handleResume(false)" :loading="resuming">
-            <el-icon><CaretRight /></el-icon> 恢复执行（线性）
+            <el-icon><CaretRight /></el-icon> {{ t('pipelineTaskDetail.btnResumeLinear') }}
           </el-button>
           <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
-            <el-icon><Refresh /></el-icon> 续跑 DAG（断点续传）
+            <el-icon><Refresh /></el-icon> {{ t('pipelineTaskDetail.btnResumeDag') }}
           </el-button>
           <el-button size="large" @click="handleResume(true)" :loading="resuming">
-            <el-icon><RefreshRight /></el-icon> 强制继续（跳过审阅）
+            <el-icon><RefreshRight /></el-icon> {{ t('pipelineTaskDetail.btnForceSkipReview') }}
           </el-button>
         </div>
       </div>
@@ -325,10 +325,10 @@
       />
       <div class="action-buttons" style="margin-top: 12px;">
         <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
-          <el-icon><Refresh /></el-icon> 从检查点续跑
+          <el-icon><Refresh /></el-icon> {{ t('pipelineTaskDetail.btnFromCheckpoint') }}
         </el-button>
         <el-button size="large" @click="openRcaDialog" :loading="rcaLoading">
-          <el-icon><WarningFilled /></el-icon> 生成 RCA 报告
+          <el-icon><WarningFilled /></el-icon> {{ t('pipelineTaskDetail.btnGenRca') }}
         </el-button>
       </div>
     </section>
@@ -341,7 +341,7 @@
       that hides power-user escape hatches without removing them.
     -->
     <section class="task-actions" v-if="task.status === 'active'">
-      <h2 class="section-title">操作</h2>
+      <h2 class="section-title">{{ t('pipelineTaskDetail.sectionOps') }}</h2>
 
       <div class="exec-banner" :class="execBannerClass">
         <div class="exec-banner-icon">
@@ -371,7 +371,7 @@
             size="large"
             disabled
           >
-            执行中…可切换页面
+            {{ t('pipelineTaskDetail.runningCanLeave') }}
           </el-button>
         </div>
       </div>
@@ -386,7 +386,7 @@
       <div v-if="currentStageGateFailed && currentStage" class="exec-gate-detail">
         <div class="exec-gate-header" @click="toggleBannerGate">
           <el-icon><WarningFilled /></el-icon>
-          <span>为什么没通过质量门禁</span>
+          <span>{{ t('pipelineTaskDetail.whyGateNotPass') }}</span>
           <el-tag v-if="currentStage.gateScore != null" size="small" type="danger" effect="plain">
             {{ (currentStage.gateScore * 100).toFixed(0) }}%
           </el-tag>
@@ -407,7 +407,7 @@
       <div class="side-actions">
         <el-dropdown trigger="click" @command="handleSideAction" :disabled="isRunningNow">
           <el-button size="small" plain :disabled="isRunningNow">
-            旁路操作 <el-icon style="margin-left:4px"><ArrowDown /></el-icon>
+            {{ t('pipelineTaskDetail.sideActions') }} <el-icon style="margin-left:4px"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
@@ -416,29 +416,29 @@
                 :disabled="task.currentStageId === 'done'"
               >
                 <el-icon><Right /></el-icon>
-                <span style="margin-left:6px">手动跳过此阶段（不让 AI 跑）</span>
+                <span style="margin-left:6px">{{ t('pipelineTaskDetail.sideSkip') }}</span>
               </el-dropdown-item>
               <el-dropdown-item
                 command="reject"
                 :disabled="task.currentStageId === 'planning'"
               >
                 <el-icon><Back /></el-icon>
-                <span style="margin-left:6px">打回到上一阶段重做</span>
+                <span style="margin-left:6px">{{ t('pipelineTaskDetail.sideRollback') }}</span>
               </el-dropdown-item>
               <el-dropdown-item
                 command="confirm-build"
                 v-if="task.currentStageId === 'development'"
               >
                 <el-icon><RefreshRight /></el-icon>
-                <span style="margin-left:6px">我已手动构建完成，继续下一阶段</span>
+                <span style="margin-left:6px">{{ t('pipelineTaskDetail.sideConfirmBuild') }}</span>
               </el-dropdown-item>
               <el-dropdown-item command="open-agent" divided>
                 <el-icon><ChatDotSquare /></el-icon>
-                <span style="margin-left:6px">进入 Agent 对话窗口</span>
+                <span style="margin-left:6px">{{ t('pipelineTaskDetail.sideOpenChat') }}</span>
               </el-dropdown-item>
               <el-dropdown-item command="auto-run">
                 <el-icon><VideoPlay /></el-icon>
-                <span style="margin-left:6px">高级：一键跑完全部阶段（线性）</span>
+                <span style="margin-left:6px">{{ t('pipelineTaskDetail.sideAutoAll') }}</span>
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -446,14 +446,14 @@
 
         <el-button size="small" plain @click="showQualityGateConfig = true">
           <el-icon><Setting /></el-icon>
-          <span style="margin-left:4px">门禁阈值</span>
+          <span style="margin-left:4px">{{ t('pipelineTaskDetail.gateThresholdBtn') }}</span>
         </el-button>
       </div>
     </section>
 
     <section class="live-log" v-if="stageLogs.length">
       <h2 class="section-title">
-        实时日志
+        {{ t('pipelineTaskDetail.liveLog') }}
         <el-tag size="small" type="info" style="margin-left: 8px">{{ stageLogs.length }}</el-tag>
       </h2>
       <div class="log-container" ref="logContainer">
@@ -473,7 +473,7 @@
     <!-- Quality Report Section -->
     <section v-if="qualityReport" class="quality-report-section">
       <h2 class="section-title">
-        质量门禁报告
+        {{ t('pipelineTaskDetail.qgReport') }}
         <el-tag
           :type="qualityReport.summary.overall_verdict === 'PASSED' ? 'success' : qualityReport.summary.overall_verdict === 'FAILED' ? 'danger' : 'warning'"
           size="small"
@@ -485,15 +485,15 @@
       <div class="qr-summary">
         <div class="qr-stat">
           <span class="qr-stat-value">{{ qualityReport.summary.gates_evaluated }}</span>
-          <span class="qr-stat-label">已评估</span>
+          <span class="qr-stat-label">{{ t('pipelineTaskDetail.qrEvaluated') }}</span>
         </div>
         <div class="qr-stat">
           <span class="qr-stat-value">{{ (qualityReport.summary.average_score * 100).toFixed(0) }}%</span>
-          <span class="qr-stat-label">平均分</span>
+          <span class="qr-stat-label">{{ t('pipelineTaskDetail.qrAverage') }}</span>
         </div>
         <div class="qr-stat" v-if="task.overallQualityScore != null">
           <span class="qr-stat-value">{{ (task.overallQualityScore * 100).toFixed(0) }}%</span>
-          <span class="qr-stat-label">总评分</span>
+          <span class="qr-stat-label">{{ t('pipelineTaskDetail.qrTotal') }}</span>
         </div>
       </div>
       <div class="qr-stages">
@@ -508,18 +508,18 @@
             ></div>
           </div>
           <span class="qr-score-text">{{ sr.gate_score != null ? `${(sr.gate_score * 100).toFixed(0)}%` : '—' }}</span>
-          <span class="qr-threshold">门禁: {{ (sr.pass_threshold * 100).toFixed(0) }}%</span>
+          <span class="qr-threshold">{{ t('pipelineTaskDetail.qrThreshold', { pct: (sr.pass_threshold * 100).toFixed(0) }) }}</span>
         </div>
       </div>
     </section>
 
     <section class="deliverable-section" v-if="task.status === 'done'">
       <div class="deliverable-bar">
-        <h2 class="section-title">项目交付汇总</h2>
+        <h2 class="section-title">{{ t('pipelineTaskDetail.projectDelivery') }}</h2>
         <div class="deliverable-actions">
           <el-button type="primary" size="small" @click="handleCompile" :loading="compiling">
             <el-icon><Document /></el-icon>
-            生成交付文档
+            {{ t('pipelineTaskDetail.genDoc') }}
           </el-button>
           <el-button
             v-if="compiledContent"
@@ -527,7 +527,7 @@
             @click="handleDownload"
           >
             <el-icon><Download /></el-icon>
-            下载 Markdown
+            {{ t('pipelineTaskDetail.downloadMd') }}
           </el-button>
         </div>
       </div>
@@ -537,7 +537,7 @@
     <section class="task-artifacts">
       <div class="artifacts-header-row">
         <h2 class="section-title">
-          交付产物
+          {{ t('pipelineTaskDetail.deliverables') }}
           <el-tag v-if="task.artifacts?.length" size="small" type="info" style="margin-left: 8px">{{ task.artifacts.length }}</el-tag>
         </h2>
         <el-upload
@@ -546,11 +546,11 @@
           :http-request="handleArtifactUpload"
           multiple
         >
-          <el-button size="small" type="primary" :loading="uploadingArtifacts">上传附件</el-button>
+          <el-button size="small" type="primary" :loading="uploadingArtifacts">{{ t('pipelineTaskDetail.uploadArtifact') }}</el-button>
         </el-upload>
       </div>
       <p v-if="!task.artifacts?.length" class="artifact-empty-hint">
-        暂无产物。可上传参考图、需求说明、接口文档等；各阶段会随模型能力发送多模态或文本上下文。
+        {{ t('pipelineTaskDetail.artifactEmpty') }}
       </p>
       <div v-else class="artifact-list">
         <div
@@ -569,9 +569,9 @@
             <template v-if="artifactHasBinary(artifact)">
               <p class="artifact-file-meta">
                 {{ artifactMimeLabel(artifact) }}
-                <span v-if="artifact.type === 'upload_image'" class="text-muted-inline"> · 图片</span>
+                <span v-if="artifact.type === 'upload_image'" class="text-muted-inline">{{ t('pipelineTaskDetail.imageSuffix') }}</span>
               </p>
-              <el-button size="small" @click="downloadArtifactFile(artifact)">下载原文件</el-button>
+              <el-button size="small" @click="downloadArtifactFile(artifact)">{{ t('pipelineTaskDetail.downloadOriginal') }}</el-button>
             </template>
             <template v-else-if="artifact.content">
               <div
@@ -581,7 +581,7 @@
               ></div>
               <pre v-else class="artifact-content-preview">{{ (artifact.content || '').slice(0, 300) }}{{ (artifact.content || '').length > 300 ? '...' : '' }}</pre>
             </template>
-            <p v-else class="text-muted-inline">无文本预览</p>
+            <p v-else class="text-muted-inline">{{ t('pipelineTaskDetail.noTextPreview') }}</p>
           </div>
           <el-button
             v-if="artifact.content && !artifactHasBinary(artifact)"
@@ -590,63 +590,63 @@
             @click="toggleArtifact(artifact.id)"
             class="artifact-toggle"
           >
-            {{ expandedArtifacts.has(artifact.id) ? '收起' : '展开全部' }}
+            {{ expandedArtifacts.has(artifact.id) ? t('pipelineTaskDetail.collapse') : t('pipelineTaskDetail.expand') }}
           </el-button>
         </div>
       </div>
     </section>
       </el-tab-pane>
 
-      <el-tab-pane label="交付包" name="deliverables">
+      <el-tab-pane :label="t('pipelineTaskDetail.tabDeliverables')" name="deliverables">
         <DeliverableCards :task-id="task.id" />
       </el-tab-pane>
 
-      <el-tab-pane label="角色泳道" name="swimlane">
+      <el-tab-pane :label="t('pipelineTaskDetail.tabSwimlane')" name="swimlane">
         <RoleSwimlane :stages="task.stages" />
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="rcaDialog" title="RCA 根因分析报告" width="780px" :close-on-click-modal="false">
+    <el-dialog v-model="rcaDialog" :title="t('pipelineTaskDetail.rcaDialogTitle')" width="780px" :close-on-click-modal="false">
       <div v-if="rcaLoading" class="rca-loading">
         <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
-        <p>正在收集 stage 错误 + span + audit + bus 消息，并请求 LLM 综合分析…</p>
+        <p>{{ t('pipelineTaskDetail.rcaLoading') }}</p>
       </div>
-      <div v-else-if="!rcaReport" class="rca-empty">未生成报告</div>
+      <div v-else-if="!rcaReport" class="rca-empty">{{ t('pipelineTaskDetail.rcaNoReport') }}</div>
       <div v-else class="rca-report">
         <div class="rca-header">
           <el-tag :type="rcaSeverityType(rcaReport.severity)">{{ rcaReport.severity || 'medium' }}</el-tag>
-          <span class="rca-radius" v-if="rcaReport.blast_radius">影响面：{{ rcaReport.blast_radius }}</span>
-          <span class="rca-time">生成于 {{ rcaReport.generated_at }}</span>
+          <span class="rca-radius" v-if="rcaReport.blast_radius">{{ t('pipelineTaskDetail.rcaBlast') }}{{ rcaReport.blast_radius }}</span>
+          <span class="rca-time">{{ t('pipelineTaskDetail.rcaAt', { at: rcaReport.generated_at }) }}</span>
         </div>
-        <h3>摘要</h3>
-        <p class="rca-summary">{{ rcaReport.summary || '（无）' }}</p>
-        <h3>根本原因</h3>
-        <pre class="rca-block">{{ rcaReport.root_cause || '（未确定）' }}</pre>
-        <h3 v-if="(rcaReport.contributing_factors || []).length">关联因素</h3>
+        <h3>{{ t('pipelineTaskDetail.rcaHSummary') }}</h3>
+        <p class="rca-summary">{{ rcaReport.summary || t('pipelineTaskDetail.rcaNone') }}</p>
+        <h3>{{ t('pipelineTaskDetail.rcaHRoot') }}</h3>
+        <pre class="rca-block">{{ rcaReport.root_cause || t('pipelineTaskDetail.rcaTbd') }}</pre>
+        <h3 v-if="(rcaReport.contributing_factors || []).length">{{ t('pipelineTaskDetail.rcaHFactors') }}</h3>
         <ul v-if="(rcaReport.contributing_factors || []).length">
           <li v-for="(f, i) in rcaReport.contributing_factors" :key="i">{{ f }}</li>
         </ul>
-        <h3 v-if="(rcaReport.recommended_actions || []).length">建议行动</h3>
+        <h3 v-if="(rcaReport.recommended_actions || []).length">{{ t('pipelineTaskDetail.rcaHActions') }}</h3>
         <ol v-if="(rcaReport.recommended_actions || []).length">
           <li v-for="(a, i) in rcaReport.recommended_actions" :key="i">{{ a }}</li>
         </ol>
         <details class="rca-details">
-          <summary>失败 Stage（{{ rcaReport.failed_stages?.length || 0 }}）</summary>
+          <summary>{{ t('pipelineTaskDetail.rcaFailedStages', { n: rcaReport.failed_stages?.length || 0 }) }}</summary>
           <div v-for="(s, idx) in rcaReport.failed_stages" :key="idx" class="rca-stage">
             <strong>{{ s.stage_id }}</strong> · {{ s.owner_role }} · {{ s.status }}
-            （重试 {{ s.retry_count }}/{{ s.max_retries }}）
+            {{ t('pipelineTaskDetail.rcaRetry', { a: s.retry_count, b: s.max_retries }) }}
             <pre v-if="s.last_error">{{ s.last_error }}</pre>
           </div>
         </details>
         <details class="rca-details" v-if="rcaReport.evidence">
-          <summary>原始证据（{{ rcaReport.spans_examined }} spans · {{ rcaReport.audits_examined }} audits · {{ rcaReport.bus_msgs_examined }} bus msgs）</summary>
+          <summary>{{ t('pipelineTaskDetail.rcaEvidence', { s: rcaReport.spans_examined, a: rcaReport.audits_examined, b: rcaReport.bus_msgs_examined }) }}</summary>
           <pre class="rca-evidence">{{ rcaReport.evidence }}</pre>
         </details>
-        <p v-if="rcaReport.llm_error" class="rca-warn">⚠ LLM 调用未成功：{{ rcaReport.llm_error }}</p>
+        <p v-if="rcaReport.llm_error" class="rca-warn">{{ t('pipelineTaskDetail.rcaLlmError') }}{{ rcaReport.llm_error }}</p>
       </div>
       <template #footer>
-        <el-button @click="rcaDialog = false">关闭</el-button>
-        <el-button type="primary" @click="openRcaDialog" :loading="rcaLoading">重新生成</el-button>
+        <el-button @click="rcaDialog = false">{{ t('pipelineTaskDetail.close') }}</el-button>
+        <el-button type="primary" @click="openRcaDialog" :loading="rcaLoading">{{ t('pipelineTaskDetail.rcaRegen') }}</el-button>
       </template>
     </el-dialog>
 
@@ -665,9 +665,9 @@
       @rejected="loadTask"
     />
 
-    <el-dialog v-model="showRejectDialog" title="打回任务" width="400px">
+    <el-dialog v-model="showRejectDialog" :title="t('pipelineTaskDetail.dialogReject')" width="400px">
       <el-form label-position="top">
-        <el-form-item label="打回到哪个阶段">
+        <el-form-item :label="t('pipelineTaskDetail.rejectToStage')">
           <el-select v-model="rejectTarget" style="width: 100%">
             <el-option
               v-for="stage in previousStages"
@@ -677,26 +677,26 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="打回原因">
+        <el-form-item :label="t('pipelineTaskDetail.rejectReason')">
           <el-input v-model="rejectReason" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showRejectDialog = false">取消</el-button>
-        <el-button type="warning" @click="handleReject">确认打回</el-button>
+        <el-button @click="showRejectDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="warning" @click="handleReject">{{ t('pipelineTaskDetail.confirmReject') }}</el-button>
       </template>
     </el-dialog>
   </div>
 
   <div v-else-if="loadError" class="task-loading">
     <p class="error-text">{{ loadError }}</p>
-    <el-button type="primary" @click="loadTask" style="margin-top: 12px">重试</el-button>
-    <el-button @click="router.push('/pipeline')" style="margin-top: 12px">返回列表</el-button>
+    <el-button type="primary" @click="loadTask" style="margin-top: 12px">{{ t('pipelineTaskDetail.btnRetry') }}</el-button>
+    <el-button @click="router.push('/pipeline')" style="margin-top: 12px">{{ t('pipelineTaskDetail.backToList') }}</el-button>
   </div>
 
   <div v-else class="task-loading">
     <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
-    <p>加载中...</p>
+    <p>{{ t('pipelineTaskDetail.loading') }}</p>
   </div>
 </template>
 
@@ -737,8 +737,9 @@ import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'
 import FinalAcceptanceModal from '@/components/pipeline/FinalAcceptanceModal.vue'
 import { useApprovalSLA } from '@/composables/useApprovalSLA'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -760,7 +761,10 @@ const { byStage: approvalSLA, formatElapsed: formatSLAElapsed } = useApprovalSLA
       const stg = task.value?.stages.find((s) => s.id === stageId)
       const label = stg?.label || stageId
       ElMessage.warning({
-        message: `阶段「${label}」已等待审批 ${formatSLAElapsed(elapsedMs)}，请尽快处理。`,
+        message: t('pipelineTaskDetail.slaMsg', {
+          label,
+          elapsed: formatSLAElapsed(elapsedMs),
+        }),
         duration: 8000,
         showClose: true,
       })
@@ -836,13 +840,12 @@ const completedSubtasks = computed(() =>
 )
 
 const statusLabel = computed(() => {
-  const labels: Record<string, string> = {
-    active: '进行中',
-    paused: '已暂停',
-    done: '已完成',
-    cancelled: '已取消',
-  }
-  return labels[task.value?.status || ''] || task.value?.status
+  const s = task.value?.status || ''
+  if (s === 'active') return t('pipelineTaskDetail.taskStatusActive')
+  if (s === 'paused') return t('pipelineTaskDetail.taskStatusPaused')
+  if (s === 'done') return t('pipelineTaskDetail.taskStatusDone')
+  if (s === 'cancelled') return t('pipelineTaskDetail.taskStatusCancelled')
+  return task.value?.status || ''
 })
 
 const statusTagType = computed(() => {
@@ -881,7 +884,7 @@ function artifactHasBinary(a: TaskArtifact) {
 }
 
 function artifactMimeLabel(a: TaskArtifact) {
-  return String(a.metadata?.mime ?? '未知类型')
+  return String(a.metadata?.mime ?? t('pipelineTaskDetail.unknownMime'))
 }
 
 async function handleArtifactUpload(options: UploadRequestOptions) {
@@ -890,7 +893,7 @@ async function handleArtifactUpload(options: UploadRequestOptions) {
   try {
     await uploadTaskAttachment(task.value.id, options.file as File)
     await loadTask()
-    ElMessage.success(`已上传 ${options.file.name}`)
+    ElMessage.success(t('pipelineTaskDetail.elMessage_32', { name: options.file.name }))
     options.onSuccess?.({} as never)
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
@@ -917,7 +920,9 @@ async function handleCompile() {
     compiledContent.value = result.content
     ElMessage.success(t('pipelineTaskDetail.elMessage_1'))
   } catch (e: unknown) {
-    ElMessage.error(`生成失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_33', { err: e instanceof Error ? e.message : String(e) }),
+    )
   } finally {
     compiling.value = false
   }
@@ -1002,49 +1007,58 @@ const execBannerTitle = computed(() => {
   if (!task.value) return ''
   if (isRunningNow.value) {
     const stg = currentStage.value
-    return `AI 正在执行：${stg?.label ?? task.value.currentStageId}`
+    return t('pipelineTaskDetail.execBannerRunning', {
+      label: stg?.label ?? task.value.currentStageId,
+    })
   }
-  if (task.value.currentStageId === 'done') return '所有阶段已完成'
+  if (task.value.currentStageId === 'done') return t('pipelineTaskDetail.execBannerAllDone')
   const stg = currentStage.value
-  if (stg?.status === 'awaiting_approval') return `等待你审批：${stg.label}`
-  if (currentStageGateFailed.value) {
-    return `质量门禁未通过：${stg?.label ?? task.value.currentStageId}`
+  if (stg?.status === 'awaiting_approval') {
+    return t('pipelineTaskDetail.execBannerWaitYou', { label: stg.label })
   }
-  return `当前阶段：${stg?.label ?? task.value.currentStageId}`
+  if (currentStageGateFailed.value) {
+    return t('pipelineTaskDetail.execBannerGateFail', {
+      label: stg?.label ?? task.value.currentStageId,
+    })
+  }
+  return t('pipelineTaskDetail.execBannerCurrent', {
+    label: stg?.label ?? task.value.currentStageId,
+  })
 })
 
 const execBannerSub = computed(() => {
   if (anyExecutionRunning.value) {
-    return '后台执行中。可自由切换页面，回来后日志和进度会自动更新。'
+    return t('pipelineTaskDetail.execSubRunBg')
   }
   if (processingStage.value && !anyExecutionRunning.value) {
-    // We came back to a page where the server still looks busy but we
-    // have no local proof — be honest about the inference.
-    return '检测到该阶段在后台仍可能执行中。如等待较久无进展，可点击「实时日志」或重新触发。'
+    return t('pipelineTaskDetail.execSubMaybeBg')
   }
   if (task.value?.currentStageId === 'done') {
-    return '可在下方生成交付文档下载。'
+    return t('pipelineTaskDetail.execSubDoneDocs')
   }
   const stg = currentStage.value
   if (!stg) return ''
   if (stg.status === 'awaiting_approval') {
-    return '请滚到上方阶段卡片里点击批准 / 驳回。'
+    return t('pipelineTaskDetail.execSubScrollApproval')
   }
   if (currentStageGateFailed.value) {
-    const score = stg.gateScore != null ? `${(stg.gateScore * 100).toFixed(0)}%` : '低于阈值'
-    return `本阶段产出质量分 ${score}，未达门禁标准。可让 AI 重跑、调整门禁阈值，或在「旁路操作」里手动跳过 / 打回。`
+    const score =
+      stg.gateScore != null
+        ? `${(stg.gateScore * 100).toFixed(0)}%`
+        : t('pipelineTaskDetail.belowThreshold')
+    return t('pipelineTaskDetail.execSubGate', { score })
   }
   if (task.value?.currentStageId === 'planning') {
-    return '计划阶段：点击右侧让 Lead Agent 智能编排并自动跑完全部阶段。'
+    return t('pipelineTaskDetail.execSubPlan')
   }
-  return `负责角色：${stg.ownerRole}。点击右侧让 AI 跑这一阶段；其它操作请用「旁路操作」。`
+  return t('pipelineTaskDetail.execSubOwner', { role: stg.ownerRole })
 })
 
 const primaryRunLabel = computed(() => {
-  if (!task.value) return '让 AI 执行'
-  if (task.value.currentStageId === 'planning') return '让 Lead Agent 智能开跑'
-  if (currentStageGateFailed.value) return '让 AI 重跑这个阶段'
-  return '让 AI 跑这个阶段'
+  if (!task.value) return t('pipelineTaskDetail.runAi')
+  if (task.value.currentStageId === 'planning') return t('pipelineTaskDetail.runSmartLead')
+  if (currentStageGateFailed.value) return t('pipelineTaskDetail.runAiRerun')
+  return t('pipelineTaskDetail.runThisStage')
 })
 
 // Banner-embedded gate-detail panel starts expanded so the user
@@ -1100,8 +1114,12 @@ const previousStages = computed(() => {
 })
 
 function formatDate(ts: number) {
-  return new Date(ts).toLocaleString('zh-CN', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  return new Date(ts).toLocaleString(appLocaleToBcp47(locale.value), {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   })
 }
 
@@ -1113,68 +1131,72 @@ function formatDuration(ms: number) {
 }
 
 function formatLogTime(ts: number) {
-  return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return new Date(ts).toLocaleTimeString(appLocaleToBcp47(locale.value), {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 }
 
 function formatEventName(event: string) {
-  const map: Record<string, string> = {
-    'stage:queued': '⏳ 排队',
-    'stage:processing': '🔄 处理中',
-    'stage:completed': '✅ 完成',
-    'stage:error': '❌ 错误',
-    'task:stage-advanced': '➡️ 推进',
-    'task:created': '📝 创建',
-    'task:updated': '📝 更新',
-    'pipeline:auto-start': '🚀 自动启动',
-    'pipeline:auto-completed': '🎉 全流程完成',
-    'pipeline:awaiting-final-acceptance': '🏁 等待最终验收',
-    'pipeline:auto-paused': '⏸️ 暂停',
-    'pipeline:auto-error': '💥 流程错误',
-    'pipeline:smart-start': '🧠 Lead Agent 启动',
-    'pipeline:smart-completed': '🧠 智能流水线完成',
-    'pipeline:smart-error': '🧠 智能流水线错误',
-    'lead-agent:analyzing': '🔍 Lead Agent 分析中',
-    'lead-agent:plan-ready': '📋 任务分解完成',
-    'lead-agent:error': '❌ Lead Agent 错误',
-    'subtask:start': '▶️ 子任务启动',
-    'subtask:completed': '✅ 子任务完成',
-    'subtask:failed': '❌ 子任务失败',
-    'subtasks:batch-start': '⚡ 并行批次启动',
-    'middleware:blocked': '🛡️ 中间件拦截',
-    'middleware:token-usage': '📊 Token 用量',
-    'executor:started': '⚡ Claude Code 启动',
-    'executor:launched': '🚀 Claude Code 运行中',
-    'executor:log': '📋 Claude Code 日志',
-    'executor:completed': '✅ Claude Code 完成',
-    'executor:error': '❌ Claude Code 错误',
-    'executor:timeout': '⏰ Claude Code 超时',
-    'executor:killed': '🛑 Claude Code 已终止',
-    'stage:quality-gate': '🚦 质量门禁评估',
-    'stage:gate-overridden': '🔓 门禁人工放行',
-    'stage:peer-reviewing': '🔍 Peer Review 审阅中',
-    'stage:peer-review-approved': '✅ Peer Review 通过',
-    'stage:peer-review-rejected': '❌ Peer Review 驳回',
-    'stage:peer-review-error': '⚠️ Peer Review 出错',
-    'stage:rework': '🔄 根据反馈修改中',
-    'stage:awaiting-approval': '🔔 等待人工审批',
-    'stage:approval-granted': '✅ 人工审批通过',
-    'stage:approval-denied': '❌ 人工审批驳回',
-    'pipeline:resumed': '▶️ Pipeline 恢复执行',
-    'pipeline:dag-resumed': '▶️ DAG 续跑',
-    'pipeline:dag-start': '🚀 DAG 启动',
-    'pipeline:dag-batch': '⚡ DAG 批次',
-    'pipeline:dag-completed': '🎉 DAG 完成',
-    'pipeline:dag-branch': '🔀 DAG 分支重置',
-    'pipeline:rollback': '⏪ 阶段回滚',
-    'stage:retry': '🔁 阶段重试',
-    'stage:skipped': '⏭️ 阶段跳过',
-    'agent:bus-message': '📨 Agent 消息',
-    'pipeline:rca-generated': '🩺 RCA 报告',
-    'learning:override-injected': '🧬 历史经验已注入',
-    'learning:self-heal-injected': '🩹 评审反馈已注入到 prompt',
-    'learning:gate-self-heal-injected': '🩹 上次门禁失败原因已注入到 prompt',
+  switch (event) {
+    case 'stage:queued': return t('pipelineTaskDetail.evStageQueued')
+    case 'stage:processing': return t('pipelineTaskDetail.evStageProcessing')
+    case 'stage:completed': return t('pipelineTaskDetail.evStageCompleted')
+    case 'stage:error': return t('pipelineTaskDetail.evStageError')
+    case 'task:stage-advanced': return t('pipelineTaskDetail.evTaskStageAdvanced')
+    case 'task:created': return t('pipelineTaskDetail.evTaskCreated')
+    case 'task:updated': return t('pipelineTaskDetail.evTaskUpdated')
+    case 'pipeline:auto-start': return t('pipelineTaskDetail.evPipelineAutoStart')
+    case 'pipeline:auto-completed': return t('pipelineTaskDetail.evPipelineAutoCompleted')
+    case 'pipeline:awaiting-final-acceptance': return t('pipelineTaskDetail.evPipelineAwaitingFinal')
+    case 'pipeline:auto-paused': return t('pipelineTaskDetail.evPipelineAutoPaused')
+    case 'pipeline:auto-error': return t('pipelineTaskDetail.evPipelineAutoError')
+    case 'pipeline:smart-start': return t('pipelineTaskDetail.evPipelineSmartStart')
+    case 'pipeline:smart-completed': return t('pipelineTaskDetail.evPipelineSmartCompleted')
+    case 'pipeline:smart-error': return t('pipelineTaskDetail.evPipelineSmartError')
+    case 'lead-agent:analyzing': return t('pipelineTaskDetail.evLeadAgentAnalyzing')
+    case 'lead-agent:plan-ready': return t('pipelineTaskDetail.evLeadAgentPlanReady')
+    case 'lead-agent:error': return t('pipelineTaskDetail.evLeadAgentError')
+    case 'subtask:start': return t('pipelineTaskDetail.evSubtaskStart')
+    case 'subtask:completed': return t('pipelineTaskDetail.evSubtaskCompleted')
+    case 'subtask:failed': return t('pipelineTaskDetail.evSubtaskFailed')
+    case 'subtasks:batch-start': return t('pipelineTaskDetail.evSubtasksBatchStart')
+    case 'middleware:blocked': return t('pipelineTaskDetail.evMiddlewareBlocked')
+    case 'middleware:token-usage': return t('pipelineTaskDetail.evMiddlewareToken')
+    case 'executor:started': return t('pipelineTaskDetail.evExecutorStarted')
+    case 'executor:launched': return t('pipelineTaskDetail.evExecutorLaunched')
+    case 'executor:log': return t('pipelineTaskDetail.evExecutorLog')
+    case 'executor:completed': return t('pipelineTaskDetail.evExecutorCompleted')
+    case 'executor:error': return t('pipelineTaskDetail.evExecutorError')
+    case 'executor:timeout': return t('pipelineTaskDetail.evExecutorTimeout')
+    case 'executor:killed': return t('pipelineTaskDetail.evExecutorKilled')
+    case 'stage:quality-gate': return t('pipelineTaskDetail.evStageQualityGate')
+    case 'stage:gate-overridden': return t('pipelineTaskDetail.evStageGateOverridden')
+    case 'stage:peer-reviewing': return t('pipelineTaskDetail.evStagePeerReviewing')
+    case 'stage:peer-review-approved': return t('pipelineTaskDetail.evStagePeerApproved')
+    case 'stage:peer-review-rejected': return t('pipelineTaskDetail.evStagePeerRejected')
+    case 'stage:peer-review-error': return t('pipelineTaskDetail.evStagePeerError')
+    case 'stage:rework': return t('pipelineTaskDetail.evStageRework')
+    case 'stage:awaiting-approval': return t('pipelineTaskDetail.evStageAwaitingApproval')
+    case 'stage:approval-granted': return t('pipelineTaskDetail.evStageApprovalGranted')
+    case 'stage:approval-denied': return t('pipelineTaskDetail.evStageApprovalDenied')
+    case 'pipeline:resumed': return t('pipelineTaskDetail.evPipelineResumed')
+    case 'pipeline:dag-resumed': return t('pipelineTaskDetail.evPipelineDagResumed')
+    case 'pipeline:dag-start': return t('pipelineTaskDetail.evPipelineDagStart')
+    case 'pipeline:dag-batch': return t('pipelineTaskDetail.evPipelineDagBatch')
+    case 'pipeline:dag-completed': return t('pipelineTaskDetail.evPipelineDagCompleted')
+    case 'pipeline:dag-branch': return t('pipelineTaskDetail.evPipelineDagBranch')
+    case 'pipeline:rollback': return t('pipelineTaskDetail.evPipelineRollback')
+    case 'stage:retry': return t('pipelineTaskDetail.evStageRetry')
+    case 'stage:skipped': return t('pipelineTaskDetail.evStageSkipped')
+    case 'agent:bus-message': return t('pipelineTaskDetail.evAgentBusMessage')
+    case 'pipeline:rca-generated': return t('pipelineTaskDetail.evPipelineRcaGenerated')
+    case 'learning:override-injected': return t('pipelineTaskDetail.evLearningOverride')
+    case 'learning:self-heal-injected': return t('pipelineTaskDetail.evLearningSelfHeal')
+    case 'learning:gate-self-heal-injected': return t('pipelineTaskDetail.evLearningGateSelfHeal')
+    default: return event
   }
-  return map[event] || event
 }
 
 function gateIcon(status: string | null | undefined) {
@@ -1185,10 +1207,14 @@ function gateIcon(status: string | null | undefined) {
 }
 
 function gateLabel(status: string | null | undefined) {
-  const labels: Record<string, string> = {
-    passed: '门禁通过', warning: '门禁警告', failed: '门禁失败', bypassed: '已放行', pending: '待评估',
+  switch (status) {
+    case 'passed': return t('pipelineTaskDetail.gatePass')
+    case 'warning': return t('pipelineTaskDetail.gateWarn')
+    case 'failed': return t('pipelineTaskDetail.gateFail')
+    case 'bypassed': return t('pipelineTaskDetail.gateBypass')
+    case 'pending': return t('pipelineTaskDetail.gatePending')
+    default: return ''
   }
-  return labels[status || ''] || ''
 }
 
 function gateTagType(status: string | null | undefined): 'success' | 'warning' | 'danger' | 'info' {
@@ -1209,12 +1235,12 @@ async function handleGateOverride(stageId: string) {
   if (!task.value) return
   overridingGate.value = stageId
   try {
-    await overrideQualityGate(String(task.value.id), stageId, '人工审查后放行')
+    await overrideQualityGate(String(task.value.id), stageId, t('pipelineTaskDetail.overrideReason'))
     ElMessage.success(t('pipelineTaskDetail.elMessage_2'))
     await loadTask()
     await resumePipeline(String(task.value.id), undefined, false)
   } catch (e: any) {
-    ElMessage.error(e?.message || '放行失败')
+    ElMessage.error(e?.message || t('pipelineTaskDetail.elMessage_15'))
   } finally {
     overridingGate.value = null
   }
@@ -1242,13 +1268,13 @@ async function handleApproveStage(stageId: string, approved: boolean) {
   approvingStage.value = stageId
   try {
     await apiApproveStage(String(task.value.id), stageId, approved)
-    ElMessage.success(approved ? '已批准，Pipeline 将继续执行' : '已驳回')
+    ElMessage.success(approved ? t('pipelineTaskDetail.elMessage_12') : t('pipelineTaskDetail.elMessage_13'))
     await loadTask()
     if (approved) {
       await resumePipeline(String(task.value.id), undefined, false)
     }
   } catch (e: any) {
-    ElMessage.error(e?.message || '操作失败')
+    ElMessage.error(e?.message || t('pipelineTaskDetail.elMessage_14'))
   } finally {
     approvingStage.value = null
   }
@@ -1267,17 +1293,26 @@ function addLog(event: string, data?: Record<string, unknown>) {
     // Make the prompt-injection traceable: tell the user *what* the
     // backend actually fed back into the LLM so they can verify the
     // self-heal loop instead of taking it on faith.
-    const attempt = data?.attempt ? `第 ${data.attempt} 次重跑` : ''
-    const failing = data?.failingCount ? `${data.failingCount} 项 FAIL/WARN` : ''
+    const attempt = data?.attempt
+      ? t('pipelineTaskDetail.addLogRerun', { n: data.attempt as number })
+      : ''
+    const failing = data?.failingCount
+      ? t('pipelineTaskDetail.addLogFailing', { n: data.failingCount as number })
+      : ''
     const score = typeof data?.score === 'number'
-      ? `上次 ${Math.round((data.score as number) * 100)}%`
+      ? t('pipelineTaskDetail.addLogLastScore', { pct: String(Math.round((data.score as number) * 100)) })
       : ''
     detail = [attempt, failing, score].filter(Boolean).join(' · ')
   } else if (event === 'learning:self-heal-injected') {
-    const attempt = data?.rejectCount ? `第 ${data.rejectCount} 次返工` : ''
+    const attempt = data?.rejectCount
+      ? t('pipelineTaskDetail.addLogRework', { n: data.rejectCount as number })
+      : ''
     detail = attempt || undefined
   } else if (data?.stageId) {
-    detail = `阶段: ${data.stageId}${data.label ? ` (${data.label})` : ''}`
+    detail = t('pipelineTaskDetail.addLogStage', {
+      id: String(data.stageId),
+      parenthetical: data.label ? ` (${String(data.label)})` : '',
+    })
   } else if (data?.from && data?.to) {
     detail = `${data.from} → ${data.to}`
   }
@@ -1346,7 +1381,7 @@ function setupSSE() {
       loadTask()
     }
 
-    // Lead Agent 子任务追踪 (deer-flow 风格)
+    // Lead Agent subtask tracking (deer-flow style)
     if (evt.event === 'subtask:start') {
       subtasks.value.push({
         id: (data?.subtaskId as string) || '',
@@ -1367,7 +1402,7 @@ function setupSSE() {
       const st = subtasks.value.find(s => s.id === data?.subtaskId)
       if (st) {
         st.status = 'failed'
-        st.error = (data?.error as string) || '执行失败'
+        st.error = (data?.error as string) || t('pipelineTaskDetail.subtaskExecFail')
         st.endTime = Date.now()
       }
     }
@@ -1375,7 +1410,11 @@ function setupSSE() {
       const plan = data?.plan as Record<string, unknown>
       if (plan?.subtaskCount) {
         addLog('lead-agent:plan-ready', {
-          analysis: `分解为 ${plan.subtaskCount} 个子任务，策略: ${plan.strategy}，复杂度: ${plan.complexity}`,
+          analysis: t('pipelineTaskDetail.leadPlanDecomp', {
+            n: plan.subtaskCount as number,
+            s: String(plan.strategy ?? ''),
+            c: String(plan.complexity ?? ''),
+          }),
         })
       }
     }
@@ -1410,7 +1449,7 @@ function setupSSE() {
       autoRunning.value = false
       stageRunning.value = false
       ElMessage.warning({
-        message: '🏁 全部阶段完成，等待你做最终验收',
+        message: t('pipelineTaskDetail.elMessage_16'),
         duration: 6000,
       })
       loadQualityReport()
@@ -1422,7 +1461,7 @@ function setupSSE() {
       stageRunning.value = false
       const completed = (data?.completedSubtasks as number) || 0
       const total = (data?.subtaskCount as number) || 0
-      ElMessage.success(`Lead Agent 智能执行完成！${completed}/${total} 子任务成功`)
+      ElMessage.success(t('pipelineTaskDetail.elMessage_17', { ok: completed, total }))
     }
 
     if (evt.event === 'pipeline:auto-paused') {
@@ -1434,7 +1473,9 @@ function setupSSE() {
       autoRunning.value = false
       smartRunning.value = false
       stageRunning.value = false
-      ElMessage.error(`执行失败: ${data?.error || '未知错误'}`)
+      ElMessage.error(
+        t('pipelineTaskDetail.elMessage_18', { err: String(data?.error || t('pipelineTaskDetail.unknownError')) }),
+      )
     }
   })
 }
@@ -1450,7 +1491,9 @@ async function handleSmartRun() {
     ElMessage.success(t('pipelineTaskDetail.elMessage_5'))
   } catch (e: unknown) {
     smartRunning.value = false
-    ElMessage.error(`智能执行启动失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_19', { err: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -1460,10 +1503,12 @@ async function handleResume(forceContinue = false) {
   try {
     const res = await resumePipeline(String(task.value.id), undefined, forceContinue)
     addLog('pipeline:resumed', { fromStage: res.resumed_from })
-    ElMessage.success(`Pipeline 已从「${res.resumed_from}」恢复执行`)
+    ElMessage.success(t('pipelineTaskDetail.elMessage_20', { from: res.resumed_from }))
     await loadTask()
   } catch (e: unknown) {
-    ElMessage.error(`恢复失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_21', { err: e instanceof Error ? e.message : String(e) }),
+    )
   } finally {
     resuming.value = false
   }
@@ -1510,15 +1555,18 @@ async function generateShareLink(ttlDays: number = 7) {
     })
     const data = await res.json()
     if (!res.ok) {
-      ElMessage.error(data.detail || '生成失败')
+      ElMessage.error(data.detail || t('pipelineTaskDetail.elMessage_shareApi'))
       return
     }
     const fullUrl = `${window.location.origin}/#${data.url}`
     await navigator.clipboard.writeText(fullUrl)
-    const label = ttlDays >= 365 ? '永久' : `${ttlDays}天`
-    ElMessage.success(`分享链接已复制到剪贴板（${label}有效）`)
+    const ttl =
+      ttlDays >= 365
+        ? t('pipelineTaskDetail.shareTtlPerm')
+        : t('pipelineTaskDetail.shareTtlDays', { n: ttlDays })
+    ElMessage.success(t('pipelineTaskDetail.elMessage_22', { ttl }))
   } catch (e: any) {
-    ElMessage.error(e.message || '生成分享链接失败')
+    ElMessage.error(e.message || t('pipelineTaskDetail.elMessage_23'))
   }
 }
 
@@ -1568,7 +1616,9 @@ async function openRcaDialog() {
       stages_failed: r.failed_stages?.length || 0,
     })
   } catch (e: unknown) {
-    ElMessage.error(`RCA 生成失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_24', { err: e instanceof Error ? e.message : String(e) }),
+    )
     rcaDialog.value = false
   } finally {
     rcaLoading.value = false
@@ -1590,13 +1640,17 @@ async function handleResumeDag() {
       duration: 4000,
       message:
         res.message ||
-        `已加入续跑队列（template=${res.template}${
-          res.resumedFromCheckpoint ? '，从检查点恢复' : '，无检查点'
-        }），请关注下方实时日志`,
+        t('pipelineTaskDetail.dagQueueFull', {
+          tmpl: res.template,
+          part: res.resumedFromCheckpoint ? t('pipelineTaskDetail.resDagCp') : t('pipelineTaskDetail.resDagNoCp'),
+          tail: t('pipelineTaskDetail.resDagTail'),
+        }),
     })
     await loadTask()
   } catch (e: unknown) {
-    ElMessage.error(`DAG 续跑提交失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_26', { err: e instanceof Error ? e.message : String(e) }),
+    )
   } finally {
     resumingDag.value = false
   }
@@ -1612,7 +1666,9 @@ async function handleAutoRun() {
     ElMessage.success(t('pipelineTaskDetail.elMessage_9'))
   } catch (e: unknown) {
     autoRunning.value = false
-    ElMessage.error(`启动失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_27', { err: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -1625,7 +1681,9 @@ async function handleRunCurrentStage() {
     ElMessage.success(t('pipelineTaskDetail.elMessage_10'))
   } catch (e: unknown) {
     stageRunning.value = false
-    ElMessage.error(`执行失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_28', { err: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -1633,9 +1691,11 @@ async function handleAdvance() {
   if (!task.value) return
   try {
     task.value = await pipelineStore.advanceTask(task.value.id)
-    addLog('task:stage-advanced', { from: '(手动)', to: task.value.currentStageId })
+    addLog('task:stage-advanced', { from: t('pipelineTaskDetail.addLogManual'), to: task.value.currentStageId })
   } catch (e: unknown) {
-    ElMessage.error(`推进失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_29', { err: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -1652,7 +1712,9 @@ async function handleReject() {
     rejectReason.value = ''
     ElMessage.success(t('pipelineTaskDetail.elMessage_11'))
   } catch (e: unknown) {
-    ElMessage.error(`打回失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_30', { err: e instanceof Error ? e.message : String(e) }),
+    )
   }
 }
 
@@ -1684,8 +1746,8 @@ async function loadTask() {
       stageRunning.value = false
     }
   } catch (e) {
-    loadError.value = e instanceof Error ? e.message : '加载任务失败'
-    console.error('加载任务失败:', e)
+    loadError.value = e instanceof Error ? e.message : t('pipelineTaskDetail.elMessage_31')
+    console.error(t('pipelineTaskDetail.elMessage_31'), e)
   }
 }
 

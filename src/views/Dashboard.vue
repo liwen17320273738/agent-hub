@@ -129,6 +129,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { appLocaleToBcp47 } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { fetchTasks, createTask as createPipelineTask, smartRunPipeline } from '@/services/pipelineApi'
@@ -136,7 +137,7 @@ import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import { ElMessage } from 'element-plus'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const tasks = ref<PipelineTask[]>([])
@@ -207,7 +208,12 @@ function statusLabel(s: string) {
 
 function formatDate(iso: string) {
   if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleString(appLocaleToBcp47(locale.value), {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 async function submitTask(planMode: boolean) {
