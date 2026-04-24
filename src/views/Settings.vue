@@ -14,9 +14,9 @@
       :title="t('settings.title_1')"
     >
       <p>
-        API Key 保存在浏览器 localStorage，公共设备或恶意脚本可能导致泄露。生产环境建议由后端或网关代调模型 API，密钥仅放在服务端。若部署时配置了与
-        <code>vite.config</code>{{ t('settings.text_3') }}<code>/api/proxy/*</code> 反向代理，可在构建环境设置
-        <code>VITE_USE_RELATIVE_PROXY=true</code>{{ t('settings.text_4') }}<code>pnpm preview</code> 行为一致），便于隐藏真实 API 域名并统一走网关。
+        {{ t('settings.alertLocal_1') }}<code>vite.config</code>{{ t('settings.text_3') }}<code>/api/proxy/*</code
+        >{{ t('settings.alertLocal_2') }}<code>VITE_USE_RELATIVE_PROXY=true</code>{{ t('settings.text_4')
+        }}<code>pnpm preview</code>{{ t('settings.alertLocal_3') }}
       </p>
     </el-alert>
 
@@ -28,16 +28,14 @@
       :closable="false"
       :title="t('settings.title_2')"
     >
-      <p>
-        当前为构建时启用的企业部署：会话保存在服务端数据库，同组织成员共享；模型 API Key 仅存在于服务器环境变量，浏览器不保存密钥。
-      </p>
+      <p>{{ t('settings.alertEnterprise') }}</p>
     </el-alert>
 
     <el-card class="settings-card">
       <template #header>
         <div class="card-header">
           <el-icon><Collection /></el-icon>
-          <span>Model Profiles</span>
+          <span>{{ t('settings.card_modelProfiles') }}</span>
         </div>
       </template>
       <div class="profiles-layout">
@@ -51,21 +49,25 @@
           >
             <div class="profile-item-top">
               <strong>{{ profile.name }}</strong>
-              <el-tag v-if="profile.isActive" size="small" type="success" effect="plain">当前</el-tag>
+              <el-tag v-if="profile.isActive" size="small" type="success" effect="plain">{{
+                t('settings.current')
+              }}</el-tag>
             </div>
-            <div class="profile-item-meta">{{ profile.provider }} / {{ profile.model || '未设置模型' }}</div>
+            <div class="profile-item-meta">
+              {{ profile.provider }} / {{ profile.model || t('settings.noModel') }}
+            </div>
           </div>
         </div>
         <div class="profiles-actions">
-          <el-button type="primary" @click="createProfile">新建档案</el-button>
-          <el-button @click="duplicateProfile">复制当前档案</el-button>
+          <el-button type="primary" @click="createProfile">{{ t('settings.newProfile') }}</el-button>
+          <el-button @click="duplicateProfile">{{ t('settings.duplicateProfile') }}</el-button>
           <el-button
             type="danger"
             plain
             :disabled="profileSummaries.length <= 1"
             @click="settingsStore.activeProfileId && deleteProfile(settingsStore.activeProfileId)"
           >
-            删除当前档案
+            {{ t('settings.deleteCurrentProfile') }}
           </el-button>
         </div>
       </div>
@@ -75,38 +77,38 @@
       <template #header>
         <div class="card-header">
           <el-icon><Connection /></el-icon>
-          <span>组织与模型网关（只读）</span>
+          <span>{{ t('settings.card_org') }}</span>
         </div>
       </template>
       <el-descriptions :column="1" border size="small">
-        <el-descriptions-item label="组织">{{ authStore.user?.orgName ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="上游 Host">{{ authStore.publicLlm?.host || '未配置' }}</el-descriptions-item>
-        <el-descriptions-item label="默认模型">{{ authStore.publicLlm?.model || '—' }}</el-descriptions-item>
-        <el-descriptions-item label="网关状态">
+        <el-descriptions-item :label="t('settings.org')">{{ authStore.user?.orgName ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('settings.upstream')">{{
+          authStore.publicLlm?.host || t('settings.notConfigured')
+        }}</el-descriptions-item>
+        <el-descriptions-item :label="t('settings.defaultModel')">{{ authStore.publicLlm?.model || '—' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('settings.gwStatus')">
           <el-tag :type="authStore.llmConfigured ? 'success' : 'danger'" size="small">
-            {{ authStore.llmConfigured ? '已配置' : '未配置 LLM 环境变量' }}
+            {{ authStore.llmConfigured ? t('settings.gw_yes') : t('settings.gw_no') }}
           </el-tag>
         </el-descriptions-item>
       </el-descriptions>
-      <p class="form-tip" style="margin-top: 12px">
-        下方「模型」可覆盖默认 model id（须与当前上游兼容）；留空则使用服务端 LLM_MODEL。
-      </p>
+      <p class="form-tip" style="margin-top: 12px">{{ t('settings.tip_enterpriseModel') }}</p>
     </el-card>
 
     <el-card v-if="!isEnterpriseBuild" class="settings-card">
       <template #header>
         <div class="card-header">
           <el-icon><Connection /></el-icon>
-          <span>API 配置</span>
+          <span>{{ t('settings.card_api') }}</span>
         </div>
       </template>
 
       <el-form :model="form" label-width="120px" label-position="left">
-        <el-form-item label="档案名称">
-          <el-input v-model="profileName" placeholder="例如：Product Agent / GPT-4.5" />
+        <el-form-item :label="t('settings.label_profileName')">
+          <el-input v-model="profileName" :placeholder="t('settings.ph_profile_ex')" />
         </el-form-item>
-        <el-form-item label="API 地址">
-          <el-select v-model="form.provider" class="provider-select" placeholder="选择 Provider">
+        <el-form-item :label="t('settings.label_api')">
+          <el-select v-model="form.provider" class="provider-select" :placeholder="t('settings.ph_provider')">
             <el-option
               v-for="item in providerOptions"
               :key="item.value"
@@ -114,10 +116,10 @@
               :value="item.value"
             />
           </el-select>
-          <el-input v-model="form.apiUrl" placeholder="https://api.deepseek.com/v1/chat/completions" />
-          <div class="form-tip">支持 OpenAI 兼容接口，以及 Anthropic、Gemini、智谱等主流模型提供商。</div>
+          <el-input v-model="form.apiUrl" :placeholder="t('settings.ph_api')" />
+          <div class="form-tip">{{ t('settings.tip_apiCompat') }}</div>
           <div class="quick-providers">
-            <span class="quick-label">快速填入：</span>
+            <span class="quick-label">{{ t('settings.quickFill') }}</span>
             <el-button link type="primary" @click="fillProviderApi('deepseek')">DeepSeek</el-button>
             <el-button link type="primary" @click="fillProviderApi('openai')">OpenAI</el-button>
             <el-button link type="primary" @click="fillProviderApi('qwen')">通义千问</el-button>
@@ -127,15 +129,15 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="API Key">
-          <el-input v-model="form.apiKey" type="password" show-password placeholder="sk-..." />
+        <el-form-item :label="t('settings.label_key')">
+          <el-input v-model="form.apiKey" type="password" show-password :placeholder="t('settings.ph_key')" />
         </el-form-item>
 
-        <el-form-item label="模型">
+        <el-form-item :label="t('settings.label_model')">
           <el-select
             v-if="catalogMatches.length"
             :model-value="catalogSelectValue"
-            placeholder="从当前厂商推荐中选择（可选）"
+            :placeholder="t('settings.ph_catalog')"
             clearable
             filterable
             class="model-preset-select"
@@ -148,31 +150,31 @@
               :value="m.id"
             />
           </el-select>
-          <el-input v-model="form.model" class="model-id-input" placeholder="model id，如 deepseek-chat" />
+          <el-input v-model="form.model" class="model-id-input" :placeholder="t('settings.ph_model_id')" />
           <div class="form-tip">
-            各模型维度与横向对比见
-            <router-link class="inline-link" to="/model-lab">模型实验室</router-link>
-            。当前候选将优先按 Provider 过滤；也可直接手填该 Provider 下的任意模型 ID。
+            {{ t('settings.tip_model') }}
+            <router-link class="inline-link" to="/model-lab">{{ t('settings.modelLab') }}</router-link>
+            {{ t('settings.tip_model2') }}
           </div>
         </el-form-item>
 
-        <el-form-item label="Temperature">
+        <el-form-item :label="t('settings.temp')">
           <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" show-input :show-input-controls="false" />
         </el-form-item>
 
-        <el-form-item label="最大 Token">
+        <el-form-item :label="t('settings.maxToken')">
           <el-input-number v-model="form.maxTokens" :min="256" :max="16384" :step="256" />
-          <div class="form-tip">千问等模型上限 16384，超出会报错</div>
+          <div class="form-tip">{{ t('settings.tip_maxToken') }}</div>
         </el-form-item>
 
         <el-form-item>
           <el-button type="primary" @click="handleSave">
             <el-icon><Check /></el-icon>
-            保存设置
+            {{ t('settings.save') }}
           </el-button>
           <el-button @click="handleTest" :loading="testing">
             <el-icon><Connection /></el-icon>
-            测试连接
+            {{ t('settings.test') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -182,15 +184,15 @@
       <template #header>
         <div class="card-header">
           <el-icon><Connection /></el-icon>
-          <span>模型与参数</span>
+          <span>{{ t('settings.card_model') }}</span>
         </div>
       </template>
       <el-form :model="form" label-width="120px" label-position="left">
-        <el-form-item label="档案名称">
-          <el-input v-model="profileName" placeholder="例如：Judge Agent / Opus 4.6" />
+        <el-form-item :label="t('settings.label_profileName')">
+          <el-input v-model="profileName" :placeholder="t('settings.ph_profile_ent')" />
         </el-form-item>
-        <el-form-item label="模型">
-          <el-select v-model="form.provider" class="provider-select" placeholder="选择 Provider">
+        <el-form-item :label="t('settings.label_model')">
+          <el-select v-model="form.provider" class="provider-select" :placeholder="t('settings.ph_provider')">
             <el-option
               v-for="item in providerOptions"
               :key="item.value"
@@ -201,7 +203,7 @@
           <el-select
             v-if="catalogMatches.length"
             :model-value="catalogSelectValue"
-            placeholder="从推荐中选择（可选）"
+            :placeholder="t('settings.ph_catalog_ent')"
             clearable
             filterable
             class="model-preset-select"
@@ -214,22 +216,22 @@
               :value="m.id"
             />
           </el-select>
-          <el-input v-model="form.model" class="model-id-input" placeholder="留空则用服务端默认 model" />
+          <el-input v-model="form.model" class="model-id-input" :placeholder="t('settings.ph_model_default')" />
         </el-form-item>
-        <el-form-item label="Temperature">
+        <el-form-item :label="t('settings.temp')">
           <el-slider v-model="form.temperature" :min="0" :max="2" :step="0.1" show-input :show-input-controls="false" />
         </el-form-item>
-        <el-form-item label="最大 Token">
+        <el-form-item :label="t('settings.maxToken')">
           <el-input-number v-model="form.maxTokens" :min="256" :max="16384" :step="256" />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSave">
             <el-icon><Check /></el-icon>
-            保存个人偏好
+            {{ t('settings.savePref') }}
           </el-button>
           <el-button v-if="settingsStore.isConfigured()" @click="handleTest" :loading="testing">
             <el-icon><Connection /></el-icon>
-            测试连接
+            {{ t('settings.test') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -239,25 +241,23 @@
       <template #header>
         <div class="card-header">
           <el-icon><ChatDotRound /></el-icon>
-          <span>对话上下文</span>
+          <span>{{ t('settings.card_chat') }}</span>
         </div>
       </template>
       <el-form :model="form" label-width="120px" label-position="left">
-        <el-form-item label="窗口消息条数">
+        <el-form-item :label="t('settings.ctx_title')">
           <el-input-number v-model="form.contextMaxMessages" :min="4" :max="128" :step="2" />
-          <div class="form-tip">单次请求最多携带的用户+助手消息条数（从最新往前截断）</div>
+          <div class="form-tip">{{ t('settings.ctx_tip1') }}</div>
         </el-form-item>
-        <el-form-item label="窗口字符上限">
+        <el-form-item :label="t('settings.ctx_chars')">
           <el-input-number v-model="form.contextMaxChars" :min="4000" :max="200000" :step="2000" />
-          <div class="form-tip">在条数限制之后，再按总字符收紧，用于控制费用与上下文长度</div>
+          <div class="form-tip">{{ t('settings.ctx_tip2') }}</div>
         </el-form-item>
-        <el-form-item label="工具调用">
+        <el-form-item :label="t('settings.tools')">
           <el-switch v-model="form.enableTools" />
-          <div class="form-tip">
-            开启后模型可调用内置工具：当前时间、文本统计、随机整数。走非流式多轮请求；若接口报错，请关闭此项。
-          </div>
+          <div class="form-tip">{{ t('settings.tools_tip') }}</div>
         </el-form-item>
-        <el-form-item label="成本模式">
+        <el-form-item :label="t('settings.cost')">
           <el-select v-model="form.wayneCostMode" class="provider-select">
             <el-option
               v-for="item in WAYNE_COST_MODE_OPTIONS"
@@ -271,7 +271,7 @@
         <el-form-item>
           <el-button type="primary" @click="handleSave">
             <el-icon><Check /></el-icon>
-            保存设置
+            {{ t('settings.save') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -281,74 +281,85 @@
       <template #header>
         <div class="card-header">
           <el-icon><User /></el-icon>
-          <span>添加组织成员</span>
+          <span>{{ t('settings.card_members') }}</span>
         </div>
       </template>
       <el-form :model="newUser" label-width="100px" label-position="left" class="admin-user-form">
-        <el-form-item label="邮箱">
+        <el-form-item :label="t('settings.ad_email')">
           <el-input v-model="newUser.email" type="email" autocomplete="off" placeholder="member@company.com" />
         </el-form-item>
-        <el-form-item label="初始密码">
+        <el-form-item :label="t('settings.ad_pwd')">
           <el-input v-model="newUser.password" type="password" show-password autocomplete="new-password" />
         </el-form-item>
-        <el-form-item label="显示名">
-          <el-input v-model="newUser.displayName" placeholder="可选" />
+        <el-form-item :label="t('settings.ad_name')">
+          <el-input v-model="newUser.displayName" :placeholder="t('settings.ad_name_ph')" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="creatingUser" @click="submitNewUser">创建账号</el-button>
+          <el-button type="primary" :loading="creatingUser" @click="submitNewUser">
+            {{ t('settings.ad_create') }}
+          </el-button>
         </el-form-item>
       </el-form>
-      <p class="form-tip">新成员与当前账号同属一组织，共享全部会话；密码至少 8 位。</p>
+      <p class="form-tip">{{ t('settings.ad_tip') }}</p>
     </el-card>
 
     <el-card v-if="!isEnterpriseBuild" class="settings-card">
       <template #header>
         <div class="card-header">
           <el-icon><InfoFilled /></el-icon>
-          <span>快速接入指南</span>
+          <span>{{ t('settings.card_guide') }}</span>
         </div>
       </template>
       <div class="guide-list">
         <div class="guide-item">
-          <strong>DeepSeek (推荐)</strong>
-          <p>地址: https://api.deepseek.com/v1/chat/completions</p>
-          <p>模型: deepseek-chat / deepseek-reasoner</p>
-          <p>获取 Key: <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a></p>
+          <strong>{{ t('settings.g_ds_n') }}</strong>
+          <p>{{ t('settings.g_ds_1') }}</p>
+          <p>{{ t('settings.g_ds_2') }}</p>
+          <p>
+            {{ t('settings.getKey') }}<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>
+          </p>
         </div>
         <el-divider />
         <div class="guide-item">
-          <strong>通义千问</strong>
-          <p>地址: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions</p>
-          <p>模型: qwen-turbo / qwen-plus / qwen-max</p>
-          <p>获取 Key: <a href="https://dashscope.console.aliyun.com" target="_blank">dashscope.console.aliyun.com</a></p>
+          <strong>{{ t('settings.g_qwen_n') }}</strong>
+          <p>{{ t('settings.g_qwen_1') }}</p>
+          <p>{{ t('settings.g_qwen_2') }}</p>
+          <p>
+            {{ t('settings.getKey')
+            }}<a href="https://dashscope.console.aliyun.com" target="_blank">dashscope.console.aliyun.com</a>
+          </p>
         </div>
         <el-divider />
         <div class="guide-item">
-          <strong>OpenAI</strong>
-          <p>地址: https://api.openai.com/v1/chat/completions</p>
-          <p>模型: gpt-4o / gpt-4o-mini</p>
-          <p>获取 Key: <a href="https://platform.openai.com" target="_blank">platform.openai.com</a></p>
+          <strong>{{ t('settings.g_openai_n') }}</strong>
+          <p>{{ t('settings.g_openai_1') }}</p>
+          <p>{{ t('settings.g_openai_2') }}</p>
+          <p>
+            {{ t('settings.getKey') }}<a href="https://platform.openai.com" target="_blank">platform.openai.com</a>
+          </p>
         </div>
         <el-divider />
         <div class="guide-item">
-          <strong>Anthropic</strong>
-          <p>地址: https://api.anthropic.com/v1/messages</p>
-          <p>模型: claude-sonnet-4-6 / claude-opus-4-6</p>
-          <p>获取 Key: <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a></p>
+          <strong>{{ t('settings.g_anth_n') }}</strong>
+          <p>{{ t('settings.g_anth_1') }}</p>
+          <p>{{ t('settings.g_anth_2') }}</p>
+          <p>
+            {{ t('settings.getKey') }}<a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a>
+          </p>
         </div>
         <el-divider />
         <div class="guide-item">
-          <strong>Gemini</strong>
-          <p>地址: https://generativelanguage.googleapis.com/v1beta/models</p>
-          <p>模型: gemini-2.5-pro / gemini-2.5-flash / gemini-4 系列可用模型</p>
-          <p>获取 Key: <a href="https://ai.google.dev" target="_blank">ai.google.dev</a></p>
+          <strong>{{ t('settings.g_gem_n') }}</strong>
+          <p>{{ t('settings.g_gem_1') }}</p>
+          <p>{{ t('settings.g_gem_2') }}</p>
+          <p>{{ t('settings.getKey') }}<a href="https://ai.google.dev" target="_blank">ai.google.dev</a></p>
         </div>
         <el-divider />
         <div class="guide-item">
-          <strong>智谱</strong>
-          <p>地址: https://open.bigmodel.cn/api/paas/v4/chat/completions</p>
-          <p>模型: glm-4.5 / glm-4-plus / glm-4-air</p>
-          <p>获取 Key: <a href="https://open.bigmodel.cn" target="_blank">open.bigmodel.cn</a></p>
+          <strong>{{ t('settings.g_zhip_n') }}</strong>
+          <p>{{ t('settings.g_zhip_1') }}</p>
+          <p>{{ t('settings.g_zhip_2') }}</p>
+          <p>{{ t('settings.getKey') }}<a href="https://open.bigmodel.cn" target="_blank">open.bigmodel.cn</a></p>
         </div>
       </div>
     </el-card>
@@ -535,13 +546,13 @@ async function handleTest() {
   testing.value = true
   try {
     const reply = await chatCompletion(
-      [{ role: 'user', content: '你好，请用一句话回复确认连接成功。' }],
+      [{ role: 'user', content: t('settings.test_prompt') }],
       { ...form },
     )
-    ElMessage.success(`连接成功！回复: ${reply.slice(0, 60)}`)
+    ElMessage.success(t('settings.test_ok', { msg: reply.slice(0, 60) }))
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    ElMessage.error(`连接失败: ${msg}`)
+    ElMessage.error(t('settings.test_err', { msg }))
   } finally {
     testing.value = false
   }
@@ -568,14 +579,14 @@ async function submitNewUser() {
     })
     const data = await r.json().catch(() => ({}))
     if (!r.ok) {
-      throw new Error(typeof data.error === 'string' ? data.error : '创建失败')
+      throw new Error(typeof data.error === 'string' ? data.error : t('settings.err_create'))
     }
-    ElMessage.success(`已创建 ${email}`)
+    ElMessage.success(t('settings.user_ok', { email }))
     newUser.email = ''
     newUser.password = ''
     newUser.displayName = ''
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : '创建失败')
+    ElMessage.error(e instanceof Error ? e.message : t('settings.err_create'))
   } finally {
     creatingUser.value = false
   }

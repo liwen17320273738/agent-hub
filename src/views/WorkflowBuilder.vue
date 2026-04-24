@@ -23,10 +23,8 @@
   <div class="workflow-builder">
     <header class="wb-header">
       <div class="left">
-        <h1>Workflow Builder</h1>
-        <span class="subtitle">
-          拖拽编排工作流 DAG · 每次改动自动存本地
-        </span>
+        <h1>{{ t('workflowBuilder.h1') }}</h1>
+        <span class="subtitle">{{ t('workflowBuilder.subtitle') }}</span>
       </div>
       <div class="right">
         <el-select
@@ -38,25 +36,25 @@
           @change="onTemplateSelect"
         >
           <el-option
-            v-for="(t, key) in templates"
+            v-for="(tpl, key) in templates"
             :key="key"
-            :label="`${t.icon}  ${t.label}`"
+            :label="`${tpl.icon}  ${tpl.label}`"
             :value="key"
           />
         </el-select>
         <el-button size="small" @click="addStage">
           <el-icon><Plus /></el-icon>
-          新增阶段
+          {{ t('workflowBuilder.addStage') }}
         </el-button>
         <el-button size="small" @click="autoLayout">{{ t('workflowBuilder.text_1') }}</el-button>
         <el-button size="small" @click="openSaveDialog">
           <el-icon><Folder /></el-icon>
-          {{ currentSavedId ? '保存' : '保存到服务器' }}
+          {{ currentSavedId ? t('workflowBuilder.save') : t('workflowBuilder.saveToServer') }}
         </el-button>
         <el-button size="small" @click="openLoadDialog">{{ t('workflowBuilder.text_2') }}</el-button>
         <el-button size="small" @click="showJsonPreview = true">
           <el-icon><DocumentCopy /></el-icon>
-          查看 JSON
+          {{ t('workflowBuilder.viewJson') }}
         </el-button>
         <el-button size="small" @click="exportJson">{{ t('workflowBuilder.text_3') }}</el-button>
         <el-upload
@@ -68,18 +66,18 @@
           <el-button size="small">{{ t('workflowBuilder.text_4') }}</el-button>
         </el-upload>
         <el-button size="small" type="danger" plain @click="resetCanvas">
-          清空
+          {{ t('workflowBuilder.clear') }}
         </el-button>
         <el-divider direction="vertical" />
         <el-button
           size="small"
           type="primary"
-          :disabled="!!topology.warning || nodes.length === 0 || isRunning"
+          :disabled="topologyBlockRun || isRunning"
           :loading="isRunning"
           @click="openRunDialog"
         >
           <el-icon><VideoPlay /></el-icon>
-          {{ isRunning ? '执行中…' : 'Run' }}
+          {{ isRunning ? t('workflowBuilder.running') : t('workflowBuilder.run') }}
         </el-button>
         <el-tag
           v-if="sseStatus !== 'disconnected' || isRunning"
@@ -93,8 +91,8 @@
     </header>
 
     <el-alert
-      v-if="topology.warning"
-      :title="topology.warning"
+      v-if="topologyWarning"
+      :title="topologyWarning"
       type="error"
       show-icon
       :closable="false"
@@ -137,7 +135,7 @@
 
     <el-dialog
       v-model="showSaveDialog"
-      :title="currentSavedId ? '更新已保存的 Workflow' : '保存到服务器'"
+      :title="currentSavedId ? t('workflowBuilder.updateWorkflow') : t('workflowBuilder.saveToServer')"
       width="480px"
     >
       <el-form label-width="80px" label-position="left">
@@ -166,19 +164,19 @@
           :loading="savingWorkflow"
           @click="submitSave"
         >
-          {{ currentSavedId ? '更新' : '保存' }}
+          {{ currentSavedId ? t('workflowBuilder.update') : t('workflowBuilder.save') }}
         </el-button>
       </template>
     </el-dialog>
 
     <el-dialog
       v-model="showLoadDialog"
-      title="打开已保存的 Workflow"
+      :title="t('workflowBuilder.openSaved')"
       width="640px"
     >
-      <div v-if="loadingWorkflows" class="wf-empty">加载中…</div>
+      <div v-if="loadingWorkflows" class="wf-empty">{{ t('workflowBuilder.loading') }}</div>
       <div v-else-if="!savedWorkflows.length" class="wf-empty">
-        还没有保存的 workflow — 先在画布上画一套，然后点"保存到服务器"。
+        {{ t('workflowBuilder.noSaved') }}
       </div>
       <ul v-else class="wf-list">
         <li
@@ -189,14 +187,14 @@
         >
           <div class="wf-meta">
             <div class="wf-name">{{ w.name }}</div>
-            <div class="wf-desc">{{ w.description || '— 无描述 —' }}</div>
+            <div class="wf-desc">{{ w.description || t('workflowBuilder.noDesc') }}</div>
             <div class="wf-extra">
-              {{ stageCountOf(w) }} 个阶段 · 更新于 {{ formatDate(w.updatedAt) }}
+              {{ t('workflowBuilder.nStages', { n: stageCountOf(w), d: formatDate(w.updatedAt) }) }}
             </div>
           </div>
           <div class="wf-actions">
             <el-button size="small" type="primary" @click="loadFromServer(w)">
-              打开
+              {{ t('workflowBuilder.open') }}
             </el-button>
             <el-button
               size="small"
@@ -210,62 +208,62 @@
         </li>
       </ul>
       <template #footer>
-        <el-button @click="showLoadDialog = false">关闭</el-button>
+        <el-button @click="showLoadDialog = false">{{ t('workflowBuilder.close') }}</el-button>
       </template>
     </el-dialog>
 
     <el-dialog
       v-model="showRunDialog"
-      title="运行 Workflow"
+      :title="t('workflowBuilder.runWorkflow')"
       width="520px"
     >
       <el-form label-width="100px" label-position="left">
-        <el-form-item label="任务标题" required>
+        <el-form-item :label="t('workflowBuilder.runTitle')" required>
           <el-input
             v-model="runForm.title"
-            placeholder="例如：实现用户登录"
+            :placeholder="t('workflowBuilder.phRunTitle')"
             maxlength="200"
             show-word-limit
           />
         </el-form-item>
-        <el-form-item label="任务描述">
+        <el-form-item :label="t('workflowBuilder.runDesc')">
           <el-input
             v-model="runForm.description"
             type="textarea"
             :rows="4"
-            placeholder="（可选）补充上下文 / 验收标准 / 链接"
+            :placeholder="t('workflowBuilder.phRunDesc')"
           />
         </el-form-item>
-        <el-form-item label="项目路径">
+        <el-form-item :label="t('workflowBuilder.projectPath')">
           <el-input
             v-model="runForm.projectPath"
-            placeholder="（可选）/path/to/repo 或留空"
+            :placeholder="t('workflowBuilder.phProject')"
           />
         </el-form-item>
         <el-alert
           type="info"
           :closable="false"
           show-icon
-          :title="`将以 custom 模板提交 ${nodes.length} 个阶段`"
-          description="提交后画布会切换到执行视图，节点状态实时更新；任务详情可在任务流水线里查看。"
+          :title="t('workflowBuilder.runAlertT', { n: nodes.length })"
+          :description="t('workflowBuilder.runAlertD')"
         />
       </el-form>
       <template #footer>
-        <el-button @click="showRunDialog = false">取消</el-button>
+        <el-button @click="showRunDialog = false">{{ t('workflowBuilder.text_5') }}</el-button>
         <el-button
           type="primary"
           :disabled="!runForm.title.trim()"
           :loading="submittingRun"
           @click="submitRun"
         >
-          创建并运行
+          {{ t('workflowBuilder.createAndRun') }}
         </el-button>
       </template>
     </el-dialog>
 
     <el-dialog
       v-model="showJsonPreview"
-      title="后端 DAG JSON 预览"
+      :title="t('workflowBuilder.jsonDialogTitle')"
       width="640px"
     >
       <div v-if="conversionError" class="conv-error">
@@ -278,14 +276,14 @@
       </div>
       <pre v-else class="json-preview">{{ backendJsonPretty }}</pre>
       <template #footer>
-        <el-button @click="showJsonPreview = false">关闭</el-button>
+        <el-button @click="showJsonPreview = false">{{ t('workflowBuilder.close') }}</el-button>
         <el-button
           v-if="!conversionError"
           type="primary"
           @click="copyBackendJson"
         >
           <el-icon><DocumentCopy /></el-icon>
-          复制 JSON
+          {{ t('workflowBuilder.copyJson') }}
         </el-button>
       </template>
     </el-dialog>
@@ -403,16 +401,16 @@ async function loadTemplates() {
     // Auth required / backend down: don't block the builder, just
     // show a hint on the dropdown so the user can still draw from
     // scratch or import a JSON.
-    ElMessage.warning(`加载模板失败：${err?.message || err}`)
+    ElMessage.warning(t('workflowBuilder.errTemplate', { msg: String(err?.message || err) }))
   } finally {
     loadingTemplates.value = false
   }
 }
 
 function onTemplateSelect(name: string) {
-  const t = templates.value[name]
-  if (!t) return
-  const { nodes: ns, edges: es } = templateToBuilder(t)
+  const tmpl = templates.value[name]
+  if (!tmpl) return
+  const { nodes: ns, edges: es } = templateToBuilder(tmpl)
   applyDoc({
     version: 1,
     name: `template:${name}`,
@@ -421,7 +419,7 @@ function onTemplateSelect(name: string) {
     baseTemplate: name,
     updatedAt: Date.now(),
   })
-  ElMessage.success(`已加载模板：${t.label}`)
+  ElMessage.success(t('workflowBuilder.okTemplate', { name: tmpl.label }))
 }
 
 // ── Doc apply / persistence ─────────────────────────────────────
@@ -481,8 +479,13 @@ function schedulePersist() {
 watch([nodes, edges], schedulePersist, { deep: true })
 
 // ── Topology check (live) ───────────────────────────────────────
-const topology = computed(() => {
-  if (nodes.value.length === 0) return { warning: '' }
+type TopologyState =
+  | { kind: 'ok' }
+  | { kind: 'dup'; ids: string }
+  | { kind: 'cycle'; nodes: string[] }
+
+const topology = computed((): TopologyState => {
+  if (nodes.value.length === 0) return { kind: 'ok' }
   const bn = nodes.value.map((n) => ({
     id: n.id,
     position: n.position,
@@ -493,7 +496,6 @@ const topology = computed(() => {
     source: e.source,
     target: e.target,
   }))
-  // Duplicate stage_ids first — we want the more specific message.
   const seen = new Set<string>()
   const dups: string[] = []
   for (const n of bn) {
@@ -501,31 +503,43 @@ const topology = computed(() => {
     seen.add(n.data.stageId)
   }
   if (dups.length) {
-    return { warning: `阶段 ID 重复：${[...new Set(dups)].join(', ')}` }
+    return { kind: 'dup', ids: [...new Set(dups)].join(', ') }
   }
   const r = checkTopology(bn, be)
   if (!r.ok) {
-    return { warning: `检测到环依赖：${r.cycleNodes.join(' ↔ ')}` }
+    return { kind: 'cycle', nodes: r.cycleNodes }
   }
-  return { warning: '' }
+  return { kind: 'ok' }
 })
 
-// Sync `data.warning` so the node re-styles itself.
-watch(topology, (t) => {
-  if (!t.warning) {
-    for (const n of nodes.value) (n.data as any).warning = ''
-    return
-  }
-  const cycleSet = new Set(
-    t.warning.startsWith('检测到环依赖')
-      ? t.warning.replace('检测到环依赖：', '').split(' ↔ ')
-      : [],
-  )
-  for (const n of nodes.value) {
-    const sid = (n.data as any).stageId
-    ;(n.data as any).warning = cycleSet.has(sid) ? '在环中' : ''
-  }
+const topologyWarning = computed(() => {
+  const v = topology.value
+  if (v.kind === 'ok') return ''
+  if (v.kind === 'dup') return t('workflowBuilder.warn_dup', { ids: v.ids })
+  return t('workflowBuilder.warn_cycle', { path: v.nodes.join(' ↔ ') })
 })
+
+const topologyBlockRun = computed(
+  () => topology.value.kind !== 'ok' || nodes.value.length === 0,
+)
+
+// Sync `data.warning` so the node re-styles itself.
+watch(
+  [topology, () => nodes.value],
+  () => {
+    const v = topology.value
+    if (v.kind !== 'cycle') {
+      for (const n of nodes.value) (n.data as any).warning = ''
+      return
+    }
+    const cycleSet = new Set(v.nodes)
+    for (const n of nodes.value) {
+      const sid = (n.data as any).stageId
+      ;(n.data as any).warning = cycleSet.has(sid) ? t('workflowBuilder.inCycle') : ''
+    }
+  },
+  { deep: true },
+)
 
 // ── Stage CRUD ──────────────────────────────────────────────────
 function uniqueStageId(seed: string): string {
@@ -567,7 +581,7 @@ function addStage() {
   insertStage({
     position: { x: maxX + 240, y: 200 },
     stageId: 'stage',
-    label: '新阶段',
+    label: t('workflowBuilder.newStage'),
     role: 'developer',
   })
 }
@@ -613,7 +627,7 @@ function onCanvasDrop(e: DragEvent) {
   insertStage({
     position: pos,
     stageId: payload.stageId || 'stage',
-    label: payload.label || '新阶段',
+    label: payload.label || t('workflowBuilder.newStage'),
     role: payload.role,
   })
 }
@@ -770,7 +784,7 @@ async function submitSave() {
         description: saveForm.value.description,
         doc,
       })
-      ElMessage.success(`已更新「${w.name}」`)
+      ElMessage.success(t('workflowBuilder.saveOkUp', { name: w.name }))
     } else {
       const w = await createWorkflow({
         name: saveForm.value.name.trim(),
@@ -778,12 +792,12 @@ async function submitSave() {
         doc,
       })
       currentSavedId.value = w.id
-      ElMessage.success(`已保存「${w.name}」`)
+      ElMessage.success(t('workflowBuilder.saveOk', { name: w.name }))
     }
     showSaveDialog.value = false
     await refreshSaved()
   } catch (err: any) {
-    ElMessage.error(err?.message || '保存失败')
+    ElMessage.error(err?.message || t('workflowBuilder.saveFail'))
   } finally {
     savingWorkflow.value = false
   }
@@ -794,7 +808,7 @@ async function refreshSaved() {
   try {
     savedWorkflows.value = await listWorkflows()
   } catch (err: any) {
-    ElMessage.warning(`无法加载已保存列表：${err?.message || err}`)
+    ElMessage.warning(t('workflowBuilder.listLoadFail', { msg: String(err?.message || err) }))
   } finally {
     loadingWorkflows.value = false
   }
@@ -814,26 +828,26 @@ function loadFromServer(w: SavedWorkflow) {
   currentSavedId.value = w.id
   selectedTemplate.value = w.doc.baseTemplate || null
   showLoadDialog.value = false
-  ElMessage.success(`已加载「${w.name}」`)
+  ElMessage.success(t('workflowBuilder.loadOk', { name: w.name }))
 }
 
 async function confirmDeleteSaved(w: SavedWorkflow) {
   try {
     await ElMessageBox.confirm(
-      `确认删除 workflow「${w.name}」？此操作不可撤销。`,
-      '删除确认',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+      t('workflowBuilder.confirmDel', { name: w.name }),
+      t('workflowBuilder.delTitle'),
+      { type: 'warning', confirmButtonText: t('workflowBuilder.delBtn'), cancelButtonText: t('workflowBuilder.text_5') },
     )
   } catch {
     return
   }
   try {
     await deleteWorkflow(w.id)
-    ElMessage.success(`已删除「${w.name}」`)
+    ElMessage.success(t('workflowBuilder.delOk', { name: w.name }))
     if (currentSavedId.value === w.id) currentSavedId.value = null
     await refreshSaved()
   } catch (err: any) {
-    ElMessage.error(err?.message || '删除失败')
+    ElMessage.error(err?.message || t('workflowBuilder.delFail'))
   }
 }
 
@@ -863,16 +877,19 @@ const runningTaskId = ref<string | null>(null)
 const sseStatus = ref<SSEStatus>('disconnected')
 const sseStatusLabel = computed(() => {
   switch (sseStatus.value) {
-    case 'connected': return '已连接'
-    case 'connecting': return '连接中…'
-    default: return '未连接'
+    case 'connected':
+      return t('workflowBuilder.sseOn')
+    case 'connecting':
+      return t('workflowBuilder.sseWait')
+    default:
+      return t('workflowBuilder.sseOff')
   }
 })
 
 let unsubSSE: (() => void) | null = null
 
 function openRunDialog() {
-  if (topology.value.warning) {
+  if (topology.value.kind !== 'ok') {
     ElMessage.warning(t('workflowBuilder.elMessage_8'))
     return
   }
@@ -926,10 +943,10 @@ async function submitRun() {
     await runDagPipeline(task.id, { template: 'custom' })
 
     showRunDialog.value = false
-    ElMessage.success(`任务 ${task.id.slice(0, 8)} 已提交，节点状态会实时更新`)
+    ElMessage.success(t('workflowBuilder.taskOk', { id: task.id.slice(0, 8) }))
   } catch (err: any) {
     const detail =
-      typeof err?.message === 'string' ? err.message : '运行失败，请检查后端日志'
+      typeof err?.message === 'string' ? err.message : t('workflowBuilder.runFailLog')
     ElMessage.error(detail)
     isRunning.value = false
   } finally {
@@ -1003,7 +1020,7 @@ function onSSE(evt: PipelineEvent) {
 
     case 'stage:error':
       if (stageId) {
-        setStageStatus(stageId, 'failed', { lastError: data.error || '执行失败' })
+        setStageStatus(stageId, 'failed', { lastError: data.error || t('workflowBuilder.stageErr') })
       }
       break
 
@@ -1025,7 +1042,7 @@ function onSSE(evt: PipelineEvent) {
       break
 
     case 'pipeline:rollback':
-      if (stageId) setStageStatus(stageId, 'failed', { lastError: data.reason || '回滚' })
+      if (stageId) setStageStatus(stageId, 'failed', { lastError: data.reason || t('workflowBuilder.rollback') })
       break
 
     case 'pipeline:dag-completed':
@@ -1035,7 +1052,9 @@ function onSSE(evt: PipelineEvent) {
 
     case 'pipeline:auto-paused':
       isRunning.value = false
-      ElMessage.warning(`流水线暂停：${data.reason || '质量门未通过'}`)
+      ElMessage.warning(
+        t('workflowBuilder.pipelinePause', { reason: data.reason || t('workflowBuilder.gateFail') }),
+      )
       break
   }
 }

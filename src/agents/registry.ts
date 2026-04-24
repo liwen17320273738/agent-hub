@@ -1,3 +1,9 @@
+/**
+ * Static agent card definitions (name, title, copy, long systemPrompts) used as product defaults.
+ * These strings are **authoring / CN-first** data, not the vue-i18n message tree. Do not copy full
+ * bodies into `src/i18n/*.ts`; if we localize agent chrome, add thin keys in i18n that reference
+ * `id` and override short labels in the UI layer only, keeping prompts here for maintainability.
+ */
 import type { AgentConfig } from './types'
 
 export const agents: AgentConfig[] = [

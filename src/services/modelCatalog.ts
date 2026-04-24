@@ -1,4 +1,9 @@
 /**
+ * Model lab catalog: API ids, scores, and short marketing blurbs. Copy is **data for comparison UIs**,
+ * often written in Chinese for this product. It is not duplicated in `src/i18n` as hundreds of
+ * parallel strings. For locale-aware UI, either keep technical labels from here as-is, or add
+ * i18n keys that map from `id` to translated short labels when we support full i18n for this screen.
+ *
  * 模型对比维度（1–5 分，主观参考行业常见评价，非实时榜单；实测以「模型实验室」为准）。
  */
 export interface ModelScores {
