@@ -15,7 +15,7 @@
             :class="{ active: ws.id === currentWsId }"
           >
             {{ ws.name }}
-            <el-tag v-if="ws.is_default" size="small" type="info" style="margin-left: 6px">默认</el-tag>
+            <el-tag v-if="ws.is_default" size="small" type="info" style="margin-left: 6px">{{ $t('workspace.default') }}</el-tag>
           </el-dropdown-item>
           <el-dropdown-item divided command="__create__">
             <el-icon><Plus /></el-icon> {{ $t('workspace.create') }}
@@ -43,7 +43,10 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+
+const { t } = useI18n()
 
 interface WsItem {
   id: string
@@ -97,7 +100,7 @@ function switchWorkspace(id: string) {
 }
 
 async function createWs() {
-  if (!newName.value.trim()) { ElMessage.warning('请输入名称'); return }
+  if (!newName.value.trim()) { ElMessage.warning(t('workspace.nameRequired')); return }
   creating.value = true
   try {
     const res = await fetch(`${getBaseUrl()}/workspaces/`, {
@@ -107,7 +110,7 @@ async function createWs() {
     })
     if (res.ok) {
       const ws = await res.json()
-      ElMessage.success('工作区已创建')
+      ElMessage.success(t('workspace.created'))
       showCreate.value = false
       newName.value = ''
       newDesc.value = ''
@@ -115,10 +118,10 @@ async function createWs() {
       switchWorkspace(ws.id)
     } else {
       const data = await res.json()
-      ElMessage.error(data.detail || '创建失败')
+      ElMessage.error(data.detail || t('workspace.createFailed'))
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '创建失败')
+    ElMessage.error(e.message || t('workspace.createFailed'))
   } finally {
     creating.value = false
   }

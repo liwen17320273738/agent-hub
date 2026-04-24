@@ -1,8 +1,8 @@
 <template>
   <div class="settings-page">
     <header class="page-header">
-      <h1>设置</h1>
-      <p class="subtitle">配置 LLM API 连接（OpenAI 兼容 + Anthropic + Gemini + 智谱）</p>
+      <h1>{{ t('settings.text_1') }}</h1>
+      <p class="subtitle">{{ t('settings.text_2') }}</p>
     </header>
 
     <el-alert
@@ -11,12 +11,12 @@
       type="warning"
       show-icon
       :closable="false"
-      title="安全与部署说明"
+      :title="t('settings.title_1')"
     >
       <p>
         API Key 保存在浏览器 localStorage，公共设备或恶意脚本可能导致泄露。生产环境建议由后端或网关代调模型 API，密钥仅放在服务端。若部署时配置了与
-        <code>vite.config</code> 相同的 <code>/api/proxy/*</code> 反向代理，可在构建环境设置
-        <code>VITE_USE_RELATIVE_PROXY=true</code>，使前端请求走同源路径（与 dev、<code>pnpm preview</code> 行为一致），便于隐藏真实 API 域名并统一走网关。
+        <code>vite.config</code>{{ t('settings.text_3') }}<code>/api/proxy/*</code> 反向代理，可在构建环境设置
+        <code>VITE_USE_RELATIVE_PROXY=true</code>{{ t('settings.text_4') }}<code>pnpm preview</code> 行为一致），便于隐藏真实 API 域名并统一走网关。
       </p>
     </el-alert>
 
@@ -26,7 +26,7 @@
       type="success"
       show-icon
       :closable="false"
-      title="企业模式"
+      :title="t('settings.title_2')"
     >
       <p>
         当前为构建时启用的企业部署：会话保存在服务端数据库，同组织成员共享；模型 API Key 仅存在于服务器环境变量，浏览器不保存密钥。
@@ -372,6 +372,9 @@ import {
   type ModelProvider,
 } from '@/services/modelCatalog'
 import { WAYNE_COST_MODE_OPTIONS } from '@/services/wayneRouting'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
@@ -495,38 +498,38 @@ function activateProfile(id: string) {
 function createProfile() {
   settingsStore.createNewProfile()
   syncFormFromStore()
-  ElMessage.success('已新建模型档案')
+  ElMessage.success(t('settings.elMessage_1'))
 }
 
 function duplicateProfile() {
   settingsStore.duplicateActiveProfile()
   syncFormFromStore()
-  ElMessage.success('已复制当前档案')
+  ElMessage.success(t('settings.elMessage_2'))
 }
 
 function deleteProfile(id: string) {
   const ok = settingsStore.deleteProfile(id)
   if (!ok) {
-    ElMessage.warning('至少保留一个模型档案')
+    ElMessage.warning(t('settings.elMessage_3'))
     return
   }
   syncFormFromStore()
-  ElMessage.success('已删除模型档案')
+  ElMessage.success(t('settings.elMessage_4'))
 }
 
 function handleSave() {
   settingsStore.saveActiveProfileName(profileName.value)
   settingsStore.save({ ...form })
-  ElMessage.success('设置已保存')
+  ElMessage.success(t('settings.elMessage_5'))
 }
 
 async function handleTest() {
   if (!isEnterpriseBuild && !form.apiKey) {
-    ElMessage.warning('请先填写 API Key')
+    ElMessage.warning(t('settings.elMessage_6'))
     return
   }
   if (isEnterpriseBuild && !settingsStore.isConfigured()) {
-    ElMessage.warning('服务端未配置模型网关')
+    ElMessage.warning(t('settings.elMessage_7'))
     return
   }
   testing.value = true
@@ -547,7 +550,7 @@ async function handleTest() {
 async function submitNewUser() {
   const email = newUser.email.trim().toLowerCase()
   if (!email || !newUser.password || newUser.password.length < 8) {
-    ElMessage.warning('请填写邮箱与至少 8 位密码')
+    ElMessage.warning(t('settings.elMessage_8'))
     return
   }
   creatingUser.value = true

@@ -128,6 +128,37 @@ async def _test_validator_hook(ctx: HookContext) -> Optional[Dict[str, Any]]:
     }
 
 
+async def _deployment_extractor_hook(ctx: HookContext) -> Optional[Dict[str, Any]]:
+    """Extract Docker / compose / shell snippets from deployment stage into deploy/."""
+    if not ctx.worktree or not ctx.content:
+        return {"skipped": True, "reason": "no worktree or content"}
+
+    from .code_extractor import extract_code_blocks, write_extracted_files
+
+    extraction = extract_code_blocks(ctx.content)
+    if not extraction.files:
+        return {"files_found": 0}
+
+    deployish = [
+        f for f in extraction.files
+        if any(
+            x in f.path.lower()
+            for x in ("dockerfile", "compose", ".yaml", ".yml", ".sh", ".env", "nginx", "k8s", "kubernetes")
+        ) or f.language.lower() in ("dockerfile", "yaml", "bash", "shell", "sh")
+    ]
+    if not deployish:
+        deployish = extraction.files[:20]
+
+    from .code_extractor import ExtractionResult
+    sub = ExtractionResult(files=deployish, warnings=list(extraction.warnings))
+    created = await write_extracted_files(ctx.worktree, sub, sub_dir="deploy")
+    return {
+        "files_found": len(deployish),
+        "files_written": len(created),
+        "paths": created,
+    }
+
+
 async def _architecture_extractor_hook(ctx: HookContext) -> Optional[Dict[str, Any]]:
     """Extract config/schema files from architecture stage output."""
     if not ctx.worktree or not ctx.content:
@@ -160,3 +191,5 @@ def register_builtin_hooks() -> None:
                   name="arch-config-extractor", priority=20)
     register_hook("post", r"^testing$", _test_validator_hook,
                   name="test-validator", priority=10)
+    register_hook("post", r"^deployment$", _deployment_extractor_hook,
+                  name="deployment-extractor", priority=15)

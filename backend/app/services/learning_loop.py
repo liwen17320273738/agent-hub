@@ -138,6 +138,9 @@ async def capture_signal(
                     stage_id, count,
                 )
                 await distill_signals_for_stage(db, stage_id=stage_id)
+
+            if signal_type == "REJECT":
+                await check_reject_patterns(db, stage_id=stage_id)
     except Exception as exc:  # pragma: no cover — never propagate
         logger.warning("[learning] auto-distill failed for %s: %s", stage_id, exc)
 
@@ -1048,3 +1051,106 @@ def get_policy_config() -> Dict[str, Any]:
             "retire_margin": SHADOW_RETIRE_MARGIN,
         },
     }
+
+
+# ── Reject Pattern Accumulation → Auto-Skill Creation ─────────────────
+# When the same stage accumulates >= REJECT_PATTERN_THRESHOLD reject
+# signals with similar feedback, we extract the pattern and create
+# a new Skill entry that will be auto-injected on that stage going forward.
+
+REJECT_PATTERN_THRESHOLD = int(os.environ.get("REJECT_PATTERN_THRESHOLD", "3"))
+
+
+async def check_reject_patterns(db: AsyncSession, *, stage_id: str) -> Optional[Dict[str, Any]]:
+    """Check if a stage has accumulated enough similar rejections to auto-create a skill."""
+    stmt = (
+        select(LearningSignal)
+        .where(
+            and_(
+                LearningSignal.stage_id == stage_id,
+                LearningSignal.signal_type == "REJECT",
+                LearningSignal.reviewer_feedback.isnot(None),
+            )
+        )
+        .order_by(LearningSignal.created_at.desc())
+        .limit(20)
+    )
+    res = await db.execute(stmt)
+    signals = res.scalars().all()
+
+    if len(signals) < REJECT_PATTERN_THRESHOLD:
+        return None
+
+    feedback_texts = [s.reviewer_feedback for s in signals if s.reviewer_feedback]
+    if len(feedback_texts) < REJECT_PATTERN_THRESHOLD:
+        return None
+
+    common_keywords = _extract_common_keywords(feedback_texts)
+    if not common_keywords:
+        return None
+
+    pattern_id = f"auto-fix-{stage_id}-{'-'.join(common_keywords[:3])}"[:100]
+
+    from ..models.skill import Skill
+    existing = await db.get(Skill, pattern_id)
+    if existing:
+        return {"skill_id": pattern_id, "status": "exists"}
+
+    pattern_desc = f"自动生成的修正技能：在 {stage_id} 阶段，反复被拒绝的原因涉及: {', '.join(common_keywords)}"
+    prompt = (
+        f"在 {stage_id} 阶段输出时，请特别注意以下常见拒绝原因并确保避免：\n"
+        + "\n".join(f"- {fb[:200]}" for fb in feedback_texts[:5])
+        + "\n\n请确保产出已针对以上问题做出改进。"
+    )
+
+    skill = Skill(
+        id=pattern_id,
+        name=f"自动修正: {stage_id}",
+        category="auto-fix",
+        description=pattern_desc,
+        version="1.0.0",
+        author="learning-loop",
+        prompt_template=prompt,
+        trigger_stages=[stage_id],
+        completion_criteria=[f"避免以下问题: {', '.join(common_keywords)}"],
+        execution_mode="inline",
+        is_builtin=False,
+        enabled=True,
+    )
+    db.add(skill)
+    await db.flush()
+
+    logger.info(
+        "[learning] Auto-created skill %s from %d reject signals for stage %s",
+        pattern_id, len(feedback_texts), stage_id,
+    )
+
+    try:
+        from .sse import emit_event
+        await emit_event("learning:auto-skill-created", {
+            "skillId": pattern_id,
+            "stageId": stage_id,
+            "keywords": common_keywords,
+            "signalCount": len(feedback_texts),
+        })
+    except Exception:
+        pass
+
+    return {"skill_id": pattern_id, "status": "created", "keywords": common_keywords}
+
+
+def _extract_common_keywords(texts: List[str], min_freq: int = 2) -> List[str]:
+    """Extract frequently appearing keywords from a list of feedback texts."""
+    word_count: Dict[str, int] = {}
+    stop_words = {"的", "了", "是", "在", "和", "有", "不", "这", "个", "中", "to", "the", "is", "a", "an", "and", "or", "not", "be"}
+    for text in texts:
+        import re
+        words = set(re.findall(r'[\u4e00-\u9fa5]{2,}|[a-zA-Z_]{3,}', text.lower()))
+        for w in words:
+            if w not in stop_words:
+                word_count[w] = word_count.get(w, 0) + 1
+    return sorted(
+        [w for w, c in word_count.items() if c >= min_freq],
+        key=lambda w: word_count[w],
+        reverse=True,
+    )[:10]

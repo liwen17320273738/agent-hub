@@ -11,6 +11,9 @@ import {
   type RuntimeRole,
   type RuntimeTool,
 } from '@/services/agentApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface ProgressEntry {
   id: number
@@ -73,11 +76,11 @@ function resetRun() {
 
 async function runOnce() {
   if (!selectedRole.value) {
-    ElMessage.warning('请选择一位专家')
+    ElMessage.warning(t('agentsConsole.elMessage_1'))
     return
   }
   if (!taskInput.value.trim()) {
-    ElMessage.warning('请输入任务')
+    ElMessage.warning(t('agentsConsole.elMessage_2'))
     return
   }
   resetRun()
@@ -198,18 +201,18 @@ onMounted(loadMeta)
   <div class="agents-console">
     <div class="page-header">
       <div>
-        <h1>专家工作台</h1>
+        <h1>{{ t('agentsConsole.text_1') }}</h1>
         <p class="page-subtitle">
           直接召唤任意专家完成单次任务，无需走完整流水线。支持流式查看推理与工具调用。
         </p>
       </div>
-      <el-button :loading="loadingMeta" plain @click="loadMeta">刷新元数据</el-button>
+      <el-button :loading="loadingMeta" plain @click="loadMeta">{{ t('agentsConsole.text_2') }}</el-button>
     </div>
 
     <div class="layout">
       <aside class="sidebar">
         <div class="sidebar-section">
-          <div class="section-title">主专家</div>
+          <div class="section-title">{{ t('agentsConsole.text_3') }}</div>
           <div class="role-grid">
             <div
               v-for="r in primaryRoles"
@@ -223,7 +226,7 @@ onMounted(loadMeta)
           </div>
         </div>
         <div class="sidebar-section">
-          <div class="section-title">别名</div>
+          <div class="section-title">{{ t('agentsConsole.text_4') }}</div>
           <div class="alias-list">
             <el-tag
               v-for="r in aliasRoles"
@@ -257,12 +260,12 @@ onMounted(loadMeta)
             v-model="taskInput"
             type="textarea"
             :rows="6"
-            placeholder="描述你要这位专家完成的任务，例如：&#10;• 审一下 backend/app/api/auth.py 的 JWT 处理&#10;• 为登录流程写 5 条 E2E 测试用例"
+            :placeholder="t('agentsConsole.placeholder_1')"
             :disabled="isRunning"
           />
 
           <div v-if="quickList.length" class="quick-prompts">
-            <span class="qp-label">快捷：</span>
+            <span class="qp-label">{{ t('agentsConsole.text_5') }}</span>
             <el-tag
               v-for="(p, i) in quickList"
               :key="i"
@@ -277,11 +280,11 @@ onMounted(loadMeta)
 
           <div class="config-row">
             <div class="config-item">
-              <span class="config-label">最大步数</span>
+              <span class="config-label">{{ t('agentsConsole.text_6') }}</span>
               <el-input-number v-model="maxSteps" :min="1" :max="20" size="small" />
             </div>
             <div class="config-item">
-              <span class="config-label">温度</span>
+              <span class="config-label">{{ t('agentsConsole.text_7') }}</span>
               <el-input-number
                 v-model="temperature"
                 :min="0"
@@ -292,11 +295,11 @@ onMounted(loadMeta)
               />
             </div>
             <div class="config-item">
-              <span class="config-label">模型覆盖</span>
+              <span class="config-label">{{ t('agentsConsole.text_8') }}</span>
               <el-input
                 v-model="modelOverride"
                 size="small"
-                placeholder="留空使用默认"
+                :placeholder="t('agentsConsole.placeholder_2')"
                 style="width: 200px"
               />
             </div>
@@ -315,12 +318,12 @@ onMounted(loadMeta)
             >
               召唤
             </el-button>
-            <el-button v-if="isRunning && useStream" size="large" @click="abort">中止</el-button>
+            <el-button v-if="isRunning && useStream" size="large" @click="abort">{{ t('agentsConsole.text_9') }}</el-button>
           </div>
         </div>
 
         <div v-if="progress.length" class="card">
-          <div class="card-title">实时进度</div>
+          <div class="card-title">{{ t('agentsConsole.text_10') }}</div>
           <div class="progress-list">
             <div v-for="p in progress" :key="p.id" :class="['p-item', `kind-${p.kind}`]">
               <div class="p-icon"></div>
@@ -359,7 +362,7 @@ onMounted(loadMeta)
             v-if="finalResult.mcp_tools_loaded && finalResult.mcp_tools_loaded.length"
             class="mcp-row"
           >
-            <span class="mcp-label">已挂载 MCP 工具：</span>
+            <span class="mcp-label">{{ t('agentsConsole.text_11') }}</span>
             <el-tag
               v-for="t in finalResult.mcp_tools_loaded"
               :key="t"
@@ -373,7 +376,7 @@ onMounted(loadMeta)
         </div>
 
         <div v-if="finalError && !finalResult" class="card error-card">
-          <div class="card-title">请求失败</div>
+          <div class="card-title">{{ t('agentsConsole.text_12') }}</div>
           <pre class="result-content">{{ finalError }}</pre>
         </div>
       </section>

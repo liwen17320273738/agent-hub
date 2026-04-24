@@ -10,7 +10,7 @@
         <span class="task-id">{{ task.id.slice(0, 8) }}</span>
       </div>
       <div class="header-main">
-        <h1>{{ task.title }}</h1>
+        <h1><AutoTranslated :text="task.title" /></h1>
         <div class="header-tags">
           <el-tag :type="statusTagType" size="default">{{ statusLabel }}</el-tag>
           <el-tag :type="sourceTagType(task.source)" size="small">{{ task.source }}</el-tag>
@@ -32,9 +32,9 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item :command="7">7 天有效</el-dropdown-item>
-              <el-dropdown-item :command="30">30 天有效</el-dropdown-item>
-              <el-dropdown-item :command="365">永久有效</el-dropdown-item>
+              <el-dropdown-item :command="7">{{ t('pipelineTaskDetail.text_1') }}</el-dropdown-item>
+              <el-dropdown-item :command="30">{{ t('pipelineTaskDetail.text_2') }}</el-dropdown-item>
+              <el-dropdown-item :command="365">{{ t('pipelineTaskDetail.text_3') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -703,6 +703,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AutoTranslated from '@/components/AutoTranslated.vue'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
   ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Share, Unlock,
@@ -735,6 +736,9 @@ import QualityGateConfigDrawer from '@/components/pipeline/QualityGateConfigDraw
 import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'
 import FinalAcceptanceModal from '@/components/pipeline/FinalAcceptanceModal.vue'
 import { useApprovalSLA } from '@/composables/useApprovalSLA'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -911,7 +915,7 @@ async function handleCompile() {
   try {
     const result = await compileDeliverables(task.value.id)
     compiledContent.value = result.content
-    ElMessage.success('交付文档已生成')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_1'))
   } catch (e: unknown) {
     ElMessage.error(`生成失败: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
@@ -1206,7 +1210,7 @@ async function handleGateOverride(stageId: string) {
   overridingGate.value = stageId
   try {
     await overrideQualityGate(String(task.value.id), stageId, '人工审查后放行')
-    ElMessage.success('质量门禁已放行')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_2'))
     await loadTask()
     await resumePipeline(String(task.value.id), undefined, false)
   } catch (e: any) {
@@ -1397,7 +1401,7 @@ function setupSSE() {
     if (evt.event === 'pipeline:auto-completed') {
       autoRunning.value = false
       stageRunning.value = false
-      ElMessage.success('全自动流水线已完成！')
+      ElMessage.success(t('pipelineTaskDetail.elMessage_3'))
       loadQualityReport()
     }
 
@@ -1423,7 +1427,7 @@ function setupSSE() {
 
     if (evt.event === 'pipeline:auto-paused') {
       autoRunning.value = false
-      ElMessage.info('流水线在 building 阶段暂停，请确认 Claude Code 执行完成后继续。')
+      ElMessage.info(t('pipelineTaskDetail.elMessage_4'))
     }
 
     if (evt.event === 'pipeline:auto-error' || evt.event === 'stage:error' || evt.event === 'pipeline:smart-error') {
@@ -1443,7 +1447,7 @@ async function handleSmartRun() {
   try {
     await smartRunPipeline(task.value.id)
     addLog('pipeline:smart-start', { taskId: task.value.id })
-    ElMessage.success('Lead Agent 已启动后台执行，可自由切换页面')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_5'))
   } catch (e: unknown) {
     smartRunning.value = false
     ElMessage.error(`智能执行启动失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -1535,14 +1539,14 @@ function handleRetryStage(stageId: string) {
   handleResumeDag()
 }
 function handleRetryDowngrade(stageId: string) {
-  ElMessage.info('正在用更便宜模型重试…')
+  ElMessage.info(t('pipelineTaskDetail.elMessage_6'))
   handleResumeDag()
 }
 function handleRollback(_stageId: string) {
-  ElMessage.info('打回上一阶段')
+  ElMessage.info(t('pipelineTaskDetail.elMessage_7'))
 }
 function handleEscalate(_stageId: string) {
-  ElMessage.info('已升级到人工处理')
+  ElMessage.info(t('pipelineTaskDetail.elMessage_8'))
 }
 
 function downloadDeliverables() {
@@ -1605,7 +1609,7 @@ async function handleAutoRun() {
   try {
     await autoRunPipeline(task.value.id)
     addLog('pipeline:auto-start', { taskId: task.value.id })
-    ElMessage.success('全自动流水线已启动后台执行，可自由切换页面')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_9'))
   } catch (e: unknown) {
     autoRunning.value = false
     ElMessage.error(`启动失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -1618,7 +1622,7 @@ async function handleRunCurrentStage() {
   try {
     await apiRunStage(task.value.id)
     addLog('stage:queued', { stageId: task.value.currentStageId })
-    ElMessage.success('AI 已开始执行当前阶段，可自由切换页面')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_10'))
   } catch (e: unknown) {
     stageRunning.value = false
     ElMessage.error(`执行失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -1646,7 +1650,7 @@ async function handleReject() {
     showRejectDialog.value = false
     rejectTarget.value = ''
     rejectReason.value = ''
-    ElMessage.success('任务已打回')
+    ElMessage.success(t('pipelineTaskDetail.elMessage_11'))
   } catch (e: unknown) {
     ElMessage.error(`打回失败: ${e instanceof Error ? e.message : String(e)}`)
   }

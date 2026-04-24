@@ -31,7 +31,7 @@
         </svg>
         <div class="arc-center">
           <div class="arc-pct">{{ scorePct }}<span class="pct-sym">%</span></div>
-          <div class="arc-label">综合分</div>
+          <div class="arc-label">{{ t('qualityGate.overallScore') }}</div>
         </div>
       </div>
       <div class="qg-verdict">
@@ -44,7 +44,7 @@
           <span>{{ blockReason }}</span>
         </div>
         <div v-else-if="overrideInfo" class="override-line">
-          🔓 已人工放行 · {{ overrideInfo.by }}
+          🔓 {{ t('qualityGate.manualOverrideBy') }} · {{ overrideInfo.by }}
           <span v-if="overrideInfo.reason"> — {{ overrideInfo.reason }}</span>
         </div>
       </div>
@@ -83,7 +83,7 @@
         <summary class="cat-summary">
           <span class="summary-icon">{{ catIcon(cat.aggStatus) }}</span>
           <span class="summary-label">{{ catLabel(cat.name) }}</span>
-          <span class="summary-count">{{ cat.checks.length }} 项</span>
+          <span class="summary-count">{{ t('qualityGate.itemsCount', { n: cat.checks.length }) }}</span>
         </summary>
         <ul class="check-list">
           <li
@@ -105,7 +105,7 @@
     <div v-if="suggestions.length" class="qg-suggestions">
       <div class="sg-header">
         <el-icon><InfoFilled /></el-icon>
-        <span>修复建议</span>
+        <span>{{ t('qualityGate.suggestions') }}</span>
       </div>
       <ul>
         <li v-for="(s, i) in suggestions" :key="i">{{ s }}</li>
@@ -116,22 +116,25 @@
     <div v-if="gateStatus === 'failed' && !overrideInfo" class="qg-actions">
       <el-button type="warning" size="small" @click="$emit('override')" :loading="overriding">
         <el-icon><Unlock /></el-icon>
-        人工放行
+        {{ t('qualityGate.manualOverride') }}
       </el-button>
-      <span class="action-hint">仅在确认输出可用时使用，会被记入审计日志。</span>
+      <span class="action-hint">{{ t('qualityGate.overrideHint') }}</span>
     </div>
 
     <!-- ── empty state ── -->
     <div v-if="!checks.length && !blockReason" class="qg-empty">
       <el-icon><Loading /></el-icon>
-      <span>尚未运行质量门禁</span>
+      <span>{{ t('qualityGate.emptyNotRun') }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Warning, InfoFilled, Unlock, Loading } from '@element-plus/icons-vue'
+
+const { t } = useI18n()
 
 interface GateCheck {
   name: string
@@ -198,15 +201,15 @@ const verdictIcon = computed(() => {
 const verdictLabel = computed(() => {
   switch (props.gateStatus) {
     case 'passed':
-      return '通过'
+      return t('qualityGate.verdictPassed')
     case 'warning':
-      return '警告（可继续）'
+      return t('qualityGate.verdictWarning')
     case 'failed':
-      return '失败（已阻断）'
+      return t('qualityGate.verdictFailed')
     case 'bypassed':
-      return '人工放行'
+      return t('qualityGate.verdictBypassed')
     default:
-      return '尚未评估'
+      return t('qualityGate.verdictPending')
   }
 })
 
@@ -268,15 +271,15 @@ function catIcon(s: string): string {
 function catLabel(name: string): string {
   switch (name) {
     case 'deliverable':
-      return '交付物完整性'
+      return t('qualityGate.catDeliverable')
     case 'threshold':
-      return '阈值校验'
+      return t('qualityGate.catThreshold')
     case 'length':
-      return '内容长度'
+      return t('qualityGate.catLength')
     case 'llm':
-      return 'LLM 评审'
+      return t('qualityGate.catLlm')
     case 'heuristic':
-      return '启发式校验'
+      return t('qualityGate.catHeuristic')
     default:
       return name
   }

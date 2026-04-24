@@ -58,6 +58,15 @@ STAGE_TO_DOC = {
 _SUBDIRS = ("docs", "screenshots", "logs", "artifacts")
 
 
+def ensure_global_workspace_dirs() -> Path:
+    """Create workspace root, tasks/, shared/templates at process startup (issuse23)."""
+    root = _workspace_root()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "tasks").mkdir(parents=True, exist_ok=True)
+    _ensure_shared_templates()
+    return root
+
+
 def _workspace_root() -> Path:
     if settings.workspace_root:
         return Path(settings.workspace_root)
@@ -133,11 +142,15 @@ async def ensure_task_workspace(task_id: str, title: str = "") -> Path:
         task_path = get_task_root(task_id, title)
 
         if task_path.exists():
+            for extra in ("src", "config", "deploy"):
+                (task_path / extra).mkdir(exist_ok=True)
             return task_path
 
         task_path.mkdir(parents=True, exist_ok=True)
         for sub in _SUBDIRS:
             (task_path / sub).mkdir(exist_ok=True)
+        for extra in ("src", "config", "deploy"):
+            (task_path / extra).mkdir(exist_ok=True)
 
         for spec in DOC_SPECS:
             dest = task_path / "docs" / spec["name"]

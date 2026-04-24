@@ -283,18 +283,24 @@ def _build_entry(
 
 
 # ── Orchestration ───────────────────────────────────────────────────
-def _load_sources(path: Path) -> List[Dict[str, Any]]:
+def _load_sources(path: Path) -> Dict[str, Any]:
+    """Return the full sources document (repos + topic_search config).
+
+    Legacy callers can still pull just ``repos`` via the ``repos`` key.
+    """
     if not path.exists():
         logger.error("sources file missing: %s", path)
-        return []
+        return {"repos": [], "topic_search": {"enabled": False}}
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         logger.error("sources JSON parse error: %s", e)
-        return []
+        return {"repos": [], "topic_search": {"enabled": False}}
+
     repos = doc.get("repos") or []
 
-    # Allow quick ad-hoc additions via env (comma-separated owner/repo list).
+    # Env override — these additions are **never trusted by default** so
+    # they land in the pending queue and require explicit approval.
     env_extra = os.environ.get("GITHUB_SKILL_SOURCES", "").strip()
     if env_extra:
         for slug in env_extra.split(","):
@@ -302,17 +308,75 @@ def _load_sources(path: Path) -> List[Dict[str, Any]]:
             if "/" not in slug:
                 continue
             owner, _, repo = slug.partition("/")
-            repos.append({"owner": owner, "repo": repo, "branch": "main", "path_prefix": ""})
+            repos.append({
+                "owner": owner, "repo": repo,
+                "branch": "main", "path_prefix": "",
+                "trusted": False,
+            })
 
-    return repos
+    doc["repos"] = repos
+    return doc
+
+
+def _discover_via_topic_search(
+    gh: GithubClient,
+    topics: List[str],
+    min_stars: int,
+    max_repos: int,
+) -> List[Dict[str, Any]]:
+    """Ask the GitHub search API for repos tagged with our skill topics.
+
+    Returns a list of source-entry dicts with ``trusted: False`` so the
+    crawler routes whatever we find into the review queue. Requires
+    auth; search endpoints have stricter rate limits than tree reads
+    (30 req/min authenticated, 10/min unauth).
+    """
+    discovered: Dict[str, Dict[str, Any]] = {}
+    for topic in topics:
+        url = (
+            f"{GITHUB_API}/search/repositories"
+            f"?q=topic:{topic}+stars:>={min_stars}&sort=stars&order=desc&per_page=30"
+        )
+        resp = gh.get(url)
+        if not resp or resp.status_code != 200:
+            logger.warning("topic search %s failed: %s",
+                           topic, resp.status_code if resp else "n/a")
+            continue
+        for item in resp.json().get("items", [])[:max_repos]:
+            slug = item.get("full_name")
+            if not slug or "/" not in slug or slug in discovered:
+                continue
+            owner, repo = slug.split("/", 1)
+            discovered[slug] = {
+                "owner": owner,
+                "repo": repo,
+                "branch": item.get("default_branch") or "main",
+                "path_prefix": "",
+                "trusted": False,
+                "note": f"auto-discovered via topic:{topic}",
+            }
+            if len(discovered) >= max_repos:
+                break
+        if len(discovered) >= max_repos:
+            break
+    logger.info("topic-search discovered %d candidate repos", len(discovered))
+    return list(discovered.values())
 
 
 def crawl(
     sources: Iterable[Dict[str, Any]],
     per_repo_cap: int = DEFAULT_PER_REPO_CAP,
-) -> List[Dict[str, Any]]:
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Crawl all sources and return ``{"trusted": [...], "pending": [...]}``.
+
+    Entries are routed purely by the ``trusted`` boolean on the source
+    entry — the crawler itself doesn't know or care what trust
+    actually means; that policy lives in ``skill_sources.json`` + the
+    admin approval endpoints.
+    """
     gh = GithubClient()
-    entries: List[Dict[str, Any]] = []
+    trusted_entries: List[Dict[str, Any]] = []
+    pending_entries: List[Dict[str, Any]] = []
     seen_slugs: set = set()
 
     try:
@@ -321,11 +385,13 @@ def crawl(
             repo = src.get("repo")
             branch = src.get("branch") or "main"
             path_prefix = src.get("path_prefix") or ""
+            is_trusted = bool(src.get("trusted", False))
             if not owner or not repo:
                 logger.warning("skipping malformed source entry: %r", src)
                 continue
 
-            logger.info("── %s/%s@%s (prefix=%r) ──", owner, repo, branch, path_prefix)
+            logger.info("── %s/%s@%s (prefix=%r, trusted=%s) ──",
+                        owner, repo, branch, path_prefix, is_trusted)
             meta = _fetch_repo_meta(gh, owner, repo)
             if meta is None:
                 continue
@@ -333,8 +399,6 @@ def crawl(
                 logger.info("skip archived repo %s/%s", owner, repo)
                 continue
 
-            # Prefer the branch the repo declares as default when the
-            # requested one 404s — saves an entry for half-broken sources.
             tree = _fetch_tree(gh, owner, repo, branch)
             if not tree and meta.get("default_branch") and meta["default_branch"] != branch:
                 branch = meta["default_branch"]
@@ -344,6 +408,7 @@ def crawl(
             skill_files = _filter_skill_paths(tree, path_prefix, per_repo_cap)
             logger.info("  found %d SKILL.md files", len(skill_files))
 
+            bucket = trusted_entries if is_trusted else pending_entries
             for f in skill_files:
                 path = f["path"]
                 raw = _fetch_raw(gh, owner, repo, branch, path)
@@ -357,13 +422,40 @@ def crawl(
                     continue
                 if entry["slug"] in seen_slugs:
                     continue
+                # Trust state travels with the entry so the registry
+                # service (which only reads JSON, no source metadata)
+                # can still expose it to the UI.
+                entry["trusted"] = is_trusted
                 seen_slugs.add(entry["slug"])
-                entries.append(entry)
+                bucket.append(entry)
 
     finally:
         gh.close()
 
-    return entries
+    return {"trusted": trusted_entries, "pending": pending_entries}
+
+
+def _write_registry(path: Path, entries: List[Dict[str, Any]], sources: List[Dict[str, Any]],
+                    description: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "version": 2,
+        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "description": description,
+        "sources": [f"{s['owner']}/{s['repo']}" for s in sources],
+        "skills": entries,
+    }
+    path.write_text(
+        json.dumps(doc, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _summarise(entries: List[Dict[str, Any]]) -> Dict[str, int]:
+    by_repo: Dict[str, int] = {}
+    for e in entries:
+        by_repo[e.get("source_repo", "?")] = by_repo.get(e.get("source_repo", "?"), 0) + 1
+    return by_repo
 
 
 def main() -> int:
@@ -380,9 +472,14 @@ def main() -> int:
         help="Path to sources JSON (default: backend/data/skill_sources.json)",
     )
     parser.add_argument(
-        "--out",
+        "--out-trusted",
         default=str(repo_root / "backend" / "data" / "github_skill_registry.json"),
-        help="Output registry path",
+        help="Output path for trusted entries (shown in market immediately).",
+    )
+    parser.add_argument(
+        "--out-pending",
+        default=str(repo_root / "backend" / "data" / "github_pending_registry.json"),
+        help="Output path for pending (untrusted) entries awaiting admin approval.",
     )
     parser.add_argument(
         "--per-repo-cap",
@@ -390,38 +487,70 @@ def main() -> int:
         default=DEFAULT_PER_REPO_CAP,
         help="Max SKILL.md files to include from any single repo.",
     )
+    parser.add_argument(
+        "--enable-topic-search",
+        action="store_true",
+        help="Override skill_sources.json topic_search.enabled flag.",
+    )
     args = parser.parse_args()
 
-    sources = _load_sources(Path(args.sources))
-    if not sources:
-        logger.error("no sources found — aborting")
+    doc = _load_sources(Path(args.sources))
+    repos = doc.get("repos") or []
+    topic_cfg = doc.get("topic_search") or {}
+
+    if args.enable_topic_search or topic_cfg.get("enabled"):
+        gh = GithubClient()
+        try:
+            extra = _discover_via_topic_search(
+                gh,
+                topics=topic_cfg.get("topics") or ["agent-skills"],
+                min_stars=int(topic_cfg.get("min_stars") or 10),
+                max_repos=int(topic_cfg.get("max_repos") or 50),
+            )
+        finally:
+            gh.close()
+        # Filter out any auto-discovered repo that's already declared
+        # explicitly — those already have a trust decision attached.
+        declared = {f"{r['owner']}/{r['repo']}" for r in repos}
+        for e in extra:
+            if f"{e['owner']}/{e['repo']}" not in declared:
+                repos.append(e)
+
+    if not repos:
+        logger.error("no sources to crawl — aborting")
         return 1
 
-    logger.info("crawling %d repo(s)...", len(sources))
-    entries = crawl(sources, per_repo_cap=args.per_repo_cap)
+    trusted_count = sum(1 for r in repos if r.get("trusted"))
+    logger.info("crawling %d repo(s) (%d trusted, %d pending)...",
+                len(repos), trusted_count, len(repos) - trusted_count)
+    result = crawl(repos, per_repo_cap=args.per_repo_cap)
 
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    doc = {
-        "version": 1,
-        "generated_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "description": "Auto-crawled from GitHub repos declared in skill_sources.json.",
-        "sources": [f"{s['owner']}/{s['repo']}" for s in sources],
-        "skills": entries,
-    }
-    out_path.write_text(
-        json.dumps(doc, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    trusted_repos = [r for r in repos if r.get("trusted")]
+    pending_repos = [r for r in repos if not r.get("trusted")]
+
+    _write_registry(
+        Path(args.out_trusted),
+        result["trusted"],
+        trusted_repos,
+        description="Trusted skills from curated GitHub sources. Served to market immediately.",
+    )
+    _write_registry(
+        Path(args.out_pending),
+        result["pending"],
+        pending_repos,
+        description="Pending skills awaiting admin approval. Promote via POST /api/pipeline/marketplace/approve/<slug>.",
     )
 
-    by_repo: Dict[str, int] = {}
-    for e in entries:
-        by_repo[e["source_repo"]] = by_repo.get(e["source_repo"], 0) + 1
-
-    print(f"\n✓ wrote {out_path.relative_to(repo_root)}")
-    print(f"  {len(entries)} skills from {len(by_repo)} repo(s):")
-    for repo_name, n in sorted(by_repo.items(), key=lambda x: -x[1]):
+    print(f"\n✓ trusted → {Path(args.out_trusted).relative_to(repo_root)}")
+    print(f"  {len(result['trusted'])} skills from {len(_summarise(result['trusted']))} repo(s):")
+    for repo_name, n in sorted(_summarise(result["trusted"]).items(), key=lambda x: -x[1]):
         print(f"    {n:>4d}  {repo_name}")
+
+    print(f"\n⏳ pending → {Path(args.out_pending).relative_to(repo_root)}")
+    print(f"  {len(result['pending'])} skills from {len(_summarise(result['pending']))} repo(s):")
+    for repo_name, n in sorted(_summarise(result["pending"]).items(), key=lambda x: -x[1]):
+        print(f"    {n:>4d}  {repo_name}")
+
     return 0
 
 

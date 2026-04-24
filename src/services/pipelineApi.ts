@@ -543,6 +543,51 @@ export async function installMarketplaceSkill(
   })
 }
 
+// ===== Marketplace review queue (admin-only) =====
+//
+// Entries come from the crawler's ``pending`` lane — either repos
+// marked ``trusted: false`` in ``skill_sources.json`` or anything the
+// topic-search auto-discovery phase found. They stay invisible to end
+// users until an admin calls ``approveMarketplaceEntry`` to promote
+// them into the trusted registry.
+
+export interface PendingMarketplaceEntry extends MarketplaceListing {
+  trusted?: boolean
+}
+
+export async function fetchMarketplacePending(): Promise<{
+  items: PendingMarketplaceEntry[]
+  generated_at?: string
+  sources?: string[]
+}> {
+  return apiFetch('/pipeline/marketplace/pending')
+}
+
+export async function approveMarketplaceEntry(
+  slug: string,
+): Promise<{ ok: boolean; slug: string; promoted_to: string }> {
+  return apiFetch(
+    `/pipeline/marketplace/approve/${encodeURIComponent(slug)}`,
+    { method: 'POST' },
+  )
+}
+
+export async function rejectMarketplaceEntry(
+  slug: string,
+): Promise<{ ok: boolean; slug: string; removed: boolean }> {
+  return apiFetch(
+    `/pipeline/marketplace/reject/${encodeURIComponent(slug)}`,
+    { method: 'POST' },
+  )
+}
+
+export async function triggerMarketplaceCrawl(options: {
+  enableTopicSearch?: boolean
+} = {}): Promise<{ ok: boolean; summary: string }> {
+  const qs = options.enableTopicSearch ? '?enable_topic_search=true' : ''
+  return apiFetch(`/pipeline/marketplace/crawl${qs}`, { method: 'POST' })
+}
+
 // ===== 中间件监控 =====
 
 export async function fetchMiddlewareStats(): Promise<Record<string, unknown>> {

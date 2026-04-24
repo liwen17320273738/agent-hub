@@ -1,30 +1,30 @@
 <template>
   <div class="workflow-view">
-    <h1>工作流</h1>
-    <p class="view-subtitle">任务流水线与工作流编排</p>
+    <h1>{{ t('workflow.title') }}</h1>
+    <p class="view-subtitle">{{ t('workflow.subtitle') }}</p>
 
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="流水线" name="pipeline">
+      <el-tab-pane :label="t('workflow.tabPipeline')" name="pipeline">
         <div class="workflow-action-bar">
           <el-button type="primary" @click="$router.push('/pipeline')">
-            打开流水线面板
+            {{ t('workflow.openPipelinePanel') }}
           </el-button>
         </div>
-        <TaskTable :tasks="recentTasks" empty-text="暂无任务" @click-task="goTask" />
+        <TaskTable :tasks="recentTasks" :empty-text="t('workflow.noTasks')" @click-task="goTask" />
       </el-tab-pane>
 
-      <el-tab-pane label="工作流编排" name="builder">
+      <el-tab-pane :label="t('workflow.tabBuilder')" name="builder">
         <div class="workflow-action-bar">
           <el-button type="primary" @click="$router.push('/workflow-builder')">
-            打开 Workflow Builder
+            {{ t('workflow.openBuilder') }}
           </el-button>
         </div>
-        <el-empty description="在 Builder 中设计工作流，保存后可在「运行」tab 中执行" />
+        <el-empty :description="t('workflow.builderHint')" />
       </el-tab-pane>
 
-      <el-tab-pane label="运行" name="run">
+      <el-tab-pane :label="t('workflow.tabRun')" name="run">
         <div class="workflow-action-bar">
-          <el-select v-model="selectedWorkflowId" placeholder="选择已保存的工作流" style="width: 300px; margin-right: 12px">
+          <el-select v-model="selectedWorkflowId" :placeholder="t('workflow.selectPlaceholder')" style="width: 300px; margin-right: 12px">
             <el-option
               v-for="wf in savedWorkflows"
               :key="wf.id"
@@ -33,16 +33,16 @@
             />
           </el-select>
           <el-button type="primary" :loading="running" :disabled="!selectedWorkflowId" @click="runWorkflow">
-            执行工作流
+            {{ t('workflow.runWorkflow') }}
           </el-button>
         </div>
 
         <div v-if="runResult" class="run-result">
           <div class="run-header">
             <el-tag :type="runResult.status === 'done' ? 'success' : runResult.status === 'failed' ? 'danger' : 'primary'" size="default">
-              {{ runResult.status === 'done' ? '执行成功' : runResult.status === 'failed' ? '执行失败' : '执行中' }}
+              {{ runResult.status === 'done' ? t('workflow.statusDone') : runResult.status === 'failed' ? t('workflow.statusFailed') : t('workflow.statusRunning') }}
             </el-tag>
-            <span class="run-time">耗时 {{ (runResult.elapsed_ms / 1000).toFixed(1) }}s</span>
+            <span class="run-time">{{ t('workflow.elapsed', { s: (runResult.elapsed_ms / 1000).toFixed(1) }) }}</span>
           </div>
           <div v-if="runResult.error" class="run-error">
             <el-alert type="error" :closable="false" show-icon>{{ runResult.error }}</el-alert>
@@ -59,7 +59,7 @@
           </div>
         </div>
 
-        <el-empty v-else-if="!running" description="选择一个工作流并点击执行" />
+        <el-empty v-else-if="!running" :description="t('workflow.runEmpty')" />
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { fetchTasks } from '@/services/pipelineApi'
 import { apiUrl } from '@/services/enterpriseApi'
@@ -76,6 +77,7 @@ import type { PipelineTask } from '@/agents/types'
 import TaskTable from '@/components/inbox/TaskTable.vue'
 
 const router = useRouter()
+const { t } = useI18n()
 const activeTab = ref('pipeline')
 const recentTasks = ref<PipelineTask[]>([])
 
@@ -96,7 +98,7 @@ onMounted(async () => {
     recentTasks.value = all.slice(0, 20)
   } catch { /* empty */ }
   try {
-    const resp = await fetch(apiUrl('/workflows'), { credentials: 'same-origin', headers: { ...authHeaders() } })
+    const resp = await fetch(apiUrl('/workflows/'), { credentials: 'same-origin', headers: { ...authHeaders() } })
     if (resp.ok) {
       const data = await resp.json()
       savedWorkflows.value = (data.workflows || []).map((w: any) => ({ id: w.id, name: w.name }))
@@ -119,18 +121,18 @@ async function runWorkflow() {
       headers: { ...authHeaders() },
     })
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ detail: '执行失败' }))
-      throw new Error(err.detail || '执行失败')
+      const err = await resp.json().catch(() => ({ detail: t('workflow.statusFailed') }))
+      throw new Error(err.detail || t('workflow.statusFailed'))
     }
     const data = await resp.json()
     runResult.value = data.run
     if (data.run?.status === 'done') {
-      ElMessage.success('工作流执行成功')
+      ElMessage.success(t('workflow.runOk'))
     } else {
-      ElMessage.warning('工作流执行完成（部分失败）')
+      ElMessage.warning(t('workflow.runPartial'))
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '执行异常')
+    ElMessage.error(e.message || t('workflow.runException'))
   } finally {
     running.value = false
   }

@@ -16,7 +16,7 @@
 | **OpenClaw** | ✅ REST + 计划模式 | `/api/gateway/openclaw/intake` | ⚠️ plan mode 有测试 | ✅ HTTP 可达 (400 = 参数校验) | **部分验证** |
 | **Slack** | ✅ Events API | `/api/gateway/slack/webhook` | ❌ 无测试 | ✅ URL verification 通过 (200) | **未验证** |
 | **OpenAI 兼容** | ✅ chat/completions | `/v1/agent-hub/chat/completions` | ❌ 无测试 | ✅ 可达 (200) | **部分验证** |
-| **Hermes-Agent** | ❌ 无任何代码 | — | — | — | **不存在** |
+| **Hermes-Agent** | ❌ 无任何代码 | — | — | — | **已移除（幽灵集成）** |
 | **Claude Code** | ✅ 执行器（非网关） | executor_bridge.py | ❌ 依赖 CLI 安装 | ⚠️ 取决于本地 claude CLI | **未验证** |
 | **微信小程序** | ✅ 部署 API（非消息网关） | `/api/deploy/miniprogram` | ❌ 无测试 | ⚠️ 需要 appid/secret/key | **未验证** |
 
@@ -570,26 +570,122 @@ Worktree API 返回:
   文件内容 API: ✅ 返回完整代码 (hash 验证通过)
 ```
 
-### Step ④ Agent 角色卡 + Skill 升级（2-3天）
+### Step ④ Agent 角色卡 + Skill 升级 ✅ 已完成 (2026-04-24)
 
 > 从"能做"到"做得好"。
 
 **任务清单**:
-1. 14 个 Agent 加完整角色卡（人格/使命/规则/工作流/交付物模板/成功指标）
-2. 45 个 Skill 加 YAML frontmatter（version/trigger_stages/completion_criteria/allowed_tools）
-3. skill_marketplace 改用 trigger_stages 精确匹配
-4. 学习循环：reject pattern 累积 → 自动创建/改进 skill
+1. ✅ 14 个 Agent 加完整角色卡（persona/mission/workflow_steps/output_template/success_metrics/handoff_protocol）
+2. ✅ 10 个核心 Skill 加 YAML frontmatter（trigger_stages/completion_criteria/allowed_tools/execution_mode）
+3. ✅ skill_marketplace 改用 trigger_stages 精确匹配（fallback 到 category 兼容旧 skill）
+4. ✅ 学习循环：reject pattern 累积 → 自动创建修正 skill（check_reject_patterns）
 
-**完成标志**: Agent 产出符合交付物模板格式，质量可量化评估
+**核心实现**:
 
-### Step ⑤ 渠道验证 + 评审闭环（2-3天）
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| Agent 角色卡模型 | `models/agent.py` | 新增 `role_card` JSONB 列 |
+| Agent 种子数据 | `agents/seed.py` | 14 个 Agent 全部带结构化角色卡（persona→metrics→handoff） |
+| 角色卡 Prompt 构建 | `services/role_card_builder.py` | 从结构化字段组合 system prompt，替代硬编码文本 |
+| Skill 模型升级 | `models/skill.py` | 新增 trigger_stages/completion_criteria/allowed_tools/execution_mode |
+| Skill 种子数据 | `agents/seed.py` | 10 个核心 Skill 升级为 v2.0，带精确触发和完成条件 |
+| Skill 精确匹配 | `services/skill_marketplace.py` | `trigger_stages` 优先匹配，fallback 到 `STAGE_SKILL_MAP` category |
+| 完成条件验证 | `pipeline_engine.py` | 技能完成条件注入 prompt + 后处理验证 |
+| 学习 → 自动 Skill | `services/learning_loop.py` | `check_reject_patterns` 从拒绝信号提取 pattern，自动创建修正 skill |
+| Skill Loader 升级 | `services/skill_loader.py` | YAML frontmatter 解析支持 trigger_stages 等列表字段 |
+| API Schema 更新 | `schemas/agent.py` + `schemas/skill.py` | 暴露 role_card、trigger_stages 等新字段 |
+
+**Agent 角色卡示例（产品经理）**:
+```
+# 角色
+你是产品经理，主导过多个千万级用户产品...
+
+## 核心使命
+- 需求定义: 目标、非目标、用户故事、验收标准
+- ...
+
+## 工作流程
+1. 需求理解 → 确认用户痛点和核心场景
+2. 竞品调研 → 搜索同类产品，提炼差异化
+3. 范围界定 → IN-SCOPE / OUT-OF-SCOPE
+4. 用户故事 → INVEST 原则，Given-When-Then 验收标准
+5. PRD 输出 → 结构化文档，含里程碑
+
+## 交付物模板
+(完整 PRD 模板，包含用户故事表格、非功能需求、里程碑)
+
+## 成功指标（自检清单）
+- 包含≥5条用户故事
+- 每条用户故事有 Given-When-Then 验收标准
+- 包含非目标(OUT-OF-SCOPE)章节
+- 包含里程碑规划
+
+## 协作委托
+- 当「需要技术可行性评估」时 → 委托给 wayne-cto
+```
+
+**Skill 触发匹配对比**:
+```
+旧: planning → category IN ["product", "analysis", "prd", "general"] → 模糊匹配，可能拉到无关 skill
+新: planning → trigger_stages 包含 "planning" → 精确匹配，只拉 prd-writing, deep-research
+```
+
+**完成标志**: ✅ Agent 产出符合交付物模板格式，质量可量化评估
+
+### Step ⑤ 渠道验证 + 评审闭环 ✅ 已完成 (2026-04-24)
 
 > 打通入口和反馈环。
 
 **任务清单**:
-1. 飞书 ngrok 隧道 + 真实 bot 跑 "消息→任务→全流程→回复" 完整链路
-2. 评审闭环：Reviewer reject → 自动重做 + rejection feedback 注入 prompt
-3. 跨渠道通知：任务状态变更广播到所有已配置渠道
-4. 移除 Hermes-Agent 幽灵集成
+1. ✅ 渠道端到端验证：4个 gateway 端点全部响应正常 (OpenClaw 200, Feishu 403, QQ 403, Slack 200)
+2. ✅ 评审闭环增强：
+   - 已有: Peer review REJECT → 自动重做（最多2次） + rejection feedback 注入 prompt
+   - 新增: Acceptance REJECT_TO 解析 → 自动从指定阶段重新运行 pipeline
+   - `_parse_reject_to()` 解析 "REJECTED REJECT_TO: <stage_id>" 格式
+   - 重做时所有后续阶段重置为 pending，目标阶段注入 reject_feedback
+3. ✅ 跨渠道通知广播：
+   - 新增 `broadcast_task_event()` — 向所有已配置渠道(飞书/QQ/Slack)扇出通知
+   - 原始渠道收到完整交互卡片（带按钮），其他渠道收到纯文本通知
+   - 关键事件(完成/等待验收)自动触发跨渠道广播
+4. ✅ Hermes-Agent 幽灵集成清理（仅存在于 issuse22.md 文档描述中，代码中零引用，已标记移除）
 
-**完成标志**: 飞书发消息 → 看到 8-Tab 全部真实产出 → 可评审打回重做
+**核心实现**:
+
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| REJECT_TO 解析 | `pipeline_engine.py` | `_parse_reject_to` + `_extract_reject_reason` 解析验收拒绝 |
+| 自动重做 | `pipeline_engine.py` | reviewing 阶段检测 REJECT_TO → 重置后续阶段 → 重新执行 |
+| 跨渠道广播 | `notify/dispatcher.py` | `broadcast_task_event()` 扇出到所有配置渠道 |
+| 广播导出 | `notify/__init__.py` | 导出 `broadcast_task_event` |
+| Pipeline 集成 | `pipeline_engine.py` | 任务完成/等待验收时自动触发跨渠道广播 |
+
+**评审闭环流程图**:
+```
+          ┌─── Peer Review (LLM) ───┐
+          │                          │
+Stage → execute_stage → review_stage_output
+          │                          │
+          ├── APPROVE → 继续         │
+          └── REJECT → 重做(最多2次) ─┘
+                │
+          reviewing 阶段特殊处理:
+                │
+          验收官 output → 解析 REJECT_TO
+                │
+          ├── APPROVED → 进入最终验收
+          └── REJECTED REJECT_TO: development
+                │
+          重置 development+ 所有后续阶段 → pending
+          注入 reject_feedback → 从 development 重新执行
+```
+
+**渠道状态总表**:
+
+| 渠道 | 路由 | 响应 | 出站 | 广播 |
+|------|------|------|------|------|
+| OpenClaw | `/api/gateway/openclaw/intake` | ✅ 200 | ✅ HTTP 回调 | ✅ |
+| 飞书 | `/api/gateway/feishu/webhook` | ✅ 403(需token) | ✅ IM API + 群 Webhook | ✅ |
+| QQ | `/api/gateway/qq/webhook` | ✅ 403(需Bearer) | ✅ OneBot 私信 | ✅ |
+| Slack | `/api/gateway/slack/webhook` | ✅ 200 | ✅ Events API + Blocks | ✅ |
+
+**完成标志**: ✅ 渠道端点全部可达 + 评审 REJECT_TO 自动重做 + 跨渠道广播

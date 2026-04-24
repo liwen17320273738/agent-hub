@@ -19,6 +19,10 @@ class SkillOut(BaseModel):
     hooks: list = []
     plugins: list = []
     mcp_tools: list = []
+    trigger_stages: List[str] = []
+    completion_criteria: List[str] = []
+    allowed_tools: List[str] = []
+    execution_mode: str = "inline"
     enabled: bool = True
     is_builtin: bool = False
     install_count: int = 0
@@ -39,6 +43,10 @@ class SkillCreate(BaseModel):
     hooks: list = []
     plugins: list = []
     mcp_tools: list = []
+    trigger_stages: List[str] = []
+    completion_criteria: List[str] = []
+    allowed_tools: List[str] = []
+    execution_mode: str = "inline"
 
 
 class SkillUpdate(BaseModel):
@@ -53,4 +61,8 @@ class SkillUpdate(BaseModel):
     hooks: Optional[list] = None
     plugins: Optional[list] = None
     mcp_tools: Optional[list] = None
+    trigger_stages: Optional[List[str]] = None
+    completion_criteria: Optional[List[str]] = None
+    allowed_tools: Optional[List[str]] = None
+    execution_mode: Optional[str] = None
     enabled: Optional[bool] = None

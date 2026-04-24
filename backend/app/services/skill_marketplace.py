@@ -14,7 +14,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, func, update, or_
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.skill import Skill
@@ -368,26 +368,37 @@ async def get_skills_for_stage(
     stage_id: str,
     role: str,
 ) -> List[Dict[str, str]]:
-    """Get enabled skills relevant to a pipeline stage."""
-    categories = STAGE_SKILL_MAP.get(stage_id, [])
-    if not categories:
-        return []
+    """Get enabled skills relevant to a pipeline stage.
 
-    stmt = (
-        select(Skill)
-        .where(
-            Skill.enabled.is_(True),
-            or_(Skill.category.in_(categories)),
-        )
-        .limit(5)
+    Priority: trigger_stages exact match > fallback to STAGE_SKILL_MAP category match.
+    """
+    result = await db.execute(
+        select(Skill).where(Skill.enabled.is_(True))
     )
+    all_skills = result.scalars().all()
 
-    result = await db.execute(stmt)
-    skills = result.scalars().all()
+    matched: list[Skill] = []
+    fallback: list[Skill] = []
+    categories = STAGE_SKILL_MAP.get(stage_id, [])
+
+    for s in all_skills:
+        triggers = s.trigger_stages or []
+        if triggers and stage_id in triggers:
+            matched.append(s)
+        elif not triggers and categories and s.category in categories:
+            fallback.append(s)
+
+    chosen = matched if matched else fallback[:5]
 
     return [
-        {"name": s.name, "prompt": s.prompt_template[:2000]}
-        for s in skills
+        {
+            "name": s.name,
+            "prompt": s.prompt_template[:2000],
+            "execution_mode": s.execution_mode or "inline",
+            "completion_criteria": s.completion_criteria or [],
+            "allowed_tools": s.allowed_tools or [],
+        }
+        for s in chosen
         if s.prompt_template
     ]
 

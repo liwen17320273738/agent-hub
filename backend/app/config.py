@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     # Model cache TTL
     model_cache_ttl_seconds: int = 600  # 10 minutes
 
+    # Runtime translation: optional DB pre-warm of cache (reduces first-paint
+    # latency in Inbox for Chinese task titles). LLM may run at startup; keep
+    # off by default. Set TRANSLATE_PREGEN_ENABLED=1 to enable.
+    translate_pregen_enabled: bool = False
+    translate_pregen_limit: int = 80
+    translate_pregen_targets: str = "en"  # comma: en,ja,ko
+
     # Gateway IM channels
     feishu_app_id: str = ""
     feishu_app_secret: str = ""

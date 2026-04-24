@@ -31,7 +31,7 @@
 
     <div v-if="loading" class="doc-loading">
       <el-icon class="spin-icon" :size="20"><Loading /></el-icon>
-      <span>加载中...</span>
+      <span>{{ t('taskDocTab.text_1') }}</span>
     </div>
 
     <div v-else-if="hasContent" class="doc-content">
@@ -41,7 +41,7 @@
     <div v-else class="doc-empty">
       <span class="empty-icon">{{ icon }}</span>
       <p>{{ displayName }} 尚未生成</p>
-      <p class="empty-hint">此工件将在对应阶段执行后自动产出</p>
+      <p class="empty-hint">{{ t('taskDocTab.text_2') }}</p>
     </div>
   </div>
 </template>
@@ -51,6 +51,9 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { renderMarkdown } from '@/services/markdown'
 import { getAuthToken } from '@/services/api'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface ArtifactDetail {
   id: string
@@ -95,22 +98,23 @@ async function fetchArtifact(version?: number) {
       `${baseUrl}/tasks/${props.taskId}/artifacts/${props.artifactType}${qs}`,
       { headers: token ? { Authorization: `Bearer ${token}` } : {} },
     )
-    if (res.status === 404) {
+    if (res.status === 404 || res.status === 401) {
       currentArtifact.value = null
       await fetchFromWorktree()
       return
     }
     if (!res.ok) throw new Error(`${res.status}`)
     const data = await res.json()
-    if (!data.content && data.storage_path) {
-      await fetchFromWorktree(data.storage_path)
+    if (data.content) {
+      currentArtifact.value = data
+    } else {
+      currentArtifact.value = null
+      await fetchFromWorktree(data.storage_path || undefined)
       if (currentArtifact.value?.content) {
         currentArtifact.value = { ...data, content: currentArtifact.value.content }
       } else {
         currentArtifact.value = data
       }
-    } else {
-      currentArtifact.value = data
     }
     selectedVersion.value = currentArtifact.value?.version ?? 0
   } catch {
@@ -121,14 +125,16 @@ async function fetchArtifact(version?: number) {
 }
 
 const ARTIFACT_TO_DOC: Record<string, string> = {
-  brief: 'docs/01-prd.md',
+  brief: 'docs/00-brief.md',
   prd: 'docs/01-prd.md',
   ui_spec: 'docs/02-ui-spec.md',
   architecture: 'docs/03-architecture.md',
   implementation: 'docs/04-implementation-notes.md',
+  code_link: 'docs/04-implementation-notes.md',
   test_report: 'docs/05-test-report.md',
   acceptance: 'docs/06-acceptance.md',
   ops_runbook: 'docs/07-ops-runbook.md',
+  deploy_manifest: 'docs/07-ops-runbook.md',
 }
 
 async function fetchFromWorktree(path?: string) {

@@ -86,7 +86,7 @@
       size="56%"
     >
       <div v-if="!healDrawerEvents.length" class="heal-empty">
-        <p>该阶段暂无自愈记录。</p>
+        <p>{{ t('pipelineDagCanvas.text_1') }}</p>
       </div>
       <div v-else class="heal-body">
         <div class="heal-pager">
@@ -172,6 +172,9 @@ import type { PipelineTask, PipelineStageState, PipelineEvent } from '@/agents/t
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 type RunStatus = 'idle' | 'running' | 'done' | 'failed' | 'rejected' | 'awaiting' | 'skipped'
 

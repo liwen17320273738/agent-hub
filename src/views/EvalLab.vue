@@ -79,7 +79,7 @@ const newDatasetForm = reactive({
 })
 async function submitNewDataset() {
   if (!newDatasetForm.name.trim()) {
-    ElMessage.warning('请填写名称')
+    ElMessage.warning(t('evalLab.elMessage_1'))
     return
   }
   try {
@@ -92,7 +92,7 @@ async function submitNewDataset() {
         .map((t) => t.trim())
         .filter(Boolean),
     })
-    ElMessage.success('已创建')
+    ElMessage.success(t('evalLab.elMessage_2'))
     newDatasetOpen.value = false
     Object.assign(newDatasetForm, { name: '', description: '', target_role: '', tags: '' })
     await refreshAll()
@@ -149,7 +149,7 @@ watch(
 async function submitNewCase() {
   if (!selectedDataset.value) return
   if (!newCaseForm.task.trim()) {
-    ElMessage.warning('请填写任务')
+    ElMessage.warning(t('evalLab.elMessage_3'))
     return
   }
   let expected: Record<string, unknown>
@@ -172,7 +172,7 @@ async function submitNewCase() {
       weight: newCaseForm.weight,
       timeout_seconds: newCaseForm.timeout_seconds,
     })
-    ElMessage.success('已添加 case')
+    ElMessage.success(t('evalLab.elMessage_4'))
     newCaseOpen.value = false
     Object.assign(newCaseForm, {
       name: '',
@@ -202,7 +202,7 @@ const curateForm = reactive({
 
 async function runCuration() {
   if (!selectedDataset.value) {
-    ElMessage.warning('请先选择数据集')
+    ElMessage.warning(t('evalLab.elMessage_5'))
     return
   }
   curateBusy.value = true
@@ -266,7 +266,7 @@ async function submitNewRun() {
       agent_role_override: newRunForm.role_override.trim(),
       model_override: newRunForm.model_override.trim(),
     })
-    ElMessage.success('已调度运行，刷新查看进度')
+    ElMessage.success(t('evalLab.elMessage_6'))
     newRunOpen.value = false
     Object.assign(newRunForm, { label: '', role_override: '', model_override: '' })
     await refreshAll()
@@ -425,6 +425,9 @@ onMounted(async () => {
 })
 
 import { onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 onBeforeUnmount(stopPolling)
 </script>
 
@@ -432,14 +435,14 @@ onBeforeUnmount(stopPolling)
   <div class="eval-page">
     <div class="page-header">
       <div>
-        <h1>评测实验室</h1>
+        <h1>{{ t('evalLab.text_1') }}</h1>
         <p class="page-subtitle">
           为每个角色构建 dataset，定期跑分，量化模型/prompt/skill 的影响。支持 A/B 对比两个 run。
         </p>
       </div>
       <div class="actions">
-        <el-button :loading="loading" plain @click="refreshAll">刷新</el-button>
-        <el-button type="primary" @click="newDatasetOpen = true">+ 新 Dataset</el-button>
+        <el-button :loading="loading" plain @click="refreshAll">{{ t('evalLab.text_2') }}</el-button>
+        <el-button type="primary" @click="newDatasetOpen = true">{{ t('evalLab.text_3') }}</el-button>
       </div>
     </div>
 
@@ -456,9 +459,9 @@ onBeforeUnmount(stopPolling)
               </el-tag>
             </div>
           </div>
-          <el-button text size="small" type="danger" @click.stop="removeDataset(ds)">删</el-button>
+          <el-button text size="small" type="danger" @click.stop="removeDataset(ds)">{{ t('evalLab.text_4') }}</el-button>
         </div>
-        <div v-if="!datasets.length" class="empty-side">还没有 dataset</div>
+        <div v-if="!datasets.length" class="empty-side">{{ t('evalLab.text_5') }}</div>
       </aside>
 
       <section class="main">
@@ -484,9 +487,9 @@ onBeforeUnmount(stopPolling)
             </div>
           </div>
           <div class="header-actions">
-            <el-button @click="newCaseOpen = true">+ 添加 Case</el-button>
-            <el-button @click="curateOpen = true">📥 从轨迹补充</el-button>
-            <el-button type="primary" @click="newRunOpen = true">▶ 新建运行</el-button>
+            <el-button @click="newCaseOpen = true">{{ t('evalLab.text_6') }}</el-button>
+            <el-button @click="curateOpen = true">{{ t('evalLab.text_7') }}</el-button>
+            <el-button type="primary" @click="newRunOpen = true">{{ t('evalLab.text_8') }}</el-button>
           </div>
         </div>
 
@@ -494,15 +497,15 @@ onBeforeUnmount(stopPolling)
           <el-radio-group v-model="tab" size="small">
             <el-radio-button label="cases" value="cases">Cases</el-radio-button>
             <el-radio-button label="runs" value="runs">Runs</el-radio-button>
-            <el-radio-button label="compare" value="compare">A/B 对比</el-radio-button>
+            <el-radio-button label="compare" value="compare">{{ t('evalLab.text_9') }}</el-radio-button>
           </el-radio-group>
         </div>
 
         <!-- Cases tab -->
         <div v-if="tab === 'cases' && datasetDetail" class="card">
           <el-table :data="datasetDetail.cases" stripe>
-            <el-table-column prop="name" label="名称" width="160" />
-            <el-table-column label="任务">
+            <el-table-column prop="name" :label="t('evalLab.label_1')" width="160" />
+            <el-table-column :label="t('evalLab.label_2')">
               <template #default="{ row }">
                 <div class="case-task">{{ row.task }}</div>
               </template>

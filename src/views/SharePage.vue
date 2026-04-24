@@ -2,13 +2,13 @@
   <div class="share-page">
     <div v-if="loading" class="share-loading">
       <el-icon class="is-loading" :size="32"><Loading /></el-icon>
-      <p>加载中…</p>
+      <p>{{ t('sharePage.text_1') }}</p>
     </div>
 
     <div v-else-if="error" class="share-error">
       <el-result icon="warning" :title="error" sub-title="请检查分享链接是否正确或已过期">
         <template #extra>
-          <el-button @click="$router.push('/login')">前往登录</el-button>
+          <el-button @click="$router.push('/login')">{{ t('sharePage.text_2') }}</el-button>
         </template>
       </el-result>
     </div>
@@ -78,6 +78,9 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Loading, Download } from '@element-plus/icons-vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const token = computed(() => route.params.token as string)

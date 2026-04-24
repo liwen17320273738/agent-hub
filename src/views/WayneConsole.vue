@@ -8,7 +8,7 @@
         </p>
       </div>
       <div class="console-actions">
-        <el-button type="primary" @click="$router.push('/wayne-stack')">查看蓝图</el-button>
+        <el-button type="primary" @click="$router.push('/wayne-stack')">{{ t('wayneConsole.text_1') }}</el-button>
       </div>
     </header>
 
@@ -341,6 +341,9 @@ import {
   type DeliveryDoc,
   type DeliveryDocMeta,
 } from '@/services/deliveryDocs'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const router = useRouter()
 const workflowStore = useWayneWorkflowStore()
@@ -667,21 +670,21 @@ function applyConsoleProfile() {
 function bindRoleProfile(agentId: string) {
   const profileId = roleProfileDrafts[agentId]
   if (!profileId) {
-    ElMessage.warning('请先选择一个档案')
+    ElMessage.warning(t('wayneConsole.elMessage_1'))
     return
   }
   const ok = settingsStore.bindRoleProfile(agentId, profileId)
   if (!ok) {
-    ElMessage.error('绑定失败')
+    ElMessage.error(t('wayneConsole.elMessage_2'))
     return
   }
-  ElMessage.success('已绑定默认档案')
+  ElMessage.success(t('wayneConsole.elMessage_3'))
 }
 
 function unbindRoleProfile(agentId: string) {
   settingsStore.unbindRoleProfile(agentId)
   roleProfileDrafts[agentId] = ''
-  ElMessage.success('已清除角色默认档案绑定')
+  ElMessage.success(t('wayneConsole.elMessage_4'))
 }
 
 for (const entry of agents) {
@@ -691,13 +694,13 @@ for (const entry of agents) {
 function ensureWorkflowStarted() {
   if (workflowStore.hasWorkflow) return true
   if (!workflowForm.goal.trim()) {
-    ElMessage.warning('请先填写本轮工作流目标')
+    ElMessage.warning(t('wayneConsole.elMessage_5'))
     return false
   }
   workflowStore.startWorkflow(workflowForm.title, workflowForm.goal)
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
-  ElMessage.success('Agent Hub 工作流已启动')
+  ElMessage.success(t('wayneConsole.elMessage_6'))
   return true
 }
 
@@ -707,7 +710,7 @@ function syncWorkflowMeta() {
     title: workflowForm.title,
     goal: workflowForm.goal,
   })
-  ElMessage.success('工作流信息已更新')
+  ElMessage.success(t('wayneConsole.elMessage_7'))
 }
 
 function markCurrentStageDone() {
@@ -715,20 +718,20 @@ function markCurrentStageDone() {
   workflowStore.completeCurrentStage('由 Agent Hub Console 推进到下一阶段')
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
-  ElMessage.success('已推进到下一阶段')
+  ElMessage.success(t('wayneConsole.elMessage_8'))
 }
 
 function markCurrentStageBlocked() {
   if (!workflowStore.hasWorkflow) return
   workflowStore.blockCurrentStage('需要 Agent Hub 人工判断或补齐上游产物')
-  ElMessage.warning('当前阶段已标记为阻塞')
+  ElMessage.warning(t('wayneConsole.elMessage_9'))
 }
 
 function resetWorkflow() {
   workflowStore.resetWorkflow()
   workflowForm.title = 'Agent Hub 新工作流'
   workflowForm.goal = ''
-  ElMessage.success('已重置 Agent Hub 工作流')
+  ElMessage.success(t('wayneConsole.elMessage_10'))
 }
 
 async function loadDeliveryList() {
@@ -751,7 +754,7 @@ async function initializeDeliveryDocs() {
   try {
     deliveryDocs.value = await initDeliveryDocs()
     await openDeliveryDoc(activeDeliveryName.value)
-    ElMessage.success('已初始化 docs/delivery 模板')
+    ElMessage.success(t('wayneConsole.elMessage_11'))
   } finally {
     deliveryLoading.value = false
   }
@@ -763,7 +766,7 @@ async function saveDeliveryDoc() {
   try {
     activeDeliveryDoc.value = await writeDeliveryDoc(activeDeliveryName.value, deliveryDraft.value)
     await loadDeliveryList()
-    ElMessage.success('交付文档已保存到 docs/delivery')
+    ElMessage.success(t('wayneConsole.elMessage_12'))
   } finally {
     deliverySaving.value = false
   }

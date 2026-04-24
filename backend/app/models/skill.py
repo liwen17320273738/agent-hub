@@ -31,6 +31,12 @@ class Skill(Base):
     plugins: Mapped[list] = mapped_column(JsonDict(), default=list)
     mcp_tools: Mapped[list] = mapped_column(JsonDict(), default=list)
 
+    # Step 4: Skill YAML frontmatter upgrade (gstack pattern)
+    trigger_stages: Mapped[list] = mapped_column(JsonDict(), default=list)
+    completion_criteria: Mapped[list] = mapped_column(JsonDict(), default=list)
+    allowed_tools: Mapped[list] = mapped_column(JsonDict(), default=list)
+    execution_mode: Mapped[str] = mapped_column(String(20), default="inline")
+
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

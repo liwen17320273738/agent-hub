@@ -1,7 +1,7 @@
 <template>
   <div class="model-lab-page">
     <header class="page-header">
-      <h1>模型实验室</h1>
+      <h1>{{ t('modelLab.text_1') }}</h1>
       <p class="subtitle">
         参考评分 + 同一提示词下的延迟与输出对比（个人模式使用本地 API Key；企业模式经服务端统一网关）
       </p>
@@ -10,8 +10,8 @@
     <el-card class="lab-card core-card">
       <template #header>
         <div class="core-header">
-          <span>核心模型与角色</span>
-          <el-tag type="warning" effect="dark">核心优先</el-tag>
+          <span>{{ t('modelLab.text_2') }}</span>
+          <el-tag type="warning" effect="dark">{{ t('modelLab.text_3') }}</el-tag>
         </div>
       </template>
       <div class="core-grid">
@@ -163,6 +163,9 @@ import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { chatCompletionOnce } from '@/services/llm'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
@@ -222,7 +225,7 @@ const resolvedBenchModels = computed(() => {
 async function runBenchmark() {
   const models = resolvedBenchModels.value
   if (!models.length) {
-    ElMessage.warning('请选择或填写至少一个模型')
+    ElMessage.warning(t('modelLab.elMessage_1'))
     return
   }
   if (!settingsStore.isConfigured()) return
@@ -242,7 +245,7 @@ async function runBenchmark() {
         error: r.error,
       })
     }
-    ElMessage.success('对比完成')
+    ElMessage.success(t('modelLab.elMessage_2'))
   } finally {
     benchRunning.value = false
   }

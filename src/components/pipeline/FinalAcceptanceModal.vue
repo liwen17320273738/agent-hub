@@ -26,31 +26,28 @@
       <el-tab-pane name="accept">
         <template #label>
           <span class="tab-label tab-accept">
-            <el-icon><Check /></el-icon> 接受交付
+            <el-icon><Check /></el-icon> {{ t('finalAccept.tabAccept') }}
           </span>
         </template>
         <div class="tab-body">
-          <p class="tab-hint">
-            确认整个交付链已满足业务需求。任务将进入 <code>done</code> 终态，
-            <strong>无法再继续修改</strong>（除非新建一个续作任务）。
-          </p>
+          <p class="tab-hint" v-html="t('finalAccept.acceptHint')"></p>
           <el-form label-position="top">
-            <el-form-item label="可选备注（会写入审计日志）">
+            <el-form-item :label="t('finalAccept.notesLabel')">
               <el-input
                 v-model="acceptNotes"
                 type="textarea"
                 :rows="3"
-                placeholder="例：客户验收通过，已部署到 staging。"
+                :placeholder="t('finalAccept.notesPlaceholder')"
                 maxlength="2000"
                 show-word-limit
               />
             </el-form-item>
           </el-form>
           <div class="tab-actions">
-            <el-button @click="visible = false">取消</el-button>
+            <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
             <el-button type="success" :loading="submitting" @click="handleAccept">
               <el-icon><Check /></el-icon>
-              确认接受
+              {{ t('finalAccept.confirmAccept') }}
             </el-button>
           </div>
         </div>
@@ -59,30 +56,26 @@
       <el-tab-pane name="reject">
         <template #label>
           <span class="tab-label tab-reject">
-            <el-icon><Close /></el-icon> 打回重做
+            <el-icon><Close /></el-icon> {{ t('finalAccept.tabReject') }}
           </span>
         </template>
         <div class="tab-body">
-          <p class="tab-hint">
-            说明问题在哪、希望从哪一步开始重做。<strong>选了重做阶段</strong>，
-            后端会自动重置该阶段及之后所有阶段为 pending 并重新跑 DAG；
-            <strong>不选</strong>则只暂停任务，由你后续决定。
-          </p>
+          <p class="tab-hint" v-html="t('finalAccept.rejectHint')"></p>
           <el-form label-position="top">
-            <el-form-item label="打回原因（必填，会注入到重做的 prompt 里）">
+            <el-form-item :label="t('finalAccept.reasonLabel')">
               <el-input
                 v-model="rejectReason"
                 type="textarea"
                 :rows="4"
-                placeholder="例：API 设计文档缺少错误码列表，必须按 RFC 7807 风格枚举所有 4xx/5xx。"
+                :placeholder="t('finalAccept.reasonPlaceholder')"
                 maxlength="4000"
                 show-word-limit
               />
             </el-form-item>
-            <el-form-item label="从哪个阶段重做（可选）">
+            <el-form-item :label="t('finalAccept.restartStageLabel')">
               <el-select
                 v-model="rejectStage"
-                placeholder="（不重做，仅暂停）"
+                :placeholder="t('finalAccept.restartStagePlaceholder')"
                 clearable
                 style="width: 100%"
               >
@@ -94,12 +87,12 @@
                 />
               </el-select>
               <span class="form-foot-hint">
-                选中后，该阶段及其下游全部重置为 pending，DAG 会立刻续跑。
+                {{ t('finalAccept.restartStageHint') }}
               </span>
             </el-form-item>
           </el-form>
           <div class="tab-actions">
-            <el-button @click="visible = false">取消</el-button>
+            <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
             <el-button
               type="warning"
               :loading="submitting"
@@ -107,7 +100,7 @@
               @click="handleReject"
             >
               <el-icon><Close /></el-icon>
-              {{ rejectStage ? `打回并从「${rejectStageLabel}」重做` : '打回并暂停' }}
+              {{ rejectStage ? t('finalAccept.rejectAndRestart', { stage: rejectStageLabel }) : t('finalAccept.rejectAndPause') }}
             </el-button>
           </div>
         </div>
@@ -118,10 +111,13 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Check, Close } from '@element-plus/icons-vue'
 import { finalAcceptTask, finalRejectTask } from '@/services/pipelineApi'
 import type { PipelineTask } from '@/agents/types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   task: PipelineTask
@@ -146,7 +142,7 @@ const rejectStage = ref('')
 const submitting = ref(false)
 
 const dialogWidth = ref('520px')
-const title = computed(() => `最终验收 · ${props.task.title}`)
+const title = computed(() => `${t('finalAccept.title')} · ${props.task.title}`)
 
 const SENTINEL_STAGE_IDS = new Set(['done', 'final_acceptance'])
 const restartableStages = computed(() =>
@@ -179,11 +175,11 @@ async function handleAccept() {
   submitting.value = true
   try {
     await finalAcceptTask(props.task.id, acceptNotes.value || undefined)
-    ElMessage.success('已确认验收，任务进入 done')
+    ElMessage.success(t('finalAccept.toastAccepted'))
     emit('accepted')
     visible.value = false
   } catch (e: unknown) {
-    ElMessage.error(`验收失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(`${t('finalAccept.toastAcceptFail')}: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     submitting.value = false
   }
@@ -191,7 +187,7 @@ async function handleAccept() {
 
 async function handleReject() {
   if (!rejectReason.value.trim()) {
-    ElMessage.warning('请填写打回原因')
+    ElMessage.warning(t('finalAccept.reasonRequired'))
     return
   }
   submitting.value = true
@@ -202,16 +198,16 @@ async function handleReject() {
       rejectStage.value || undefined,
     )
     if (res.queued) {
-      ElMessage.success(res.message || `已打回并将从 ${res.restartFromStage} 重新运行`)
+      ElMessage.success(res.message || t('finalAccept.toastRestart', { stage: res.restartFromStage }))
     } else if (res.paused) {
-      ElMessage.warning(res.message || '已打回，任务已暂停')
+      ElMessage.warning(res.message || t('finalAccept.toastPaused'))
     } else {
-      ElMessage.success('已打回')
+      ElMessage.success(t('finalAccept.toastRejected'))
     }
     emit('rejected', res.restartFromStage || null)
     visible.value = false
   } catch (e: unknown) {
-    ElMessage.error(`打回失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(`${t('finalAccept.toastRejectFail')}: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     submitting.value = false
   }

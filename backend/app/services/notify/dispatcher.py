@@ -221,3 +221,94 @@ async def notify_user_text(
         )
 
     return NotifyResult(ok=False, channel=src or "web", skipped=True, error="no_outbound_channel")
+
+
+# ── Cross-channel broadcast ──────────────────────────────────────────
+# Step 5: Fan-out notifications to ALL configured channels, not just the
+# originating one. Used for critical events (final acceptance, failures).
+
+async def _is_channel_configured(channel: str) -> bool:
+    """Check if a channel has the required credentials configured."""
+    try:
+        from ...config import settings
+        if channel == "feishu":
+            return bool(getattr(settings, "feishu_app_id", "")) and bool(getattr(settings, "feishu_app_secret", ""))
+        if channel == "qq":
+            return bool(getattr(settings, "qq_bot_endpoint", ""))
+        if channel == "slack":
+            return bool(getattr(settings, "slack_bot_token", ""))
+    except Exception:
+        pass
+    return False
+
+
+async def broadcast_task_event(
+    task: PipelineTask,
+    *,
+    event: str,
+    message: str = "",
+    url: str = "",
+    extras: Optional[Dict[str, Any]] = None,
+) -> List[NotifyResult]:
+    """Send a task event to ALL configured channels (fan-out).
+
+    The originating channel gets the full interactive card (with buttons);
+    other channels get a plain text notification.
+    """
+    cfg = _EVENT_LABELS.get(event, {"title": event, "emoji": "ℹ️", "template": "grey"})
+    title = f"{cfg['emoji']} {cfg['title']}"
+    lines = _build_lines(task.title or "", message, url, extras)
+    task_id = str(task.id)
+    source = (task.source or "").lower()
+    results: List[NotifyResult] = []
+
+    primary = await notify_task_event(task, event=event, message=message, url=url, extras=extras)
+    results.append(primary)
+
+    all_channels = ["feishu", "qq", "slack"]
+    secondary_channels = [ch for ch in all_channels if ch != source]
+
+    for ch in secondary_channels:
+        if not await _is_channel_configured(ch):
+            continue
+        try:
+            text_body = "\n".join(lines + [f"task:{task_id}"])
+            if ch == "feishu":
+                r = await feishu_im.send_card(
+                    open_id="",
+                    title=title,
+                    lines=lines + [f"`task:{task_id}`"],
+                    buttons=None,
+                    template=cfg["template"],
+                )
+                results.append(NotifyResult(
+                    ok=bool(r.get("ok")), channel="feishu",
+                    mode=f"broadcast-{r.get('mode', '')}",
+                    error=str(r.get("error", "")),
+                    skipped=bool(r.get("skipped")),
+                ))
+            elif ch == "qq":
+                r = await qq_onebot.send_text(
+                    user_id="", title=title, lines=lines, task_id=task_id,
+                )
+                results.append(NotifyResult(
+                    ok=bool(r.get("ok")), channel="qq",
+                    mode="broadcast",
+                    error=str(r.get("error", "")),
+                    skipped=bool(r.get("skipped")),
+                ))
+            elif ch == "slack":
+                r = await slack_im.send_message(
+                    receive_id="", text=f"{title}\n{text_body}",
+                )
+                results.append(NotifyResult(
+                    ok=bool(r.get("ok")), channel="slack",
+                    mode="broadcast",
+                    error=str(r.get("error", "")),
+                    skipped=bool(r.get("skipped")),
+                ))
+        except Exception as e:
+            logger.debug("[dispatcher] broadcast to %s failed: %s", ch, e)
+            results.append(NotifyResult(ok=False, channel=ch, error=str(e)))
+
+    return results

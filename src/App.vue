@@ -60,6 +60,19 @@
           <el-icon><SetUp /></el-icon>
           <span>{{ $t('nav.assets') }}</span>
         </router-link>
+
+        <!-- Admin-only: marketplace review queue. Hiding the link for
+             members keeps the sidebar noise-free; the route itself
+             still 403s if a member URL-hacks their way in. -->
+        <router-link
+          v-if="authStore.user?.role === 'admin'"
+          to="/admin/skills"
+          class="nav-item"
+          active-class="active"
+        >
+          <el-icon><Stamp /></el-icon>
+          <span>{{ $t('nav.adminSkills') }}</span>
+        </router-link>
       </nav>
 
       <div class="sidebar-footer">
@@ -71,10 +84,24 @@
             {{ $t('nav.logout') }}
           </el-button>
         </div>
-        <div class="nav-item lang-toggle" @click="toggleLocale">
-          <el-icon><Opportunity /></el-icon>
-          <span>{{ $t('common.switchLang') }}</span>
-        </div>
+        <el-dropdown trigger="click" @command="onPickLocale" placement="top-start">
+          <div class="nav-item lang-toggle">
+            <el-icon><Opportunity /></el-icon>
+            <span>{{ currentLocaleLabel }}</span>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="code in SUPPORTED_LOCALES"
+                :key="code"
+                :command="code"
+                :class="{ active: code === currentLocale }"
+              >
+                {{ LOCALE_LABEL[code] }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <router-link to="/settings" class="nav-item" active-class="active">
           <el-icon><Setting /></el-icon>
           <span>{{ $t('nav.settings') }}</span>
@@ -97,7 +124,8 @@ import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
-import { setLocale, getLocale } from '@/i18n'
+import { setLocale, getLocale, SUPPORTED_LOCALES, LOCALE_LABEL, type AppLocale } from '@/i18n'
+import { useI18n } from 'vue-i18n'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
 
 const route = useRoute()
@@ -130,10 +158,21 @@ function openSearchHit(h: ConversationSearchHit) {
   })
 }
 
-function toggleLocale() {
-  const next = getLocale() === 'zh' ? 'en' : 'zh'
-  setLocale(next as 'zh' | 'en')
+const { locale: activeLocale } = useI18n()
+const currentLocale = computed<AppLocale>(() => activeLocale.value as AppLocale)
+const currentLocaleLabel = computed(() => LOCALE_LABEL[currentLocale.value] || currentLocale.value)
+
+function onPickLocale(code: AppLocale) {
+  if (code === currentLocale.value) return
+  setLocale(code)
 }
+// Kept for backward compat callers (hotkeys, etc.)
+function toggleLocale() {
+  const idx = SUPPORTED_LOCALES.indexOf(currentLocale.value)
+  const next = SUPPORTED_LOCALES[(idx + 1) % SUPPORTED_LOCALES.length]
+  setLocale(next)
+}
+void toggleLocale
 
 async function handleLogout() {
   await authStore.logout()

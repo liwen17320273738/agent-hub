@@ -40,12 +40,12 @@
           :to="`/agent/${agent.id}/profile`"
           class="card-profile-link"
           @click.stop
-        >档案</router-link>
+        >{{ t('agentCard.text_1') }}</router-link>
         <span v-if="conversationCount" class="conv-count">
           <el-icon :size="12"><ChatDotRound /></el-icon>
           {{ conversationCount }} 对话
         </span>
-        <span v-else class="conv-count empty">开始对话 →</span>
+        <span v-else class="conv-count empty">{{ t('agentCard.text_2') }}</span>
       </div>
     </div>
     <div class="card-accent" :style="{ background: agent.color }" />
@@ -56,6 +56,9 @@
 import { computed } from 'vue'
 import type { AgentProfile } from '@/stores/agents'
 import { resolveAgentIcon } from '@/utils/agentIcon'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   agent: AgentProfile

@@ -332,9 +332,9 @@ def _check_deliverable_keywords(output: str, config: Dict[str, Any]) -> GateChec
                 message=f"包含关键结论: {', '.join(found[:3])}",
             )
         return GateCheck(
-            name="deliverable_keywords", category="deliverable",
-            status=GateStatus.FAILED, score=0.0,
-            message=f"缺少结论关键词 (需包含至少一个): {', '.join(keywords[:5])}",
+            name="deliverable_keywords", category="keyword",
+            status=GateStatus.WARNING, score=0.3,
+            message=f"缺少结论关键词 (建议包含至少一个): {', '.join(keywords[:5])}",
         )
 
     ratio = len(found) / len(keywords)

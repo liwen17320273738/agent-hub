@@ -82,6 +82,27 @@ async function loadMarketplace(force = false) {
   }
 }
 
+// Compact-chip helpers: picking the label + tooltip in TS keeps the
+// template clean and gives us one place to localise per install state.
+function installChipLabel(listing: MarketplaceListing): string {
+  if (installing.value[listing.slug]) return t('skills.installing')
+  if (listing.install_state === 'installed') return t('skills.installed')
+  if (listing.install_state === 'outdated') return t('skills.upgrade')
+  return t('skills.install')
+}
+function installChipTitle(listing: MarketplaceListing): string {
+  if (listing.install_state === 'installed') {
+    return t('skills.installedTip', { v: listing.local_version ?? listing.version })
+  }
+  if (listing.install_state === 'outdated') {
+    return t('skills.upgradeTip', {
+      from: listing.local_version ?? '—',
+      to: listing.version,
+    })
+  }
+  return t('skills.installTip', { v: listing.version })
+}
+
 async function handleInstall(listing: MarketplaceListing) {
   if (installing.value[listing.slug]) return
   installing.value[listing.slug] = true
@@ -152,9 +173,16 @@ function toggleExpand(name: string) {
 
 // Categories come directly from the data — we don't hardcode them so new
 // skill types (`devops`, `data`, …) light up automatically.
+// Categories are derived from whichever list the user is currently
+// looking at — the installed tab shows counts from ``skills``, the
+// market tab shows counts from ``marketplace``. Keeping a single
+// computed means the chip row updates instantly on tab switch.
 const categories = computed(() => {
+  const source = activeTab.value === 'market'
+    ? marketplace.value.map(l => ({ category: l.category }))
+    : skills.value
   const map = new Map<string, number>()
-  for (const s of skills.value) {
+  for (const s of source) {
     const c = (s.category || 'general').toLowerCase()
     map.set(c, (map.get(c) || 0) + 1)
   }
@@ -196,6 +224,46 @@ const filteredSkills = computed(() => {
       sorted.sort((a, b) => a.name.localeCompare(b.name))
       break
     // 'default' = backend order (sort_order desc, install_count desc, name asc)
+  }
+  return sorted
+})
+
+// Market tab has its own filter pipeline. The data shape is different
+// (``MarketplaceListing`` instead of ``Skill``) and the interesting
+// sort dimensions are GitHub stars + freshness, not install count.
+const filteredMarketplace = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  const list = marketplace.value.filter(l => {
+    if (activeCategory.value !== 'all'
+        && (l.category || 'general').toLowerCase() !== activeCategory.value) {
+      return false
+    }
+    if (!kw) return true
+    return (
+      l.name.toLowerCase().includes(kw) ||
+      (l.description || '').toLowerCase().includes(kw) ||
+      (l.source_repo || '').toLowerCase().includes(kw) ||
+      (l.tags || []).some(t => t.toLowerCase().includes(kw))
+    )
+  })
+
+  const sorted = [...list]
+  switch (sortKey.value) {
+    case 'installs':  // reuse the "下载量" pill as "stars" in market context
+      sorted.sort((a, b) => (b.source_stars || 0) - (a.source_stars || 0))
+      break
+    case 'updated':
+      // No per-entry timestamp from GitHub trees without extra API
+      // calls, so fall back to version-lexical sort which at least
+      // groups "newer semver" together for readable output.
+      sorted.sort((a, b) => (b.version || '').localeCompare(a.version || ''))
+      break
+    case 'name':
+      sorted.sort((a, b) => a.name.localeCompare(b.name))
+      break
+    // 'default' = stars desc to surface the most-starred repos first.
+    default:
+      sorted.sort((a, b) => (b.source_stars || 0) - (a.source_stars || 0))
   }
   return sorted
 })
@@ -338,8 +406,9 @@ onMounted(load)
       </button>
     </div>
 
-    <!-- ── Category chips (installed tabs only) ── -->
-    <div v-if="activeTab !== 'market' && categories.length" class="chip-row">
+    <!-- ── Category chips ── Shown for all tabs, including market.
+         For market the chips are derived from marketplace listings. -->
+    <div v-if="categories.length" class="chip-row">
       <button
         :class="['chip', { active: activeCategory === 'all' }]"
         @click="activeCategory = 'all'"
@@ -356,15 +425,18 @@ onMounted(load)
       </button>
     </div>
 
-    <!-- ── Sort pill row (installed tabs only) ── -->
-    <div v-if="activeTab !== 'market'" class="sort-row">
+    <!-- ── Sort pills ── Same pills for market tab; the computed
+         sort pipeline maps "installs" → stars when in market mode. -->
+    <div class="sort-row">
       <button
         v-for="opt in sortOptions"
         :key="opt.key"
         :class="['sort-pill', { active: sortKey === opt.key }]"
         @click="sortKey = opt.key"
       >
-        {{ t(`skills.sort.${opt.key}`) }}
+        {{ activeTab === 'market'
+            ? t(`skills.sort.market_${opt.key}`)
+            : t(`skills.sort.${opt.key}`) }}
       </button>
     </div>
 
@@ -400,13 +472,24 @@ onMounted(load)
       </div>
     </template>
 
-    <!-- ── Marketplace grid ── -->
-    <div v-if="activeTab === 'market' && marketplace.length" class="skill-grid">
+    <!-- ── Marketplace grid (WorkBuddy-compact layout) ──
+         Structure mirrors the installed-tab card: icon left, content
+         right, floating corner action button. The action morphs
+         between install / upgrade / already-installed based on
+         ``install_state``, and the stats row surfaces the provenance
+         badge + star count so users recognise the source at a glance. -->
+    <div
+      v-if="activeTab === 'market' && filteredMarketplace.length"
+      class="skill-grid"
+    >
       <article
-        v-for="listing in marketplace"
+        v-for="listing in filteredMarketplace"
         :key="listing.slug"
         class="skill-card market-card"
-        :class="{ 'is-outdated': listing.install_state === 'outdated' }"
+        :class="{
+          'is-outdated': listing.install_state === 'outdated',
+          'is-installed': listing.install_state === 'installed',
+        }"
       >
         <div class="card-body">
           <div class="icon-box" :style="iconStyle({
@@ -427,19 +510,13 @@ onMounted(load)
                 class="status-badge status-installed"
               >{{ t('skills.installed') }}</span>
             </div>
-            <div class="meta-row">
-              <span class="category-tag">{{ listing.category || 'general' }}</span>
-              <span class="version-tag">v{{ listing.version }}</span>
-              <span
-                v-if="listing.install_state === 'outdated' && listing.local_version"
-                class="version-tag old"
-              >← v{{ listing.local_version }}</span>
-              <span v-if="listing.license" class="license-tag">{{ listing.license }}</span>
-            </div>
             <p class="skill-desc">
               {{ listing.description || t('skills.noDescription') }}
             </p>
             <div class="stats-row">
+              <!-- Provenance badge is the single most informative
+                   signal on a market card (official anthropics/skills
+                   vs some random fork), so it always renders first. -->
               <a
                 v-if="listing.source_repo"
                 :href="`https://github.com/${listing.source_repo}`"
@@ -449,7 +526,7 @@ onMounted(load)
                 :title="t('skills.sourceRepo', { repo: listing.source_repo })"
                 @click.stop
               >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden>
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden>
                   <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.3c-3.3.7-4-1.4-4-1.4-.6-1.4-1.4-1.8-1.4-1.8-1.1-.8.1-.8.1-.8 1.2.1 1.9 1.3 1.9 1.3 1.1 1.9 2.9 1.4 3.6 1 .1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/>
                 </svg>
                 {{ listing.source_repo }}
@@ -461,47 +538,33 @@ onMounted(load)
               >
                 ★ {{ formatCount(listing.source_stars) }}
               </span>
-              <a
-                v-else-if="listing.homepage"
-                :href="listing.homepage"
-                target="_blank"
-                rel="noopener"
-                class="stat-item link"
-                @click.stop
-              >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <path d="M10 14a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5"/>
-                  <path d="M14 10a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5"/>
-                </svg>
-                {{ t('skills.homepage') }}
-              </a>
+              <span class="stat-item">v{{ listing.version }}</span>
               <span
-                v-if="listing.author && listing.author !== 'system'"
-                class="stat-item author-item"
-              >@{{ listing.author }}</span>
+                v-if="listing.install_state === 'outdated' && listing.local_version"
+                class="stat-item stat-muted"
+                :title="t('skills.localVersion', { v: listing.local_version })"
+              >← v{{ listing.local_version }}</span>
             </div>
           </div>
+
+          <!-- Corner install chip: icon-only in the default state so
+               the card stays compact, widens on hover/loading. -->
           <button
-            class="install-btn"
+            class="install-chip"
             :class="{
-              'btn-upgrade': listing.install_state === 'outdated',
-              'btn-done': listing.install_state === 'installed',
+              'is-upgrade': listing.install_state === 'outdated',
+              'is-installed': listing.install_state === 'installed',
+              'is-loading': installing[listing.slug],
             }"
             :disabled="installing[listing.slug] || listing.install_state === 'installed'"
+            :title="installChipTitle(listing)"
             @click.stop="handleInstall(listing)"
           >
-            <template v-if="installing[listing.slug]">
-              {{ t('skills.installing') }}
-            </template>
-            <template v-else-if="listing.install_state === 'installed'">
-              ✓ {{ t('skills.installed') }}
-            </template>
-            <template v-else-if="listing.install_state === 'outdated'">
-              ↑ {{ t('skills.upgrade') }}
-            </template>
-            <template v-else>
-              + {{ t('skills.install') }}
-            </template>
+            <template v-if="installing[listing.slug]">⟳</template>
+            <template v-else-if="listing.install_state === 'installed'">✓</template>
+            <template v-else-if="listing.install_state === 'outdated'">↑</template>
+            <template v-else>+</template>
+            <span class="install-chip-label">{{ installChipLabel(listing) }}</span>
           </button>
         </div>
       </article>
@@ -928,41 +991,102 @@ onMounted(load)
   text-decoration: none;
 }
 
-.install-btn {
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border-radius: 6px;
+/* Market card install chip — icon-only at rest, expands to show a
+   label on hover / when loading. Mirrors the "+ button" pattern used
+   by GitHub marketplace + WorkBuddy's skill cards: unobtrusive but
+   visually discoverable. */
+.install-chip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px;
+  height: 26px;
+  min-width: 26px;
+  border-radius: 999px;
   border: 1px solid #6366f1;
   background: #6366f1;
   color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+.install-chip-label {
+  display: inline-block;
+  max-width: 0;
+  opacity: 0;
+  margin-left: 0;
+  overflow: hidden;
+  transition: max-width 0.18s ease, opacity 0.18s ease, margin-left 0.18s ease;
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
-  margin-top: 2px;
 }
-.install-btn:hover:not(:disabled) {
+.install-chip:hover:not(:disabled),
+.install-chip.is-loading {
   background: #4f46e5;
   border-color: #4f46e5;
+  padding-right: 10px;
 }
-.install-btn.btn-upgrade {
+.install-chip:hover:not(:disabled) .install-chip-label,
+.install-chip.is-loading .install-chip-label {
+  max-width: 80px;
+  margin-left: 4px;
+  opacity: 1;
+}
+.install-chip.is-upgrade {
   background: #f59e0b;
   border-color: #f59e0b;
 }
-.install-btn.btn-upgrade:hover:not(:disabled) {
+.install-chip.is-upgrade:hover:not(:disabled) {
   background: #d97706;
   border-color: #d97706;
 }
-.install-btn.btn-done {
+.install-chip.is-installed {
   background: transparent;
   color: #10b981;
   border-color: rgba(16, 185, 129, 0.5);
   cursor: default;
 }
-.install-btn:disabled:not(.btn-done) {
+.install-chip.is-installed .install-chip-label {
+  max-width: 60px;
+  opacity: 1;
+  margin-left: 4px;
+}
+.install-chip:disabled:not(.is-installed) {
   opacity: 0.6;
   cursor: wait;
+}
+.install-chip.is-loading {
+  animation: chip-spin 1s linear infinite;
+}
+@keyframes chip-spin {
+  from { transform: rotate(0deg); }
+  50% { transform: rotate(180deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Market card tweaks: anchor the absolute chip cleanly and visually
+   distinguish already-installed cards with a subtle green border. */
+.skill-card.market-card { position: relative; }
+.skill-card.market-card.is-installed {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, #fff 0%, rgba(16, 185, 129, 0.04) 100%);
+}
+.skill-card.market-card.is-outdated {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(135deg, #fff 0%, rgba(245, 158, 11, 0.04) 100%);
+}
+
+.stat-item.stat-muted {
+  color: #94a3b8;
+  font-style: italic;
 }
 
 /* ── Grid ── */

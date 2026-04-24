@@ -11,6 +11,9 @@ import {
   type PlanDetail,
   type PlanSummary,
 } from '@/services/planApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const router = useRouter()
 
@@ -70,7 +73,7 @@ async function approve(p: PlanSummary) {
   acting.value = true
   try {
     const r = await approvePlan(p.source, p.user_id)
-    ElMessage.success('已启动')
+    ElMessage.success(t('planInbox.elMessage_1'))
     if (r.taskId) {
       ElMessageBox.confirm(`任务 ${r.taskId} 已启动，跳转到详情页？`, '已开干', {
         confirmButtonText: '去看看',
@@ -96,7 +99,7 @@ async function reject(p: PlanSummary) {
   acting.value = true
   try {
     await rejectPlan(p.source, p.user_id)
-    ElMessage.success('已取消')
+    ElMessage.success(t('planInbox.elMessage_2'))
     await refresh()
   } catch (e) {
     ElMessage.error(`取消失败：${(e as Error).message}`)
@@ -112,7 +115,7 @@ function openRevise() {
 
 async function submitRevise() {
   if (!focused.value || !reviseFeedback.value.trim()) {
-    ElMessage.warning('请填写要怎么改')
+    ElMessage.warning(t('planInbox.elMessage_3'))
     return
   }
   acting.value = true
@@ -162,7 +165,7 @@ onBeforeUnmount(() => {
   <div class="plan-page">
     <div class="page-header">
       <div>
-        <h1>计划审批收件箱</h1>
+        <h1>{{ t('planInbox.text_1') }}</h1>
         <p class="page-subtitle">
           IM 投递的待确认计划都在这里。批准后立即创建 pipeline 任务，与用户回复"开干"等价。
         </p>
@@ -171,13 +174,13 @@ onBeforeUnmount(() => {
         </p>
       </div>
       <div class="actions">
-        <el-button :loading="loading" plain @click="refresh">刷新</el-button>
+        <el-button :loading="loading" plain @click="refresh">{{ t('planInbox.text_2') }}</el-button>
       </div>
     </div>
 
     <div v-if="!loading && !plans.length" class="empty">
-      <p>当前没有待确认的计划。</p>
-      <p class="empty-sub">从 IM（飞书 / QQ / Slack）或 OpenClaw 发起新需求后，澄清完会落到这里。</p>
+      <p>{{ t('planInbox.text_3') }}</p>
+      <p class="empty-sub">{{ t('planInbox.text_4') }}</p>
     </div>
 
     <div v-else class="layout">
@@ -215,7 +218,7 @@ onBeforeUnmount(() => {
       </aside>
 
       <section class="main">
-        <div v-if="detailLoading" class="loading-pane">加载详情中…</div>
+        <div v-if="detailLoading" class="loading-pane">{{ t('planInbox.text_5') }}</div>
         <div v-else-if="focusedDetail" class="plan-detail">
           <div class="detail-header card">
             <div>
@@ -269,7 +272,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="card">
-            <div class="section-h">原始需求</div>
+            <div class="section-h">{{ t('planInbox.text_6') }}</div>
             <div class="request-meta">
               <span>来源消息：{{ focusedDetail.source_message_id || '未记录' }}</span>
               <span>
@@ -322,32 +325,32 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="(focusedDetail.plan.risks || []).length" class="card risks">
-            <div class="section-h">⚠ 风险</div>
+            <div class="section-h">{{ t('planInbox.text_7') }}</div>
             <ul>
               <li v-for="(r, i) in focusedDetail.plan.risks" :key="i">{{ r }}</li>
             </ul>
           </div>
         </div>
         <div v-else class="empty-main">
-          <p>左侧选一个 plan 开始</p>
+          <p>{{ t('planInbox.text_8') }}</p>
         </div>
       </section>
     </div>
 
-    <el-dialog v-model="reviseOpen" title="修改计划" width="540px">
+    <el-dialog v-model="reviseOpen" :title="t('planInbox.title_1')" width="540px">
       <el-form>
-        <el-form-item label="说说怎么改">
+        <el-form-item :label="t('planInbox.label_1')">
           <el-input
             v-model="reviseFeedback"
             type="textarea"
             :rows="4"
-            placeholder="例：把 Vue 换成 React；先做后端，前端等等..."
+            :placeholder="t('planInbox.placeholder_1')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="reviseOpen = false">取消</el-button>
-        <el-button type="primary" :loading="acting" @click="submitRevise">重新生成</el-button>
+        <el-button @click="reviseOpen = false">{{ t('planInbox.text_9') }}</el-button>
+        <el-button type="primary" :loading="acting" @click="submitRevise">{{ t('planInbox.text_10') }}</el-button>
       </template>
     </el-dialog>
   </div>

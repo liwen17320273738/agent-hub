@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { useI18n } from 'vue-i18n'
 import { ref, computed, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ChatMessage, Conversation, ConversationSearchHit } from '@/agents/types'
@@ -18,6 +19,7 @@ function loadLocalConversations(): Conversation[] {
 }
 
 export const useChatStore = defineStore('chat', () => {
+  const { t } = useI18n()
   const conversations = ref<Conversation[]>(isEnterpriseBuild ? [] : loadLocalConversations())
   const activeConversationId = ref<string | null>(null)
 
@@ -55,7 +57,7 @@ export const useChatStore = defineStore('chat', () => {
     if (r.status === 409) {
       remoteSyncTail.delete(conversationId)
       await loadRemoteConversations()
-      ElMessage.warning('会话已被其他成员更新，已同步为服务器最新版本')
+      ElMessage.warning(t('chat.elMessage_1'))
       return
     }
     if (!r.ok) {

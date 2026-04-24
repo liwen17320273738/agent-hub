@@ -51,6 +51,15 @@ const router = createRouter({
       name: 'assets',
       component: () => import('@/views/Assets.vue'),
     },
+    {
+      path: '/admin/skills',
+      name: 'admin-skills',
+      // Admin-only marketplace review queue. Route-level guarding is
+      // handled inside the component (checks auth store), because
+      // the guard below only knows about login state; the component
+      // can show a nicer "forbidden" UI for non-admin members.
+      component: () => import('@/views/AdminSkillReview.vue'),
+    },
     // ── Deep links (not in sidebar, reachable by URL) ──
     {
       path: '/pipeline/task/:id',

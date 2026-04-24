@@ -2,13 +2,19 @@
   <div class="not-found-page">
     <div class="not-found-content">
       <h1>404</h1>
-      <p>页面未找到</p>
+      <p>{{ t('notFound.text_1') }}</p>
       <router-link to="/" class="back-link">
-        <el-button type="primary">返回首页</el-button>
+        <el-button type="primary">{{ t('notFound.text_2') }}</el-button>
       </router-link>
     </div>
   </div>
 </template>
+
+<script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+</script>
+
 
 <style scoped>
 .not-found-page {

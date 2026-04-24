@@ -19,7 +19,13 @@
     "backend": "cd backend && uvicorn app.main:app --reload --port 8000",
     "dev:full": "concurrently -k \"pnpm backend\" \"pnpm dev\"",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "i18n:sync": "node scripts/i18n_sync.mjs",
+    "i18n:sync:dry": "node scripts/i18n_sync.mjs --dry-run",
+    "i18n:extract": "node scripts/i18n_extract.mjs",
+    "i18n:extract:apply": "node scripts/i18n_extract.mjs --apply",
+    "i18n:script-strings": "node scripts/i18n_script_strings.mjs",
+    "i18n:script-strings:apply": "node scripts/i18n_script_strings.mjs --apply"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

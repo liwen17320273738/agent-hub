@@ -2,51 +2,51 @@
   <div class="failure-card" v-if="failedStage">
     <div class="fc-header">
       <span class="fc-icon">⚠️</span>
-      <h3>任务执行遇到问题</h3>
+      <h3>{{ t('failureCard.title') }}</h3>
     </div>
 
     <div class="fc-grid">
       <div class="fc-field">
-        <label>卡在哪一关</label>
+        <label>{{ t('failureCard.whichStage') }}</label>
         <p>{{ failedStage.label || failedStage.id }} <span class="fc-role">（{{ failedStage.ownerRole }}）</span></p>
       </div>
 
       <div class="fc-field">
-        <label>卡住原因</label>
+        <label>{{ t('failureCard.whyStuck') }}</label>
         <p>{{ humanReason }}</p>
         <el-collapse v-if="rawError" class="fc-trace">
-          <el-collapse-item title="查看技术详情">
+          <el-collapse-item :title="t('failureCard.viewTechDetails')">
             <pre class="fc-raw">{{ rawError }}</pre>
           </el-collapse-item>
         </el-collapse>
       </div>
 
       <div class="fc-field">
-        <label>谁需要处理</label>
+        <label>{{ t('failureCard.whoHandles') }}</label>
         <el-tag :type="ownerType" size="small">{{ ownerLabel }}</el-tag>
       </div>
 
       <div class="fc-field">
-        <label>下一步怎么办</label>
+        <label>{{ t('failureCard.nextStep') }}</label>
         <div class="fc-actions">
           <el-button size="small" type="primary" @click="$emit('retry', failedStage.id)">
-            重试本阶段
+            {{ t('failureCard.retryStage') }}
           </el-button>
           <el-button size="small" @click="$emit('retry-with-downgrade', failedStage.id)">
-            换模型重试
+            {{ t('failureCard.retryDowngrade') }}
           </el-button>
           <el-button size="small" @click="$emit('rollback', failedStage.id)">
-            打回上一阶段
+            {{ t('failureCard.rollback') }}
           </el-button>
           <el-button size="small" type="warning" @click="$emit('escalate', failedStage.id)">
-            升级到人工
+            {{ t('failureCard.escalate') }}
           </el-button>
         </div>
       </div>
     </div>
 
     <div v-if="rcaSummary" class="fc-rca">
-      <label>AI 诊断建议</label>
+      <label>{{ t('failureCard.aiDiagnosis') }}</label>
       <p>{{ rcaSummary }}</p>
     </div>
   </div>
@@ -54,6 +54,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface StageInfo {
   id: string
@@ -76,6 +77,8 @@ defineEmits<{
   escalate: [stageId: string]
 }>()
 
+const { t } = useI18n()
+
 const failedStage = computed(() =>
   props.stages.find(s => s.status === 'failed') || null
 )
@@ -87,28 +90,28 @@ const rawError = computed(() => {
 
 const humanReason = computed(() => {
   const raw = rawError.value
-  if (!raw) return '未知原因'
-  if (raw.includes('timeout') || raw.includes('超时')) return '调用模型超时'
-  if (raw.includes('rate_limit') || raw.includes('429')) return '模型调用频率超限'
-  if (raw.includes('401') || raw.includes('auth')) return 'API Key 认证失败'
-  if (raw.includes('500')) return '模型服务内部错误'
-  if (raw.includes('context_length') || raw.includes('too long')) return '输入内容超过模型上下文限制'
+  if (!raw) return t('failureCard.reasonUnknown')
+  if (raw.includes('timeout') || raw.includes('超时')) return t('failureCard.reasonTimeout')
+  if (raw.includes('rate_limit') || raw.includes('429')) return t('failureCard.reasonRateLimit')
+  if (raw.includes('401') || raw.includes('auth')) return t('failureCard.reasonAuth')
+  if (raw.includes('500')) return t('failureCard.reasonServer')
+  if (raw.includes('context_length') || raw.includes('too long')) return t('failureCard.reasonContext')
   if (raw.length > 100) return raw.slice(0, 100) + '…'
   return raw
 })
 
 const ownerLabel = computed(() => {
   const reason = humanReason.value
-  if (reason.includes('API Key')) return 'Admin 需要检查密钥配置'
-  if (reason.includes('超限') || reason.includes('频率')) return 'Admin 需要调整额度'
-  if (reason.includes('超时') || reason.includes('错误')) return 'Agent 可以自动重试'
-  if (reason.includes('上下文')) return '用户需要精简 prompt'
-  return 'Agent 可以自动重试'
+  if (reason.includes('API Key') || reason.includes(t('failureCard.reasonAuth'))) return t('failureCard.ownerAdminKey')
+  if (reason.includes('超限') || reason.includes('频率') || reason === t('failureCard.reasonRateLimit')) return t('failureCard.ownerAdminQuota')
+  if (reason.includes('超时') || reason.includes('错误') || reason === t('failureCard.reasonTimeout') || reason === t('failureCard.reasonServer')) return t('failureCard.ownerAgentRetry')
+  if (reason.includes('上下文') || reason === t('failureCard.reasonContext')) return t('failureCard.ownerUserPrompt')
+  return t('failureCard.ownerAgentRetry')
 })
 
 const ownerType = computed(() => {
-  if (ownerLabel.value.startsWith('Admin')) return 'danger'
-  if (ownerLabel.value.startsWith('用户')) return 'warning'
+  if (ownerLabel.value === t('failureCard.ownerAdminKey') || ownerLabel.value === t('failureCard.ownerAdminQuota')) return 'danger'
+  if (ownerLabel.value === t('failureCard.ownerUserPrompt')) return 'warning'
   return 'primary'
 })
 </script>

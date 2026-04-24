@@ -20,8 +20,14 @@ _loaded_skills: Dict[str, Dict[str, Any]] = {}
 
 
 def _parse_yaml_simple(text: str) -> Dict[str, Any]:
-    """Minimal YAML parser for flat key-value frontmatter (avoids PyYAML dep)."""
+    """Minimal YAML parser for flat key-value frontmatter (avoids PyYAML dep).
+
+    Supports scalar values + comma-separated lists for keys ending in
+    'tags', 'stages', 'tools', 'criteria'.
+    """
     result: Dict[str, Any] = {}
+    _LIST_KEYS = {"tags", "trigger_stages", "trigger-stages", "allowed_tools", "allowed-tools",
+                  "completion_criteria", "completion-criteria"}
     for line in text.strip().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -31,14 +37,17 @@ def _parse_yaml_simple(text: str) -> Dict[str, Any]:
         key, _, value = line.partition(":")
         key = key.strip()
         value = value.strip()
+        norm_key = key.replace("-", "_")
         if value.lower() in ("true", "yes"):
-            result[key] = True
+            result[norm_key] = True
         elif value.lower() in ("false", "no"):
-            result[key] = False
+            result[norm_key] = False
         elif value.isdigit():
-            result[key] = int(value)
+            result[norm_key] = int(value)
+        elif norm_key in _LIST_KEYS or key in _LIST_KEYS:
+            result[norm_key] = [t.strip().strip("'\"") for t in value.split(",") if t.strip()]
         else:
-            result[key] = value.strip("'\"")
+            result[norm_key] = value.strip("'\"")
     return result
 
 
@@ -72,7 +81,11 @@ def _parse_skill_md(path: Path) -> Optional[Dict[str, Any]]:
         "version": meta.get("version", "1.0.0"),
         "author": meta.get("author", "community"),
         "license": meta.get("license", ""),
-        "tags": [t.strip() for t in meta.get("tags", "").split(",") if t.strip()] or [meta["name"]],
+        "tags": meta.get("tags") if isinstance(meta.get("tags"), list) else [t.strip() for t in str(meta.get("tags", "")).split(",") if t.strip()] or [meta["name"]],
+        "trigger_stages": meta.get("trigger_stages", []),
+        "completion_criteria": meta.get("completion_criteria", []),
+        "allowed_tools": meta.get("allowed_tools", []),
+        "execution_mode": meta.get("execution_mode", "inline"),
         "prompt_body": body,
         "source_path": str(path),
         "input_schema": {

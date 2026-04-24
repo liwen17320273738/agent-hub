@@ -2,23 +2,23 @@
   <div class="login-page">
     <div class="login-card">
       <h1>Agent Hub</h1>
-      <p class="subtitle">企业账号登录 · 组织共享会话与统一模型网关</p>
+      <p class="subtitle">{{ t('login.subtitle') }}</p>
       <el-form :model="form" @submit.prevent="onSubmit" label-position="top" class="login-form">
-        <el-form-item label="邮箱">
+        <el-form-item :label="t('login.email')">
           <el-input v-model="form.email" type="email" autocomplete="username" placeholder="name@company.com" />
         </el-form-item>
-        <el-form-item label="密码">
+        <el-form-item :label="t('login.password')">
           <el-input
             v-model="form.password"
             type="password"
             autocomplete="current-password"
             show-password
-            placeholder="密码"
+            :placeholder="t('login.password')"
             @keyup.enter="onSubmit"
           />
         </el-form-item>
         <el-button type="primary" class="submit-btn" :loading="loading" native-type="submit">
-          登录
+          {{ t('login.submit') }}
         </el-button>
       </el-form>
       <p v-if="error" class="error-text">{{ error }}</p>
@@ -29,11 +29,13 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const form = reactive({ email: '', password: '' })
 const loading = ref(false)
@@ -42,7 +44,7 @@ const error = ref('')
 async function onSubmit() {
   error.value = ''
   if (!form.email.trim() || !form.password) {
-    error.value = '请输入邮箱与密码'
+    error.value = t('login.errEmpty')
     return
   }
   loading.value = true
@@ -52,7 +54,7 @@ async function onSubmit() {
     if (!redirect.startsWith('/') || redirect.startsWith('//')) redirect = '/'
     await router.replace(redirect)
   } catch (e) {
-    error.value = e instanceof Error ? e.message : '登录失败'
+    error.value = e instanceof Error ? e.message : t('login.errGeneric')
   } finally {
     loading.value = false
   }

@@ -23,6 +23,7 @@ class AgentOut(BaseModel):
     category: str
     pipeline_role: Optional[str] = None
     capabilities: dict = {}
+    role_card: dict = {}
     preferred_model: Optional[str] = None
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -49,6 +50,7 @@ class AgentCreate(BaseModel):
     category: str = "support"
     pipeline_role: Optional[str] = None
     capabilities: dict = {}
+    role_card: dict = {}
     preferred_model: Optional[str] = None
     max_tokens: int = 4096
     temperature: float = 0.7
@@ -65,6 +67,7 @@ class AgentUpdate(BaseModel):
     category: Optional[str] = None
     pipeline_role: Optional[str] = None
     capabilities: Optional[dict] = None
+    role_card: Optional[dict] = None
     preferred_model: Optional[str] = None
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None

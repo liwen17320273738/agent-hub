@@ -10,7 +10,7 @@ so the e2e pipeline never fails because of notification issues.
 """
 from __future__ import annotations
 
-from .dispatcher import notify_task_event, notify_user_text, NotifyResult
+from .dispatcher import notify_task_event, notify_user_text, broadcast_task_event, NotifyResult
 from . import slack  # noqa: F401  — registered for direct imports
 
-__all__ = ["notify_task_event", "notify_user_text", "NotifyResult", "slack"]
+__all__ = ["notify_task_event", "notify_user_text", "broadcast_task_event", "NotifyResult", "slack"]

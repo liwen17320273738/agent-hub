@@ -20,13 +20,13 @@ from ..models.task_artifact import TaskArtifact
 logger = logging.getLogger(__name__)
 
 STAGE_TO_ARTIFACT: dict[str, str] = {
-    "planning":     "brief",
+    "planning":     "prd",
     "design":       "ui_spec",
     "architecture": "architecture",
     "development":  "code_link",
     "testing":      "test_report",
     "reviewing":    "acceptance",
-    "deployment":   "ops_runbook",
+    "deployment":   "deploy_manifest",
 }
 
 STAGE_TO_DOC_FILE: dict[str, str] = {
@@ -36,7 +36,7 @@ STAGE_TO_DOC_FILE: dict[str, str] = {
     "development":  "docs/04-implementation-notes.md",
     "testing":      "docs/05-test-report.md",
     "reviewing":    "docs/06-acceptance.md",
-    "deployment":   "docs/07-ops-runbook.md",
+    "deployment":   "docs/deploy-manifest.md",
 }
 
 
@@ -44,20 +44,24 @@ def _content_hash(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
 
 
-async def write_artifact_v2(
+def _brief_from_planning(title: str, content: str) -> str:
+    """Short brief for requirements tab; PRD row holds full planning output."""
+    head = (content or "").strip()
+    cap = 4500
+    if len(head) > cap:
+        head = head[:cap] + "\n\n…(完整 PRD 见「PRD」工件与 docs/01-prd.md)"
+    return f"# 需求简报 — {title}\n\n{head}\n"
+
+
+async def _write_one_artifact(
     db: AsyncSession,
     task_id: str,
     stage_id: str,
+    artifact_type: str,
     content: str,
+    storage_path: str,
     agent_name: Optional[str] = None,
-) -> Optional[TaskArtifact]:
-    if not settings.artifact_store_v2:
-        return None
-
-    artifact_type = STAGE_TO_ARTIFACT.get(stage_id)
-    if not artifact_type:
-        return None
-
+) -> TaskArtifact:
     tid = uuid.UUID(task_id) if isinstance(task_id, str) else task_id
 
     existing = await db.execute(
@@ -83,7 +87,7 @@ async def write_artifact_v2(
         title=artifact_type,
         content=content,
         content_hash=_content_hash(content),
-        storage_path=STAGE_TO_DOC_FILE.get(stage_id, ""),
+        storage_path=storage_path,
         version=new_version,
         is_latest=True,
         status="active",
@@ -91,15 +95,81 @@ async def write_artifact_v2(
     )
     db.add(art)
     await db.flush()
+    logger.info(
+        "[artifact_writer] Wrote %s v%d for task %s",
+        artifact_type, new_version, task_id,
+    )
+    return art
+
+
+async def write_artifact_v2(
+    db: AsyncSession,
+    task_id: str,
+    stage_id: str,
+    content: str,
+    agent_name: Optional[str] = None,
+) -> Optional[TaskArtifact]:
+    if not settings.artifact_store_v2:
+        return None
+
+    artifact_type = STAGE_TO_ARTIFACT.get(stage_id)
+    if not artifact_type:
+        return None
+
+    art = await _write_one_artifact(
+        db, task_id, stage_id, artifact_type, content,
+        STAGE_TO_DOC_FILE.get(stage_id, ""), agent_name,
+    )
+    try:
+        from .manifest_sync import trigger_manifest_refresh
+        await trigger_manifest_refresh(str(task_id))
+    except Exception:
+        pass
+    return art
+
+
+async def write_stage_artifacts_v2(
+    db: AsyncSession,
+    task_id: str,
+    task_title: str,
+    stage_id: str,
+    content: str,
+    agent_name: Optional[str] = None,
+) -> list[TaskArtifact]:
+    """Persist all v2 artifacts for a stage (planning→brief+prd, dev→implementation+code_link)."""
+    if not settings.artifact_store_v2 or not (content or "").strip():
+        return []
+
+    written: list[TaskArtifact] = []
+
+    if stage_id == "planning":
+        brief = _brief_from_planning(task_title or "任务", content)
+        written.append(await _write_one_artifact(
+            db, task_id, stage_id, "brief", brief, "docs/00-brief.md", agent_name,
+        ))
+        written.append(await _write_one_artifact(
+            db, task_id, stage_id, "prd", content, STAGE_TO_DOC_FILE["planning"], agent_name,
+        ))
+    elif stage_id == "development":
+        written.append(await _write_one_artifact(
+            db, task_id, stage_id, "implementation", content,
+            STAGE_TO_DOC_FILE["development"], agent_name,
+        ))
+        written.append(await _write_one_artifact(
+            db, task_id, stage_id, "code_link", content,
+            "docs/code-snapshot.md", agent_name,
+        ))
+    else:
+        at = STAGE_TO_ARTIFACT.get(stage_id)
+        if at:
+            written.append(await _write_one_artifact(
+                db, task_id, stage_id, at, content,
+                STAGE_TO_DOC_FILE.get(stage_id, ""), agent_name,
+            ))
 
     try:
         from .manifest_sync import trigger_manifest_refresh
         await trigger_manifest_refresh(str(task_id))
     except Exception:
         pass
-
-    logger.info(
-        "[artifact_writer] Wrote %s v%d for task %s",
-        artifact_type, new_version, task_id,
-    )
-    return art
+    return written

@@ -1,9 +1,9 @@
 <template>
   <div v-if="!agent" class="chat-page" style="display: flex; align-items: center; justify-content: center;">
     <div style="text-align: center; color: var(--text-secondary);">
-      <p style="font-size: 18px; margin-bottom: 12px;">未找到该 Agent</p>
+      <p style="font-size: 18px; margin-bottom: 12px;">{{ t('agentChat.text_1') }}</p>
       <router-link to="/">
-        <el-button type="primary">返回首页</el-button>
+        <el-button type="primary">{{ t('agentChat.text_2') }}</el-button>
       </router-link>
     </div>
   </div>
@@ -15,7 +15,7 @@
           <component :is="resolveAgentIcon(agent.icon)" />
         </el-icon>
         <span class="conv-agent-name">{{ agent.name }}</span>
-        <router-link :to="`/agent/${agent.id}/profile`" class="profile-link" title="查看专家档案">
+        <router-link :to="`/agent/${agent.id}/profile`" class="profile-link" :title="t('agentChat.title_1')">
           <el-icon :size="16"><User /></el-icon>
         </router-link>
       </div>
@@ -30,7 +30,7 @@
           v-model="convListFilter"
           clearable
           size="small"
-          placeholder="筛选本会话列表…"
+          :placeholder="t('agentChat.placeholder_1')"
         />
       </div>
 
@@ -55,7 +55,7 @@
     <div class="chat-area">
       <div v-if="pipelineTask" class="pipeline-context-banner">
         <el-icon><Connection /></el-icon>
-        <span>流水线任务: <strong>{{ pipelineTask.title }}</strong> ({{ pipelineTask.currentStageId }})</span>
+        <span>{{ t('agentChat.text_3') }}<strong>{{ pipelineTask.title }}</strong> ({{ pipelineTask.currentStageId }})</span>
         <router-link :to="`/pipeline/task/${pipelineTask.id}`" class="pipeline-link">
           查看任务
         </router-link>
@@ -89,7 +89,7 @@
           v-model="deliveryTargetDoc"
           size="small"
           class="delivery-target-select"
-          placeholder="写入交付文档"
+          :placeholder="t('agentChat.placeholder_2')"
         >
           <el-option v-for="doc in deliveryDocOptions" :key="doc.name" :label="doc.title" :value="doc.name" />
         </el-select>
@@ -115,7 +115,7 @@
         </router-link>
 
         <div class="quick-prompts">
-          <h3>快速开始</h3>
+          <h3>{{ t('agentChat.text_4') }}</h3>
           <div class="prompt-grid">
             <div
               v-for="(prompt, i) in agent.quickPrompts"
@@ -133,8 +133,8 @@
       <div v-else-if="showWayneRouterPanel" class="wayne-router-panel">
         <div class="wayne-router-header">
           <div>
-            <h3>Agent Hub 总控分流台</h3>
-            <p>输入任务后，系统会推荐下一个角色与推荐模型，并支持一键转交。</p>
+            <h3>{{ t('agentChat.text_5') }}</h3>
+            <p>{{ t('agentChat.text_6') }}</p>
           </div>
           <el-tag type="warning" effect="plain">Orchestrator</el-tag>
         </div>
@@ -143,12 +143,12 @@
           v-model="wayneRoutingTask"
           type="textarea"
           :rows="3"
-          placeholder="例如：我要做登录与权限重构，但还没写 PRD，先帮我判断该从哪个阶段开始。"
+          :placeholder="t('agentChat.placeholder_3')"
         />
 
         <div class="wayne-router-actions">
-          <el-button type="primary" @click="refreshWayneSuggestions">分析任务</el-button>
-          <el-button text @click="resetWayneRouting">清空</el-button>
+          <el-button type="primary" @click="refreshWayneSuggestions">{{ t('agentChat.text_7') }}</el-button>
+          <el-button text @click="resetWayneRouting">{{ t('agentChat.text_8') }}</el-button>
         </div>
 
         <div class="wayne-suggestion-list">
@@ -220,7 +220,7 @@
             v-model="inputText"
             type="textarea"
             :autosize="{ minRows: 1, maxRows: 6 }"
-            placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+            :placeholder="t('agentChat.placeholder_4')"
             @keydown="handleKeydown"
             :disabled="isThisConvGenerating"
           />
@@ -245,10 +245,10 @@
       </div>
     </div>
 
-    <el-dialog v-model="editDialogVisible" title="编辑消息并重发" width="520px" destroy-on-close>
+    <el-dialog v-model="editDialogVisible" :title="t('agentChat.title_2')" width="520px" destroy-on-close>
       <el-input v-model="editDraft" type="textarea" :autosize="{ minRows: 4, maxRows: 14 }" />
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button @click="editDialogVisible = false">{{ t('agentChat.text_9') }}</el-button>
         <el-button type="primary" :disabled="!editDraft.trim()" @click="confirmEditUser">
           保存并重新生成
         </el-button>
@@ -281,6 +281,9 @@ import {
   type WayneRouteSuggestion,
 } from '@/services/wayneRouting'
 import { resolveAgentIcon } from '@/utils/agentIcon'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -467,7 +470,7 @@ async function launchSeedPrompt(seed: string) {
   if (!settingsStore.isConfigured()) {
     inputText.value = promptText
     await router.replace({ name: 'agent-chat', params: { id: currentAgent.id } })
-    ElMessage.warning('尚未配置模型，已将建议提示词填入输入框')
+    ElMessage.warning(t('agentChat.elMessage_1'))
     return
   }
 
@@ -590,13 +593,13 @@ async function confirmEditUser() {
   const text = editDraft.value.trim()
   if (!text) return
   if (!settingsStore.isConfigured()) {
-    ElMessage.warning('请先在设置页面配置 API Key')
+    ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
   if (chatStore.isGeneratingFor(conv.id)) return
 
   if (!chatStore.editUserMessageAndTruncate(conv.id, mid, text)) {
-    ElMessage.error('无法编辑该消息')
+    ElMessage.error(t('agentChat.elMessage_3'))
     editDialogVisible.value = false
     return
   }
@@ -643,7 +646,7 @@ function exportMarkdown() {
     `${safeFilename(conv.title)}.md`,
     new Blob([md], { type: 'text/markdown;charset=utf-8' }),
   )
-  ElMessage.success('已下载 Markdown')
+  ElMessage.success(t('agentChat.elMessage_4'))
 }
 
 function exportJson() {
@@ -659,18 +662,18 @@ function exportJson() {
     `${safeFilename(conv.title)}.json`,
     new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }),
   )
-  ElMessage.success('已下载 JSON')
+  ElMessage.success(t('agentChat.elMessage_5'))
 }
 
 async function generateConversationSummary() {
   if (!activeConv.value || !agent.value) return
   if (!settingsStore.isConfigured()) {
-    ElMessage.warning('请先在设置页面配置 API Key')
+    ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
   const conv = activeConv.value
   if (conv.messages.length < 2) {
-    ElMessage.warning('请先进行至少一轮对话')
+    ElMessage.warning(t('agentChat.elMessage_6'))
     return
   }
   if (summarizing.value || chatStore.isGeneratingFor(conv.id)) return
@@ -693,7 +696,7 @@ async function generateConversationSummary() {
       settingsStore.settings,
     )
     chatStore.setConversationSummary(conv.id, summary)
-    ElMessage.success('摘要已保存，后续对话会自动带上')
+    ElMessage.success(t('agentChat.elMessage_7'))
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e)
     ElMessage.error(`摘要生成失败: ${message}`)
@@ -745,7 +748,7 @@ async function invokeModelCompletion(convId: string) {
   } catch (e: unknown) {
     const aborted = e instanceof DOMException && e.name === 'AbortError'
     if (aborted) {
-      ElMessage.info('已停止生成')
+      ElMessage.info(t('agentChat.elMessage_8'))
     } else {
       const message = e instanceof Error ? e.message : String(e)
       requestError.value = { conversationId: convId, message }
@@ -761,13 +764,13 @@ async function invokeModelCompletion(convId: string) {
 async function regenerateLast() {
   if (!agent.value || !activeConv.value) return
   if (!settingsStore.isConfigured()) {
-    ElMessage.warning('请先在设置页面配置 API Key')
+    ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
   const conv = activeConv.value
   if (chatStore.isGeneratingFor(conv.id)) return
   if (!chatStore.removeLastAssistant(conv.id)) {
-    ElMessage.info('没有可重新生成的助手回复')
+    ElMessage.info(t('agentChat.elMessage_9'))
     return
   }
   requestError.value = null
@@ -779,7 +782,7 @@ async function sendMessage() {
   if (!inputText.value.trim() || !agent.value) return
 
   if (!settingsStore.isConfigured()) {
-    ElMessage.warning('请先在设置页面配置 API Key')
+    ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
 

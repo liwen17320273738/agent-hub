@@ -1,7 +1,7 @@
 <template>
   <div class="digest-view">
     <header class="digest-header">
-      <h1>Agent 周报 · 退化检测</h1>
+      <h1>{{ t('insightsDigest.text_1') }}</h1>
       <p class="digest-sub">
         对比最近窗口与上一窗口的 Eval 通过率、平均得分、span p95 延迟与 stage
         失败率，自动列出"在退化"的 agent。
@@ -10,19 +10,19 @@
 
     <section class="digest-controls">
       <el-form inline :model="form" size="small">
-        <el-form-item label="近 N 天">
+        <el-form-item :label="t('insightsDigest.label_1')">
           <el-input-number v-model="form.since_days" :min="1" :max="60" />
         </el-form-item>
-        <el-form-item label="对比窗 N 天">
+        <el-form-item :label="t('insightsDigest.label_2')">
           <el-input-number v-model="form.prev_days" :min="1" :max="120" />
         </el-form-item>
-        <el-form-item label="通过率回落阈值">
+        <el-form-item :label="t('insightsDigest.label_3')">
           <el-input-number v-model="form.pass_rate_drop" :step="0.05" :min="0" :max="1" :precision="2" />
         </el-form-item>
-        <el-form-item label="得分回落阈值">
+        <el-form-item :label="t('insightsDigest.label_4')">
           <el-input-number v-model="form.score_drop" :step="0.05" :min="0" :max="1" :precision="2" />
         </el-form-item>
-        <el-form-item label="p95 增幅阈值">
+        <el-form-item :label="t('insightsDigest.label_5')">
           <el-input-number v-model="form.latency_increase" :step="0.1" :min="0" :max="10" :precision="2" />
         </el-form-item>
         <el-form-item>
@@ -37,15 +37,15 @@
       <el-card>
         <div class="summary-row">
           <div>
-            <strong>当前窗口：</strong>{{ digest.current_window.since.slice(0, 10) }} ～
+            <strong>{{ t('insightsDigest.text_2') }}</strong>{{ digest.current_window.since.slice(0, 10) }} ～
             {{ digest.current_window.until.slice(0, 10) }}（{{ digest.current_window.days }} 天）
           </div>
           <div>
-            <strong>对比窗口：</strong>{{ digest.previous_window.since.slice(0, 10) }} ～
+            <strong>{{ t('insightsDigest.text_3') }}</strong>{{ digest.previous_window.since.slice(0, 10) }} ～
             {{ digest.previous_window.until.slice(0, 10) }}（{{ digest.previous_window.days }} 天）
           </div>
           <div>
-            <strong>退化角色：</strong>
+            <strong>{{ t('insightsDigest.text_4') }}</strong>
             <el-tag :type="digest.regressions_count ? 'danger' : 'success'">
               {{ digest.regressions_count }}
             </el-tag>
@@ -55,7 +55,7 @@
     </section>
 
     <section v-if="digest && digest.regressions.length" class="digest-regressions">
-      <h2>⚠ 退化的 agent</h2>
+      <h2>{{ t('insightsDigest.text_5') }}</h2>
       <el-card v-for="r in digest.regressions" :key="r.role" class="reg-card">
         <div class="reg-head">
           <span class="reg-role">{{ r.role }}</span>
@@ -72,30 +72,30 @@
     <el-dialog v-model="optDialog" :title="`AI 优化提示词 · ${optAgentId}`" width="780px" :close-on-click-modal="false">
       <div v-if="optLoading" class="opt-loading">
         <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
-        <p>正在分析最近的 Eval 失败用例并请求 LLM 改写系统提示…</p>
+        <p>{{ t('insightsDigest.text_6') }}</p>
       </div>
-      <div v-else-if="!optResult" class="opt-empty">未生成提案</div>
+      <div v-else-if="!optResult" class="opt-empty">{{ t('insightsDigest.text_7') }}</div>
       <div v-else-if="optResult.skipped">
         <el-alert type="success" :closable="false">
           {{ optResult.reason || '当前提示词在最近 eval 中无失败用例，无需修改。' }}
         </el-alert>
       </div>
       <div v-else class="opt-result">
-        <h3>改写理由</h3>
+        <h3>{{ t('insightsDigest.text_8') }}</h3>
         <p class="opt-rationale">{{ optResult.rationale }}</p>
-        <h3 v-if="(optResult.diff_summary || []).length">改动要点</h3>
+        <h3 v-if="(optResult.diff_summary || []).length">{{ t('insightsDigest.text_9') }}</h3>
         <ul v-if="(optResult.diff_summary || []).length">
           <li v-for="(d, i) in optResult.diff_summary" :key="i">{{ d }}</li>
         </ul>
-        <h3>新提示词预览</h3>
+        <h3>{{ t('insightsDigest.text_10') }}</h3>
         <el-input v-model="optResult.new_prompt" type="textarea" :rows="14" />
         <details class="opt-old">
-          <summary>查看原提示词</summary>
+          <summary>{{ t('insightsDigest.text_11') }}</summary>
           <pre>{{ optResult.old_prompt }}</pre>
         </details>
       </div>
       <template #footer>
-        <el-button @click="optDialog = false">关闭</el-button>
+        <el-button @click="optDialog = false">{{ t('insightsDigest.text_12') }}</el-button>
         <el-button v-if="optResult && !optResult.skipped" type="primary" @click="applyOptimization" :loading="optApplying">
           ✅ 应用此提示词
         </el-button>
@@ -159,6 +159,9 @@ import { getWeeklyDigest } from '@/services/observabilityApi'
 import type { WeeklyDigest } from '@/services/observabilityApi'
 import { applyPromptRevision, optimizePrompt } from '@/services/agentApi'
 import type { PromptRevision } from '@/services/agentApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const ROLE_TO_AGENT_ID: Record<string, string> = {
   ceo: 'wayne-ceo',

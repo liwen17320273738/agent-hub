@@ -20,6 +20,9 @@ import {
   type McpPreset,
 } from '@/data/mcpPresets'
 import { getAgentMcpUrlSuggestions } from '@/data/agentMcpUrlSuggestions'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface McpUrlPickOption {
   value: string
@@ -239,7 +242,7 @@ const probeFailureHint = computed(() => {
 
 async function probe() {
   if (!addForm.server_url.trim()) {
-    ElMessage.warning('请填写 server URL')
+    ElMessage.warning(t('mcpServers.elMessage_1'))
     return
   }
   probing.value = true
@@ -260,11 +263,11 @@ async function probe() {
 
 async function submitAdd() {
   if (!addForm.agent_id) {
-    ElMessage.warning('请选择要绑定的 agent')
+    ElMessage.warning(t('mcpServers.elMessage_2'))
     return
   }
   if (!addForm.name.trim() || !addForm.server_url.trim()) {
-    ElMessage.warning('请填写 name 和 server URL')
+    ElMessage.warning(t('mcpServers.elMessage_3'))
     return
   }
   submitting.value = true
@@ -277,7 +280,7 @@ async function submitAdd() {
       enabled: addForm.enabled,
       auto_refresh: addForm.auto_refresh,
     })
-    ElMessage.success('已添加')
+    ElMessage.success(t('mcpServers.elMessage_4'))
     addOpen.value = false
     await refresh()
   } catch (e) {
@@ -311,7 +314,7 @@ async function removeOne(rec: McpRecord) {
   )
   try {
     await deleteMcp(rec.id)
-    ElMessage.success('已删除')
+    ElMessage.success(t('mcpServers.elMessage_5'))
     await refresh()
   } catch (e) {
     ElMessage.error(`删除失败：${(e as Error).message}`)
@@ -371,23 +374,23 @@ onMounted(refresh)
   <div class="mcp-page">
     <div class="page-header">
       <div>
-        <h1>MCP 服务器</h1>
+        <h1>{{ t('mcpServers.text_1') }}</h1>
         <p class="page-subtitle">
           把外部工具（GitHub、Slack、文件系统、自建服务…）通过 MCP 协议接给某个 agent。
-          挂上以后，agent 在 <router-link to="/agents-console">专家工作台</router-link> 与流水线里都能直接调用。
+          挂上以后，agent 在 <router-link to="/agents-console">{{ t('mcpServers.text_2') }}</router-link> 与流水线里都能直接调用。
         </p>
       </div>
       <div class="actions">
-        <el-button :loading="loading" plain @click="refresh">刷新</el-button>
-        <el-button type="primary" @click="openAdd">+ 添加 MCP</el-button>
+        <el-button :loading="loading" plain @click="refresh">{{ t('mcpServers.text_3') }}</el-button>
+        <el-button type="primary" @click="openAdd">{{ t('mcpServers.text_4') }}</el-button>
       </div>
     </div>
 
     <div class="filter-bar">
-      <span class="filter-label">按 agent 过滤：</span>
+      <span class="filter-label">{{ t('mcpServers.text_5') }}</span>
       <el-select
         v-model="filterAgent"
-        placeholder="全部"
+        :placeholder="t('mcpServers.placeholder_1')"
         clearable
         size="small"
         style="width: 240px"
@@ -398,7 +401,7 @@ onMounted(refresh)
     </div>
 
     <div v-if="!loading && filteredMcps.length === 0" class="empty">
-      <p>还没有 MCP 服务器。点右上角"+ 添加 MCP"开始。</p>
+      <p>{{ t('mcpServers.text_6') }}</p>
     </div>
 
     <div class="mcp-grid">
@@ -436,16 +439,16 @@ onMounted(refresh)
           <el-button size="small" type="primary" plain @click="openToolDrawer(rec)">
             调试工具
           </el-button>
-          <el-button size="small" type="danger" plain @click="removeOne(rec)">删除</el-button>
+          <el-button size="small" type="danger" plain @click="removeOne(rec)">{{ t('mcpServers.text_7') }}</el-button>
         </div>
       </div>
     </div>
 
     <!-- Add dialog -->
-    <el-dialog v-model="addOpen" title="添加 MCP 服务器" width="640px" :close-on-click-modal="false">
+    <el-dialog v-model="addOpen" :title="t('mcpServers.title_1')" width="640px" :close-on-click-modal="false">
       <el-form label-width="120px" label-position="left">
-        <el-form-item label="绑定到 agent">
-          <el-select v-model="addForm.agent_id" placeholder="先选择 agent" filterable>
+        <el-form-item :label="t('mcpServers.label_1')">
+          <el-select v-model="addForm.agent_id" :placeholder="t('mcpServers.placeholder_2')" filterable>
             <el-option
               v-for="a in agents"
               :key="a.id"
@@ -457,10 +460,10 @@ onMounted(refresh)
             选择后将自动检索：① 该 agent 已绑定的 MCP 地址 ② 该角色推荐占位 ③ 全局预设模板，并填入下方「Server URL」下拉框。
           </p>
         </el-form-item>
-        <el-form-item label="快速选择">
+        <el-form-item :label="t('mcpServers.label_2')">
           <el-select
             v-model="selectedPresetId"
-            placeholder="选择预设模板"
+            :placeholder="t('mcpServers.placeholder_3')"
             filterable
             style="width: 100%"
             :disabled="!addForm.agent_id"
@@ -480,9 +483,9 @@ onMounted(refresh)
             target="_blank"
             rel="noopener noreferrer"
             class="preset-doc-link"
-          >官方文档</a>
+          >{{ t('mcpServers.text_8') }}</a>
         </el-form-item>
-        <el-form-item label="名称">
+        <el-form-item :label="t('mcpServers.label_3')">
           <el-input v-model="addForm.name" placeholder="github / slack / filesystem ..." />
         </el-form-item>
         <el-form-item label="Server URL">
@@ -492,7 +495,7 @@ onMounted(refresh)
             allow-create
             default-first-option
             clearable
-            placeholder="选择或输入 MCP 地址"
+            :placeholder="t('mcpServers.placeholder_4')"
             style="width: 100%"
             :loading="loadingUrlOptions"
             :disabled="!addForm.agent_id"
@@ -505,32 +508,32 @@ onMounted(refresh)
               :value="o.value"
             />
           </el-select>
-          <p v-if="!addForm.agent_id" class="preset-hint">请先选择要绑定的 agent。</p>
+          <p v-if="!addForm.agent_id" class="preset-hint">{{ t('mcpServers.text_9') }}</p>
           <p v-else-if="!loadingUrlOptions && mcpUrlOptions.length === 0" class="preset-hint">
             暂无候选地址，可直接在输入框中填写 URL。
           </p>
         </el-form-item>
-        <el-form-item label="API Key（可选）">
-          <el-input v-model="addForm.api_key" type="password" show-password placeholder="留空表示无认证" />
+        <el-form-item :label="t('mcpServers.label_4')">
+          <el-input v-model="addForm.api_key" type="password" show-password :placeholder="t('mcpServers.placeholder_5')" />
           <p class="preset-hint">
             GitHub 官方远程：填 PAT 或 OAuth token（由后端以 Bearer 发给 MCP 地址）。这与浏览器请求本站 /api 时带的登录 JWT 是两路认证；无令牌时 config 为空，探测会收到 401。
           </p>
         </el-form-item>
-        <el-form-item v-if="addForm.api_key.trim()" label="认证头">
+        <el-form-item v-if="addForm.api_key.trim()" :label="t('mcpServers.label_5')">
           <el-input v-model="addForm.auth_header" style="width: 200px" />
           <el-input v-model="addForm.auth_scheme" style="width: 120px; margin-left: 8px" placeholder="Bearer" />
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('mcpServers.label_6')">
           <el-switch v-model="addForm.enabled" />
         </el-form-item>
-        <el-form-item label="自动拉取工具">
+        <el-form-item :label="t('mcpServers.label_7')">
           <el-switch v-model="addForm.auto_refresh" />
-          <span class="hint">建议开启：保存时立即拉一次工具目录</span>
+          <span class="hint">{{ t('mcpServers.text_10') }}</span>
         </el-form-item>
       </el-form>
 
       <div class="probe-row">
-        <el-button :loading="probing" @click="probe">先探测</el-button>
+        <el-button :loading="probing" @click="probe">{{ t('mcpServers.text_11') }}</el-button>
         <span v-if="probeResult" :class="['probe-status', probeResult.ok ? 'ok' : 'fail']">
           {{ probeResult.ok ? `✓ 探测成功，${probeResult.tools?.length || 0} 个工具` : `✗ ${probeResult.error}` }}
           <span class="probe-elapsed">({{ probeResult.elapsed_ms }}ms)</span>
@@ -552,8 +555,8 @@ onMounted(refresh)
       </div>
 
       <template #footer>
-        <el-button @click="addOpen = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="submitAdd">保存</el-button>
+        <el-button @click="addOpen = false">{{ t('mcpServers.text_12') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitAdd">{{ t('mcpServers.text_13') }}</el-button>
       </template>
     </el-dialog>
 

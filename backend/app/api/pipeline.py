@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any, Dict, List, Optional
 
 import httpx
@@ -1027,6 +1029,132 @@ async def marketplace_install(
     except Exception as e:
         logger.exception("marketplace install failed for %s", slug)
         raise HTTPException(status_code=500, detail=f"安装失败: {e}")
+
+
+# ── Phase 2: review pipeline ──────────────────────────────────────────
+# Crawler output lands in one of two files — ``github_skill_registry.json``
+# (trusted, served to market directly) or ``github_pending_registry.json``
+# (untrusted, visible only via the pending endpoints below). The approve
+# endpoint promotes an entry from pending → trusted by writing to both
+# files; reject simply drops it from pending. These are admin-only
+# because they decide what the whole org sees in the market.
+
+def _require_admin(user: Optional[User]) -> User:
+    if not user:
+        raise HTTPException(status_code=403, detail="需要登录")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
+    return user
+
+
+def _load_json(path: Path) -> Dict[str, Any]:
+    """Read a registry JSON, returning an empty skeleton on miss/parse error."""
+    if not path.exists():
+        return {"version": 2, "skills": []}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("pending registry parse failed at %s", path)
+        return {"version": 2, "skills": []}
+
+
+def _dump_json(path: Path, doc: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+@router.get("/marketplace/pending")
+async def marketplace_pending(
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+):
+    """Return skills the crawler found but haven't been approved yet."""
+    _require_admin(user)
+    from ..services.skill_registry import GITHUB_PENDING_REGISTRY_PATH
+    doc = _load_json(GITHUB_PENDING_REGISTRY_PATH)
+    return {
+        "items": doc.get("skills", []),
+        "generated_at": doc.get("generated_at"),
+        "sources": doc.get("sources", []),
+    }
+
+
+@router.post("/marketplace/approve/{slug}")
+async def marketplace_approve(
+    slug: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+):
+    """Promote a pending entry to the trusted registry.
+
+    No DB write here — approval is a registry-level decision and only
+    takes effect once the user actually clicks "Install" in the UI.
+    """
+    _require_admin(user)
+    from ..services.skill_registry import (
+        GITHUB_PENDING_REGISTRY_PATH,
+        GITHUB_REGISTRY_PATH,
+        refresh_registry_cache,
+    )
+
+    pending_doc = _load_json(GITHUB_PENDING_REGISTRY_PATH)
+    pending_skills = pending_doc.get("skills", [])
+    match = next((s for s in pending_skills if s.get("slug") == slug), None)
+    if not match:
+        raise HTTPException(status_code=404, detail="未找到待审核条目")
+
+    trusted_doc = _load_json(GITHUB_REGISTRY_PATH)
+    trusted_skills = trusted_doc.get("skills", [])
+    # Replace if already present (re-approval), otherwise append.
+    trusted_skills = [s for s in trusted_skills if s.get("slug") != slug]
+    match["trusted"] = True
+    trusted_skills.append(match)
+    trusted_doc["skills"] = trusted_skills
+    trusted_doc.setdefault("version", 2)
+    _dump_json(GITHUB_REGISTRY_PATH, trusted_doc)
+
+    pending_doc["skills"] = [s for s in pending_skills if s.get("slug") != slug]
+    _dump_json(GITHUB_PENDING_REGISTRY_PATH, pending_doc)
+
+    refresh_registry_cache()
+    logger.info("marketplace: %s approved %s", user.email or user.id, slug)
+    return {"ok": True, "slug": slug, "promoted_to": "trusted"}
+
+
+@router.post("/marketplace/reject/{slug}")
+async def marketplace_reject(
+    slug: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+):
+    """Remove a pending entry. The crawler may re-discover it later;
+    if that becomes noisy, ops can add the repo to a denylist (future)."""
+    _require_admin(user)
+    from ..services.skill_registry import GITHUB_PENDING_REGISTRY_PATH
+
+    doc = _load_json(GITHUB_PENDING_REGISTRY_PATH)
+    before = len(doc.get("skills", []))
+    doc["skills"] = [s for s in doc.get("skills", []) if s.get("slug") != slug]
+    if len(doc["skills"]) == before:
+        raise HTTPException(status_code=404, detail="未找到待审核条目")
+    _dump_json(GITHUB_PENDING_REGISTRY_PATH, doc)
+    logger.info("marketplace: %s rejected %s", user.email or user.id, slug)
+    return {"ok": True, "slug": slug, "removed": True}
+
+
+@router.post("/marketplace/crawl")
+async def marketplace_crawl(
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    enable_topic_search: bool = False,
+):
+    """Force a one-off crawler run without waiting for the daily schedule.
+
+    Slow operation — can take 1-2 minutes and is rate-limited by GitHub.
+    Admin-gated because the output is shared across all users.
+    """
+    _require_admin(user)
+    from ..services import skill_crawler_scheduler
+    ok, summary = await skill_crawler_scheduler.run_once(
+        enable_topic_search=enable_topic_search,
+    )
+    return {"ok": ok, "summary": summary}
 
 
 @router.post("/skills/{skill_id}/rate")

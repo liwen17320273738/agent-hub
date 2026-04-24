@@ -15,7 +15,7 @@
           <span class="sender">{{ message.role === 'user' ? '你' : agent?.name }}</span>
           <span class="time" v-if="!streaming">{{ formatTime(message.timestamp) }}</span>
           <div class="message-actions" v-if="!streaming">
-            <el-button text type="primary" size="small" @click.stop="copyContent">复制</el-button>
+            <el-button text type="primary" size="small" @click.stop="copyContent">{{ t('chatMessage.text_1') }}</el-button>
             <el-button
               v-if="showRegenerate"
               text
@@ -48,6 +48,9 @@ import { ElMessage } from 'element-plus'
 import type { ChatMessage } from '@/agents/types'
 import type { AgentConfig } from '@/agents/types'
 import { resolveAgentIcon } from '@/utils/agentIcon'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineEmits<{
   regenerate: []
@@ -67,9 +70,9 @@ const props = defineProps<{
 async function copyContent() {
   try {
     await navigator.clipboard.writeText(props.message.content)
-    ElMessage.success('已复制到剪贴板')
+    ElMessage.success(t('chatMessage.elMessage_1'))
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('chatMessage.elMessage_2'))
   }
 }
 

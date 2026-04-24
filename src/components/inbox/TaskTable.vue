@@ -11,7 +11,7 @@
       <el-table-column prop="title" :label="t('taskTable.task')" min-width="260" show-overflow-tooltip>
         <template #default="{ row }">
           <div class="cell-title">
-            <span class="title-text">{{ row.title }}</span>
+            <span class="title-text"><AutoTranslated :text="row.title" /></span>
             <span v-if="row.source" class="source-pill">{{ sourceLabel(row.source) }}</span>
           </div>
         </template>
@@ -69,6 +69,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { PipelineTask } from '@/agents/types'
+import AutoTranslated from '@/components/AutoTranslated.vue'
 
 const { t, locale } = useI18n()
 

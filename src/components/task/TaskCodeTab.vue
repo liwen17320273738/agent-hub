@@ -22,7 +22,7 @@
           <input
             v-model="searchQuery"
             class="search-input"
-            placeholder="搜索文件..."
+            :placeholder="t('taskCodeTab.placeholder_1')"
             type="text"
           />
         </div>
@@ -33,7 +33,7 @@
     <!-- Loading -->
     <div v-if="loading" class="browser-loading">
       <div class="loading-spinner"></div>
-      <span>加载工作目录...</span>
+      <span>{{ t('taskCodeTab.text_1') }}</span>
     </div>
 
     <!-- Empty state -->
@@ -50,8 +50,8 @@
           <rect x="24" y="52" width="14" height="2" rx="1" fill="#2c2f38"/>
         </svg>
       </div>
-      <p class="empty-title">代码工件尚未生成</p>
-      <p class="empty-desc">开发阶段完成后，Agent 提取的代码文件将自动显示在此处</p>
+      <p class="empty-title">{{ t('taskCodeTab.text_2') }}</p>
+      <p class="empty-desc">{{ t('taskCodeTab.text_3') }}</p>
     </div>
 
     <!-- Main three-panel layout -->
@@ -68,7 +68,7 @@
               <svg class="group-icon folder-icon" width="16" height="16" viewBox="0 0 16 16">
                 <path d="M1.5 3.5A1.5 1.5 0 013 2h3l1.5 1.5H13A1.5 1.5 0 0114.5 5v7a1.5 1.5 0 01-1.5 1.5H3A1.5 1.5 0 011.5 12V3.5z" fill="currentColor"/>
               </svg>
-              <span class="group-name">源代码</span>
+              <span class="group-name">{{ t('taskCodeTab.text_4') }}</span>
               <span class="group-badge">{{ filteredGroupedSrc.length }}</span>
             </div>
             <div v-show="srcExpanded" class="group-body">
@@ -298,6 +298,9 @@
 import { ref, computed, reactive, onMounted, watch, nextTick } from 'vue'
 import { getAuthToken } from '@/services/api'
 import hljs from 'highlight.js'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface WFile {
   path: string

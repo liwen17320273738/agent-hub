@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.task_artifact import TaskArtifact, ArtifactTypeRegistry, BUILTIN_ARTIFACT_TYPES
 from ..models.pipeline import PipelineTask
-from ..security import get_pipeline_auth
+from ..security import get_pipeline_auth, get_pipeline_auth_optional
 from ..models.user import User
 
 router = APIRouter(prefix="/tasks", tags=["task-artifacts"])
@@ -52,7 +52,7 @@ async def list_artifact_types(db: AsyncSession = Depends(get_db)):
 async def list_task_artifacts(
     task_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_pipeline_auth),
+    _user=Depends(get_pipeline_auth_optional),
 ):
     result = await db.execute(
         select(TaskArtifact)
@@ -92,7 +92,7 @@ async def get_artifact(
     artifact_type: str,
     version: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_pipeline_auth),
+    _user=Depends(get_pipeline_auth_optional),
 ):
     filters = [
         TaskArtifact.task_id == uuid.UUID(task_id),
@@ -106,7 +106,24 @@ async def get_artifact(
     result = await db.execute(select(TaskArtifact).where(and_(*filters)))
     art = result.scalar_one_or_none()
     if not art:
-        raise HTTPException(status_code=404, detail="工件不存在")
+        return {
+            "id": "",
+            "task_id": task_id,
+            "artifact_type": artifact_type,
+            "title": "",
+            "content": "",
+            "version": 0,
+            "is_latest": True,
+            "status": "empty",
+            "mime_type": "text/markdown",
+            "storage_path": "",
+            "created_by_agent": None,
+            "created_by_user": None,
+            "metadata": None,
+            "created_at": None,
+            "updated_at": None,
+            "versions": [],
+        }
 
     versions_result = await db.execute(
         select(TaskArtifact.version, TaskArtifact.status, TaskArtifact.created_at)

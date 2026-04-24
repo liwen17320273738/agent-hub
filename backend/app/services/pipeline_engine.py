@@ -226,7 +226,8 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     "reviewing": {
         # The reviewing stage itself runs the acceptance-agent (see
         # STAGE_ROLE_PROMPTS["reviewing"]); the post-stage peer-review here
-        # is a CEO sanity check before human gate.
+        # is a CEO sanity check. human_gate=False so auto pipeline can finish
+        # deployment without blocking on manual approval (issuse23).
         "reviewer_agent": "ceo-agent",
         "reviewer_prompt": """你是 CEO Agent。验收官 Agent 已经给出最终验收报告。
 请用 30 秒做最终上线前 Go/No-Go：
@@ -237,12 +238,12 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
 最终结论（第一行必须是以下之一）：
 - **APPROVE** — 同意验收结论，进入部署/人工最终批准
 - **REJECT** — 验收证据不充分，要求验收官补做（列出具体问题）""",
-        "human_gate": True,
+        "human_gate": False,
     },
     "deployment": {
         "reviewer_agent": None,
         "reviewer_prompt": "",
-        "human_gate": True,
+        "human_gate": False,
     },
     "security-review": {
         "reviewer_agent": "architect-agent",
@@ -576,6 +577,19 @@ STAGE_ROLE_PROMPTS = {
 8. **监控告警** — 关键指标、告警规则、日志收集方案
 9. **安全加固** — HTTPS、防火墙规则、密钥管理
 
+📁 **配置文件必须使用带路径的代码块**（与开发阶段相同），便于自动落盘到 `deploy/` 目录，例如：
+
+```dockerfile:deploy/Dockerfile
+FROM node:20-alpine
+...
+```
+
+```yaml:deploy/docker-compose.yml
+services:
+  app:
+    ...
+```
+
 ⚠️ 此方案需要可以直接执行，请输出完整的配置文件代码。
 用 Markdown 格式输出。""",
     },
@@ -890,6 +904,27 @@ async def execute_stage(
     role = stage_conf["role"]
     system_prompt = stage_conf["system"] + _DELEGATE_HINT
 
+    # --- Layer 0 (new): Role Card prompt composition ---
+    # If the agent has a structured role_card, compose the system prompt from it.
+    # The hardcoded STAGE_ROLE_PROMPTS["system"] is used as fallback.
+    agent_key = stage_conf.get("agent", "")
+    seed_agent_id = _AGENT_KEY_TO_SEED_ID.get(agent_key, "")
+    try:
+        from ..models.agent import AgentDefinition
+        agent_row = await db.get(AgentDefinition, seed_agent_id) if seed_agent_id else None
+        if agent_row and agent_row.role_card:
+            from .role_card_builder import build_system_prompt as build_role_prompt
+            role_prompt = build_role_prompt(
+                role_card=agent_row.role_card,
+                capabilities=agent_row.capabilities or {},
+                agent_name=agent_row.name,
+                stage_id=stage_id,
+            )
+            if role_prompt and len(role_prompt) > 100:
+                system_prompt = role_prompt + "\n\n" + _DELEGATE_HINT
+    except Exception as rc_err:
+        logger.warning("[pipeline] Role card build failed, using static prompt: %s", rc_err)
+
     # --- Layer 0: Learning loop — inject historically-distilled prompt patches ---
     # Pass (template, complexity) so segmented shadows / actives only fire
     # for the segment they were targeted at. Empty-targeting overrides
@@ -1114,11 +1149,20 @@ async def execute_stage(
     # --- Layer 3: Skill Integration → inject enabled skill prompts ---
     from .skill_marketplace import get_skills_for_stage
     stage_skills = await get_skills_for_stage(db, stage_id, role)
+    skill_completion_criteria: list[str] = []
     if stage_skills:
-        skill_context = "\n\n## 已启用技能\n" + "\n".join(
-            f"### {s['name']}\n{s['prompt']}" for s in stage_skills
-        )
+        skill_lines = []
+        for s in stage_skills:
+            skill_lines.append(f"### {s['name']}\n{s['prompt']}")
+            criteria = s.get("completion_criteria", [])
+            if criteria:
+                skill_completion_criteria.extend(criteria)
+        skill_context = "\n\n## 已启用技能\n" + "\n".join(skill_lines)
         system_prompt += skill_context
+
+        if skill_completion_criteria:
+            criteria_text = "\n".join(f"- [ ] {c}" for c in skill_completion_criteria)
+            system_prompt += f"\n\n## 技能完成条件（必须满足）\n{criteria_text}"
 
     user_message = _build_user_message(task_title, task_description, stage_id, previous_outputs)
 
@@ -1236,12 +1280,15 @@ async def execute_stage(
 
         if agent_tools:
             from .agent_runtime import AgentRuntime
+            _max_steps = 8
+            if stage_agent_id in ("wayne-acceptance", "wayne-devops", "wayne-qa"):
+                _max_steps = 14
             runtime = AgentRuntime(
                 agent_id=stage_agent_id or stage_id,
                 system_prompt=system_prompt,
                 tools=agent_tools,
                 model_preference={"execution": model},
-                max_steps=8,
+                max_steps=_max_steps,
                 temperature=0.7,
                 task_id=task_id,
                 role=role,
@@ -1440,6 +1487,7 @@ async def execute_stage(
         "content": content,
         "model": model,
         "tier": tier,
+        "skill_completion_criteria": skill_completion_criteria,
         "verification": {
             "status": verification.overall_status.value,
             "auto_proceed": verification.auto_proceed,
@@ -1626,8 +1674,11 @@ async def execute_full_pipeline(
             logger.warning(f"[pipeline] Failed to write task workspace doc for {stage_id}: {ws_err}")
 
         try:
-            from .artifact_writer import write_artifact_v2
-            await write_artifact_v2(db, task_id, stage_id, content)
+            from .artifact_writer import write_stage_artifacts_v2
+            await write_stage_artifacts_v2(
+                db, task_id, task_title, stage_id, content,
+                agent_name=STAGE_ROLE_PROMPTS.get(stage_id, {}).get("agent", ""),
+            )
         except Exception as art_err:
             logger.warning(f"[pipeline] Failed to write v2 artifact for {stage_id}: {art_err}")
 
@@ -1643,6 +1694,10 @@ async def execute_full_pipeline(
             post_results = await run_hooks("post", post_ctx)
             if post_results:
                 logger.info("[pipeline] Post-hooks for %s: %s", stage_id, post_results)
+                for pr in post_results:
+                    if not pr.get("ok") and stage_id in db_stages:
+                        err = pr.get("error", "hook failed")
+                        db_stages[stage_id].last_error = (err or "")[:2000]
                 await emit_event("stage:hooks-complete", {
                     "taskId": task_id,
                     "stageId": stage_id,
@@ -1650,6 +1705,31 @@ async def execute_full_pipeline(
                 })
         except Exception as hook_err:
             logger.warning("[pipeline] Post-stage hooks failed for %s: %s", stage_id, hook_err)
+            if stage_id in db_stages:
+                db_stages[stage_id].last_error = str(hook_err)[:2000]
+
+        # --- Layer 3.7: Skill Completion Criteria Validation ---
+        skill_criteria_results = []
+        skill_completion_criteria = result.get("skill_completion_criteria") or []
+        if skill_completion_criteria and content:
+            try:
+                from .role_card_builder import build_skill_criteria_check
+                skill_criteria_results = build_skill_criteria_check(content, skill_completion_criteria)
+                passed = sum(1 for r in skill_criteria_results if r["passed"])
+                total = len(skill_criteria_results)
+                logger.info(
+                    "[pipeline] Skill criteria for %s: %d/%d passed",
+                    stage_id, passed, total,
+                )
+                await emit_event("stage:skill-criteria", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "passed": passed,
+                    "total": total,
+                    "results": skill_criteria_results,
+                })
+            except Exception as sc_err:
+                logger.warning("[pipeline] Skill criteria check failed: %s", sc_err)
 
         # --- Quality Gate Evaluation ---
         gate_result = None
@@ -1937,20 +2017,104 @@ async def execute_full_pipeline(
             db_stages[stage_id].completed_at = datetime.utcnow()
         await db.flush()
 
+        # --- Acceptance REJECT_TO detection (reviewing stage only) ---
+        # The acceptance agent can output "REJECTED REJECT_TO: <target_stage>"
+        # to indicate the deliverable should be reworked from a specific stage.
+        # When detected, we auto-rework from that stage instead of proceeding.
+        if stage_id == "reviewing" and content:
+            reject_to_stage = _parse_reject_to(content)
+            if reject_to_stage and reject_to_stage in stages:
+                reject_idx = stages.index(reject_to_stage)
+                current_idx = stages.index(stage_id)
+                if reject_idx < current_idx:
+                    reject_reason = _extract_reject_reason(content)
+                    logger.info(
+                        "[pipeline] Acceptance REJECT_TO: %s → reworking from %s",
+                        task_id, reject_to_stage,
+                    )
+                    await emit_event("pipeline:acceptance-reject-to", {
+                        "taskId": task_id,
+                        "rejectToStage": reject_to_stage,
+                        "reason": reject_reason[:500],
+                    })
+
+                    for s_id in stages[reject_idx:current_idx + 1]:
+                        if s_id in db_stages:
+                            db_stages[s_id].status = "pending"
+                            if s_id == reject_to_stage:
+                                db_stages[s_id].reject_feedback = reject_reason[:2000]
+                    if db_task:
+                        db_task.current_stage_id = reject_to_stage
+                    await db.flush()
+
+                    rework_stages = stages[reject_idx:]
+                    for rework_sid in rework_stages:
+                        rework_reject_fb = None
+                        if rework_sid == reject_to_stage:
+                            rework_reject_fb = reject_reason
+
+                        if rework_sid in db_stages:
+                            db_stages[rework_sid].status = "active"
+                            db_stages[rework_sid].started_at = datetime.utcnow()
+                        await db.flush()
+
+                        rework_result = await execute_stage(
+                            db,
+                            task_id=task_id,
+                            task_title=task_title,
+                            task_description=task_description,
+                            stage_id=rework_sid,
+                            previous_outputs=outputs,
+                            trace=trace,
+                            available_providers=available_providers,
+                            complexity=complexity,
+                            reject_feedback=rework_reject_fb,
+                            reject_count=1,
+                        )
+                        if rework_result.get("ok"):
+                            rework_content = rework_result.get("content", "")
+                            outputs[rework_sid] = rework_content
+                            results.append({"stage_id": rework_sid, **rework_result})
+                            if rework_sid in db_stages:
+                                db_stages[rework_sid].output = rework_content
+                                db_stages[rework_sid].status = "done"
+                                db_stages[rework_sid].completed_at = datetime.utcnow()
+                            await db.flush()
+                        else:
+                            if db_task:
+                                db_task.status = "paused"
+                            await db.flush()
+                            return {
+                                "ok": False,
+                                "paused": True,
+                                "stopped_at": rework_sid,
+                                "reason": f"Rework failed at {rework_sid} after acceptance REJECT_TO",
+                                "results": results,
+                                "trace_id": trace.trace_id,
+                            }
+
         if stage_id != stages[0]:
             prev_stage = stages[stages.index(stage_id) - 1]
             await update_quality_score(db, task_id, prev_stage, 0.8)
 
     # All stages complete — compute overall quality. Status decision below.
     if db_task:
-        gate_scores = [
-            s.gate_score for s in db_task.stages
-            if s.gate_score is not None
+        q_scores = [
+            float(s.quality_score)
+            for s in db_task.stages
+            if s.quality_score is not None and float(s.quality_score) > 0
         ]
-        if gate_scores:
-            db_task.overall_quality_score = round(
-                sum(gate_scores) / len(gate_scores), 3
-            )
+        if q_scores:
+            db_task.overall_quality_score = round(sum(q_scores) / len(q_scores), 3)
+        else:
+            gate_scores = [
+                float(s.gate_score) for s in db_task.stages
+                if s.gate_score is not None
+            ]
+            if gate_scores:
+                db_task.overall_quality_score = round(
+                    sum(gate_scores) / len(gate_scores), 3
+                )
     await db.flush()
 
     # Auto-compile deliverables
@@ -2018,12 +2182,56 @@ async def execute_full_pipeline(
             ),
         })
 
+    # Cross-channel broadcast for critical events
+    if db_task:
+        try:
+            from .notify import broadcast_task_event
+            event_name = "completed" if auto_accept else "awaiting_acceptance"
+            msg = (
+                f"全部 {summary['stages_completed']} 个阶段完成"
+                if auto_accept
+                else f"全部 {summary['stages_completed']} 个阶段完成，等待最终验收"
+            )
+            await broadcast_task_event(
+                db_task,
+                event=event_name,
+                message=msg,
+                extras={"质量分": f"{round((db_task.overall_quality_score or 0) * 100)}%"},
+            )
+        except Exception as notify_err:
+            logger.debug("[pipeline] cross-channel broadcast failed: %s", notify_err)
+
     return {
         "ok": True,
         "results": results,
         "trace_id": trace.trace_id,
         "summary": summary,
     }
+
+
+def _parse_reject_to(content: str) -> Optional[str]:
+    """Parse REJECT_TO: <stage_id> from acceptance agent output."""
+    import re
+    match = re.search(r"REJECT(?:ED)?\s+REJECT_TO:\s*(\S+)", content, re.IGNORECASE)
+    if match:
+        return match.group(1).strip().lower()
+    return None
+
+
+def _extract_reject_reason(content: str) -> str:
+    """Extract reject reason from acceptance output (lines after REJECTED)."""
+    lines = content.splitlines()
+    reason_lines = []
+    collecting = False
+    for line in lines:
+        if "REJECT" in line.upper():
+            collecting = True
+            continue
+        if collecting:
+            if line.strip().startswith("#") and reason_lines:
+                break
+            reason_lines.append(line)
+    return "\n".join(reason_lines).strip()[:4000] or "验收未通过，请修改后重新提交"
 
 
 def _build_user_message(
@@ -2048,12 +2256,19 @@ def _build_user_message(
             "security-review": "安全审计报告",
             "legal-review": "法务审查报告",
         }
-        MAX_PREV_OUTPUT_CHARS = 800
+        if stage_id in ("reviewing", "deployment"):
+            max_prev = 18_000
+        elif stage_id in ("testing", "development", "architecture"):
+            max_prev = 12_000
+        else:
+            max_prev = 800
         for sid, output in previous_outputs.items():
+            if "_review_feedback" in sid or sid.endswith("_review_feedback"):
+                continue
             label = stage_label.get(sid, sid)
             if output:
-                trimmed = output[:MAX_PREV_OUTPUT_CHARS]
-                if len(output) > MAX_PREV_OUTPUT_CHARS:
+                trimmed = output[:max_prev]
+                if len(output) > max_prev:
                     trimmed += "\n...(已截断，完整内容见上游阶段产出)"
                 parts.append(f"## {label}\n{trimmed}")
 

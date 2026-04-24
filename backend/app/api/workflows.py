@@ -19,11 +19,14 @@ etc.). We DO require the top-level keys we'd need to render a list:
 
 Auth
 ====
-Reuses ``get_pipeline_auth``: same bearer / API-key model the rest of
-``/api/pipeline/*`` already uses. Org isolation matches
-``pipeline.py``: rows with ``org_id IS NULL`` are visible to
-unscoped callers (API keys); rows belonging to another org are never
-returned.
+* **GET** list / fetch — ``get_pipeline_auth_optional``: allows missing
+  credentials (anonymous read); only ``org_id IS NULL`` workflows are
+  visible, same rule as API-key callers without a user.
+* **POST / PATCH / DELETE / run** — ``get_pipeline_auth``: requires JWT
+  or ``PIPELINE_API_KEY``.
+
+Org isolation matches ``pipeline.py``: rows belonging to another org
+are never returned.
 """
 from __future__ import annotations
 
@@ -40,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.user import User
 from ..models.workflow import Workflow
-from ..security import get_pipeline_auth
+from ..security import get_pipeline_auth, get_pipeline_auth_optional
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workflows", tags=["workflows"])
@@ -104,7 +107,7 @@ async def _get_or_404(
 
 @router.get("/")
 async def list_workflows(
-    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     stmt = _scope_query(
@@ -137,7 +140,7 @@ async def create_workflow(
 @router.get("/{wf_id}")
 async def get_workflow(
     wf_id: str,
-    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     wf = await _get_or_404(db, wf_id, user)

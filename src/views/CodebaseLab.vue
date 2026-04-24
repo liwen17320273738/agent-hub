@@ -24,6 +24,9 @@ import {
   type CodebaseStats,
   type SearchHit,
 } from '@/services/codebaseApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const STORAGE_KEY = 'agent-hub:codebase-projects'
 
@@ -124,7 +127,7 @@ function openReindexDialog(prefill?: ProjectEntry) {
 
 async function doReindex() {
   if (!reindexForm.value.project_dir.trim()) {
-    ElMessage.warning('请填写 project_dir')
+    ElMessage.warning(t('codebaseLab.elMessage_1'))
     return
   }
   reindexing.value = true
@@ -156,7 +159,7 @@ async function doReindex() {
 
 async function doSearch() {
   if (!selected.value) {
-    ElMessage.warning('请先选择一个项目')
+    ElMessage.warning(t('codebaseLab.elMessage_2'))
     return
   }
   if (!query.value.trim()) return
@@ -228,7 +231,7 @@ onMounted(() => {
   <div class="codebase-lab">
     <aside class="sidebar">
       <header class="sidebar-header">
-        <h2>📚 代码索引</h2>
+        <h2>{{ t('codebaseLab.text_1') }}</h2>
         <el-button :icon="Plus" type="primary" size="small" @click="openReindexDialog()">
           新建索引
         </el-button>
@@ -244,7 +247,7 @@ onMounted(() => {
           <div class="project-id">{{ p.project_id }}</div>
           <div class="project-meta">
             <span v-if="p.chunks !== undefined">{{ p.chunks }} chunks · {{ p.files }} files</span>
-            <span v-else class="muted">未加载</span>
+            <span v-else class="muted">{{ t('codebaseLab.text_2') }}</span>
           </div>
           <div class="row-actions">
             <el-button
@@ -262,14 +265,14 @@ onMounted(() => {
           </div>
         </li>
       </ul>
-      <el-empty v-else description="还没有索引项目" :image-size="80" />
+      <el-empty v-else :description="t('codebaseLab.description_1')" :image-size="80" />
     </aside>
 
     <main class="main">
       <div class="search-bar" v-if="selected">
         <el-input
           v-model="query"
-          placeholder="自然语言搜索：例如 “在哪里限流请求”"
+          :placeholder="t('codebaseLab.placeholder_1')"
           size="large"
           clearable
           @keydown.enter="doSearch"

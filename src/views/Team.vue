@@ -1,7 +1,7 @@
 <template>
   <div class="team-view">
-    <h1>团队</h1>
-    <p class="view-subtitle">Agent 角色一览 — 点击查看该角色参与的任务</p>
+    <h1>{{ t('team.title') }}</h1>
+    <p class="view-subtitle">{{ t('team.subtitle') }}</p>
 
     <div class="agent-grid">
       <div
@@ -19,7 +19,7 @@
           <div class="agent-role">{{ agent.role || agent.id }}</div>
         </div>
         <el-tag size="small" :type="agent.category === 'core' ? 'primary' : 'info'" class="agent-tag">
-          {{ agent.category === 'core' ? '核心' : '辅助' }}
+          {{ agent.category === 'core' ? t('team.categoryCore') : t('team.categorySupport') }}
         </el-tag>
       </div>
     </div>
@@ -29,11 +29,13 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'
 import { useAgentStore } from '@/stores/agents'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 
 const router = useRouter()
+const { t } = useI18n()
 const agentStore = useAgentStore()
 const { coreAgents, supportAgents } = storeToRefs(agentStore)
 

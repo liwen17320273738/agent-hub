@@ -31,10 +31,28 @@ _FILEPATH_COMMENT_RE = re.compile(
     re.IGNORECASE,
 )
 
+_BARE_PATH_COMMENT_RE = re.compile(
+    r"^(?://|#)\s*([\w][\w./-]*\.(?:py|js|ts|vue|html|css|scss|json|yaml|yml|toml|sh|sql|java|go|rs|md|jsx|tsx|cpp|c|h|xml|dockerfile))\s*$",
+    re.IGNORECASE,
+)
+
 _FILE_HEADER_RE = re.compile(
     r"\*\*(?:文件|File|filepath)[:\s]*`?([^`*]+)`?\*\*",
     re.IGNORECASE,
 )
+
+def _synthetic_filepath(lang: str, idx: int) -> str:
+    """Stable relative path under generated/ when the model omits filepath."""
+    low = (lang or "txt").lower().strip()
+    ext = _LANG_TO_EXT.get(low, ".txt")
+    if ext == "Dockerfile" or low in ("dockerfile", "docker"):
+        return f"generated/Dockerfile.fragment{idx}"
+    if ext and not str(ext).startswith("."):
+        ext = f".{ext}"
+    if not ext:
+        ext = ".txt"
+    return f"generated/extract_{idx:03d}{ext}"
+
 
 _LANG_TO_EXT = {
     "python": ".py", "py": ".py",
@@ -92,6 +110,8 @@ def extract_code_blocks(text: str) -> ExtractionResult:
         if not filepath and body:
             first_line = body.split("\n", 1)[0].strip()
             cm = _FILEPATH_COMMENT_RE.match(first_line)
+            if not cm:
+                cm = _BARE_PATH_COMMENT_RE.match(first_line)
             if cm:
                 filepath = cm.group(1).strip()
                 body = body.split("\n", 1)[1] if "\n" in body else ""
@@ -104,7 +124,12 @@ def extract_code_blocks(text: str) -> ExtractionResult:
                     break
 
         if not filepath:
-            continue
+            # issuse23: LLM 常输出 ```python 而无路径 — 生成可落盘的安全相对路径
+            if lang and body and body.strip():
+                idx = len(result.files) + 1
+                filepath = _synthetic_filepath(lang, idx)
+            else:
+                continue
 
         filepath = filepath.strip("`'\" ")
         if filepath.startswith("/") or ".." in filepath:

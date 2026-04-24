@@ -2,12 +2,12 @@
   <div class="pipeline-dashboard">
     <header class="pipeline-header">
       <div class="header-top">
-        <h1>任务流水线</h1>
+        <h1>{{ t('pipelineDashboard.text_1') }}</h1>
         <div class="header-actions">
           <el-tag :type="healthStatus.pipeline === 'online' ? 'success' : 'danger'" size="small">
             {{ healthStatus.pipeline === 'online' ? '在线' : '离线' }}
           </el-tag>
-          <el-tag v-if="healthStatus.feishu" type="info" size="small">飞书</el-tag>
+          <el-tag v-if="healthStatus.feishu" type="info" size="small">{{ t('pipelineDashboard.text_2') }}</el-tag>
           <el-tag v-if="healthStatus.qq" type="info" size="small">QQ</el-tag>
           <el-button type="primary" @click="showCreateDialog = true">
             <el-icon><Plus /></el-icon>
@@ -23,28 +23,28 @@
     <section class="pipeline-stats">
       <div class="stat-card stat-card--clickable" @click="router.push('/plan-inbox')">
         <div class="stat-number" :class="{ 'stat-highlight': pendingPlanCount > 0 }">{{ pendingPlanCount }}</div>
-        <div class="stat-label">待审批计划</div>
+        <div class="stat-label">{{ t('pipelineDashboard.text_3') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-number">{{ pipelineStore.activeTasks.length }}</div>
-        <div class="stat-label">进行中</div>
+        <div class="stat-label">{{ t('pipelineDashboard.text_4') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-number">{{ pipelineStore.doneTasks.length }}</div>
-        <div class="stat-label">已完成</div>
+        <div class="stat-label">{{ t('pipelineDashboard.text_5') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-number">{{ pipelineStore.tasks.length }}</div>
-        <div class="stat-label">全部任务</div>
+        <div class="stat-label">{{ t('pipelineDashboard.text_6') }}</div>
       </div>
       <div class="stat-card">
         <div class="stat-number">{{ pipelineStore.eventLog.length }}</div>
-        <div class="stat-label">事件流</div>
+        <div class="stat-label">{{ t('pipelineDashboard.text_7') }}</div>
       </div>
     </section>
 
     <section class="pipeline-board">
-      <h2 class="section-title">阶段看板</h2>
+      <h2 class="section-title">{{ t('pipelineDashboard.text_8') }}</h2>
       <div class="stage-columns-scroll">
         <div class="stage-columns">
           <div
@@ -75,13 +75,13 @@
                 v-if="stage.id === 'planning'"
                 type="button"
                 class="task-delete"
-                title="删除任务"
+                :title="t('pipelineDashboard.title_1')"
                 aria-label="删除任务"
                 @click.stop="confirmDeletePlanningTask(task)"
               >
                 <el-icon :size="14"><Delete /></el-icon>
               </button>
-              <div class="task-title">{{ task.title }}</div>
+              <div class="task-title"><AutoTranslated :text="task.title" /></div>
               <div class="task-meta">
                 <el-tag :type="sourceTagType(task.source)" size="small">{{ task.source }}</el-tag>
                 <span class="task-time">{{ timeAgo(task.updatedAt) }}</span>
@@ -113,7 +113,7 @@
 
       <!-- Traces Tab -->
       <div v-if="activeObsTab === 'traces'" class="panel-content">
-        <div v-if="!traces.length" class="empty-state">暂无 trace 数据</div>
+        <div v-if="!traces.length" class="empty-state">{{ t('pipelineDashboard.text_9') }}</div>
         <div v-else class="trace-list">
           <div v-for="trace in traces" :key="trace.trace_id" class="trace-card">
             <div class="trace-header">
@@ -128,7 +128,7 @@
                 <span class="metric-value">{{ trace.span_count }}</span>
               </span>
               <span class="metric" v-if="trace.duration_ms">
-                <span class="metric-label">耗时</span>
+                <span class="metric-label">{{ t('pipelineDashboard.text_10') }}</span>
                 <span class="metric-value">{{ (trace.duration_ms / 1000).toFixed(1) }}s</span>
               </span>
               <span class="metric" v-if="trace.total_tokens">
@@ -136,16 +136,16 @@
                 <span class="metric-value">{{ trace.total_tokens.toLocaleString() }}</span>
               </span>
               <span class="metric" v-if="trace.total_cost_usd">
-                <span class="metric-label">费用</span>
+                <span class="metric-label">{{ t('pipelineDashboard.text_11') }}</span>
                 <span class="metric-value">${{ trace.total_cost_usd.toFixed(4) }}</span>
               </span>
               <span class="metric" v-if="trace.total_llm_calls">
-                <span class="metric-label">LLM 调用</span>
+                <span class="metric-label">{{ t('pipelineDashboard.text_12') }}</span>
                 <span class="metric-value">{{ trace.total_llm_calls }}</span>
               </span>
             </div>
             <div class="trace-models" v-if="trace.models_used && Object.keys(trace.models_used).length">
-              <span class="metric-label">模型: </span>
+              <span class="metric-label">{{ t('pipelineDashboard.text_13') }}</span>
               <el-tag v-for="(count, model) in trace.models_used" :key="model" size="small" class="model-tag">
                 {{ model }} ×{{ count }}
               </el-tag>
@@ -156,7 +156,7 @@
 
       <!-- Approvals Tab -->
       <div v-if="activeObsTab === 'approvals'" class="panel-content">
-        <div v-if="!approvals.length" class="empty-state">无待审批操作</div>
+        <div v-if="!approvals.length" class="empty-state">{{ t('pipelineDashboard.text_14') }}</div>
         <div v-else class="approval-list">
           <div v-for="a in approvals" :key="a.id" class="approval-card">
             <div class="approval-info">
@@ -166,8 +166,8 @@
               <span class="approval-time">{{ timeAgo(a.created_at) }}</span>
             </div>
             <div class="approval-actions">
-              <el-button type="success" size="small" @click="handleApproval(a.id, true)">批准</el-button>
-              <el-button type="danger" size="small" @click="handleApproval(a.id, false)">拒绝</el-button>
+              <el-button type="success" size="small" @click="handleApproval(a.id, true)">{{ t('pipelineDashboard.text_15') }}</el-button>
+              <el-button type="danger" size="small" @click="handleApproval(a.id, false)">{{ t('pipelineDashboard.text_16') }}</el-button>
             </div>
           </div>
         </div>
@@ -175,7 +175,7 @@
 
       <!-- Audit Log Tab -->
       <div v-if="activeObsTab === 'audit'" class="panel-content">
-        <div v-if="!auditEntries.length" class="empty-state">审计日志为空</div>
+        <div v-if="!auditEntries.length" class="empty-state">{{ t('pipelineDashboard.text_17') }}</div>
         <div v-else class="audit-list">
           <div v-for="(entry, idx) in auditEntries" :key="entry.id || idx" class="audit-entry">
             <span class="audit-outcome" :class="'outcome-' + entry.outcome">{{ entry.outcome }}</span>
@@ -200,7 +200,7 @@
     </section>
 
     <section class="pipeline-events" v-if="pipelineStore.eventLog.length">
-      <h2 class="section-title">实时事件流</h2>
+      <h2 class="section-title">{{ t('pipelineDashboard.text_18') }}</h2>
       <div class="event-list">
         <div
           v-for="(event, idx) in recentEvents"
@@ -217,25 +217,25 @@
 
     <el-dialog
       v-model="showCreateDialog"
-      title="创建新任务"
+      :title="t('pipelineDashboard.title_2')"
       width="720px"
       class="create-task-dialog"
       destroy-on-close
       align-center
     >
       <el-form label-position="top">
-        <el-form-item label="任务标题">
-          <el-input v-model="newTask.title" placeholder="简洁描述需求..." />
+        <el-form-item :label="t('pipelineDashboard.label_1')">
+          <el-input v-model="newTask.title" :placeholder="t('pipelineDashboard.placeholder_1')" />
         </el-form-item>
-        <el-form-item label="需求描述">
+        <el-form-item :label="t('pipelineDashboard.label_2')">
           <el-input
             v-model="newTask.description"
             type="textarea"
             :rows="4"
-            placeholder="详细需求描述..."
+            :placeholder="t('pipelineDashboard.placeholder_2')"
           />
         </el-form-item>
-        <el-form-item label="流程模板 (SDLC)">
+        <el-form-item :label="t('pipelineDashboard.label_3')">
           <div class="template-grid">
             <div
               v-for="(tmpl, key) in sdlcTemplates"
@@ -251,12 +251,12 @@
               </div>
               <div class="template-badges">
                 <el-tag size="small" type="info">{{ tmpl.stageCount }} 阶段</el-tag>
-                <el-tag v-if="tmpl.hasCustomGates" size="small" type="warning">定制门禁</el-tag>
+                <el-tag v-if="tmpl.hasCustomGates" size="small" type="warning">{{ t('pipelineDashboard.text_19') }}</el-tag>
               </div>
             </div>
           </div>
           <div v-if="selectedTemplateStages.length" class="template-preview">
-            <div class="template-preview-title">阶段 & 质量门禁预览</div>
+            <div class="template-preview-title">{{ t('pipelineDashboard.text_20') }}</div>
             <div class="template-stage-list">
               <div v-for="(st, idx) in selectedTemplateStages" :key="st.id" class="template-stage-item">
                 <span class="tps-idx">{{ idx + 1 }}</span>
@@ -267,11 +267,11 @@
             </div>
           </div>
         </el-form-item>
-        <el-form-item label="关联已有项目（可选）">
+        <el-form-item :label="t('pipelineDashboard.label_4')">
           <el-radio-group v-model="newTask.projectMode" style="margin-bottom: 8px">
-            <el-radio-button value="none">新建项目</el-radio-button>
-            <el-radio-button value="git">Git 仓库</el-radio-button>
-            <el-radio-button value="local">本地目录</el-radio-button>
+            <el-radio-button value="none">{{ t('pipelineDashboard.text_21') }}</el-radio-button>
+            <el-radio-button value="git">{{ t('pipelineDashboard.text_22') }}</el-radio-button>
+            <el-radio-button value="local">{{ t('pipelineDashboard.text_23') }}</el-radio-button>
           </el-radio-group>
           <el-input
             v-if="newTask.projectMode === 'git'"
@@ -356,6 +356,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
+import AutoTranslated from '@/components/AutoTranslated.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchPipelineHealth, autoRunPipeline, smartRunPipeline,
@@ -368,6 +369,9 @@ import { listPlans } from '@/services/planApi'
 import type { UploadFile, UploadFiles, UploadInstance } from 'element-plus'
 import type { SDLCTemplate } from '@/services/pipelineApi'
 import type { PipelineEvent, PipelineTask } from '@/agents/types'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const router = useRouter()
 
@@ -441,19 +445,19 @@ async function pasteProjectPathFromClipboard() {
     const t = await navigator.clipboard.readText()
     if (t?.trim()) {
       newTask.value.projectPath = t.trim()
-      ElMessage.success('已从剪贴板填入路径')
+      ElMessage.success(t('pipelineDashboard.elMessage_1'))
     } else {
-      ElMessage.warning('剪贴板为空')
+      ElMessage.warning(t('pipelineDashboard.elMessage_2'))
     }
   } catch {
-    ElMessage.warning('无法读取剪贴板，请检查浏览器权限或手动粘贴')
+    ElMessage.warning(t('pipelineDashboard.elMessage_3'))
   }
 }
 
 async function pickLocalDirectoryAssist() {
   const w = window as Window & { showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle> }
   if (typeof w.showDirectoryPicker !== 'function') {
-    ElMessage.info('当前浏览器不支持系统文件夹选择，请使用「从剪贴板粘贴」或手动输入绝对路径')
+    ElMessage.info(t('pipelineDashboard.elMessage_4'))
     return
   }
   try {
@@ -489,7 +493,7 @@ async function pickLocalDirectoryAssist() {
         if (r.ok && r.resolved) {
           newTask.value.projectPath = r.resolved
           rememberProjectPath(r.resolved)
-          ElMessage.success('已匹配并填入路径（后端已校验目录存在）')
+          ElMessage.success(t('pipelineDashboard.elMessage_5'))
           return
         }
       } catch {
@@ -627,7 +631,7 @@ async function confirmDeletePlanningTask(task: PipelineTask) {
       },
     )
     await pipelineStore.removeTask(task.id)
-    ElMessage.success('任务已删除')
+    ElMessage.success(t('pipelineDashboard.elMessage_6'))
   } catch (e: unknown) {
     if (e === 'cancel') return
     ElMessage.error(`删除失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -707,7 +711,7 @@ function eventDetail(event: PipelineEvent) {
 
 async function handleCreateTask() {
   if (!newTask.value.title.trim()) {
-    ElMessage.warning('请输入任务标题')
+    ElMessage.warning(t('pipelineDashboard.elMessage_7'))
     return
   }
   creating.value = true

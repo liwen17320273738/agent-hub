@@ -1,6 +1,6 @@
 <template>
   <div v-if="!agent" class="profile-page empty">
-    <p>加载中…</p>
+    <p>{{ t('agentProfile.text_1') }}</p>
   </div>
   <div v-else class="profile-page">
     <!-- Hero -->
@@ -28,19 +28,19 @@
         <div class="hero-stats">
           <div class="stat-item">
             <span class="stat-num">{{ agent.tools.length }}</span>
-            <span class="stat-label">工具</span>
+            <span class="stat-label">{{ t('agentProfile.text_2') }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-num">{{ agent.skills.length }}</span>
-            <span class="stat-label">技能</span>
+            <span class="stat-label">{{ t('agentProfile.text_3') }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-num">{{ deliverables.length }}</span>
-            <span class="stat-label">交付物</span>
+            <span class="stat-label">{{ t('agentProfile.text_4') }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-num">{{ standardsCount }}</span>
-            <span class="stat-label">质量标准</span>
+            <span class="stat-label">{{ t('agentProfile.text_5') }}</span>
           </div>
         </div>
       </div>
@@ -59,7 +59,7 @@
       <div class="profile-col-left">
         <!-- Radar Chart -->
         <section class="profile-card">
-          <h2><el-icon><DataAnalysis /></el-icon> 能力雷达</h2>
+          <h2><el-icon><DataAnalysis /></el-icon>{{ t('agentProfile.text_6') }}</h2>
           <div class="radar-container">
             <svg viewBox="0 0 300 300" class="radar-svg">
               <!-- Grid -->
@@ -90,9 +90,9 @@
 
         <!-- Collaboration -->
         <section class="profile-card" v-if="collaboration">
-          <h2><el-icon><Connection /></el-icon> 协作关系</h2>
+          <h2><el-icon><Connection /></el-icon>{{ t('agentProfile.text_7') }}</h2>
           <div class="collab-section" v-if="collaboration.reviews_output_of?.length">
-            <h4>审阅以下 Agent 的产出</h4>
+            <h4>{{ t('agentProfile.text_8') }}</h4>
             <div class="collab-agents">
               <el-tag v-for="aid in collaboration.reviews_output_of" :key="aid"
                 effect="dark" type="success" size="small">
@@ -101,7 +101,7 @@
             </div>
           </div>
           <div class="collab-section" v-if="collaboration.output_reviewed_by?.length">
-            <h4>产出被以下 Agent 审阅</h4>
+            <h4>{{ t('agentProfile.text_9') }}</h4>
             <div class="collab-agents">
               <el-tag v-for="aid in collaboration.output_reviewed_by" :key="aid"
                 effect="dark" type="warning" size="small">
@@ -110,7 +110,7 @@
             </div>
           </div>
           <div class="collab-section" v-if="collaboration.can_escalate_to?.length">
-            <h4>可升级至</h4>
+            <h4>{{ t('agentProfile.text_10') }}</h4>
             <div class="collab-agents">
               <el-tag v-for="aid in collaboration.can_escalate_to" :key="aid"
                 effect="dark" type="danger" size="small">
@@ -119,7 +119,7 @@
             </div>
           </div>
           <div v-if="!collaboration.reviews_output_of?.length && !collaboration.output_reviewed_by?.length && !collaboration.can_escalate_to?.length"
-            class="empty-hint">暂无协作关系</div>
+            class="empty-hint">{{ t('agentProfile.text_11') }}</div>
         </section>
       </div>
 
@@ -137,7 +137,7 @@
               <p class="tool-desc">{{ tool.description }}</p>
             </div>
           </div>
-          <div v-else class="empty-hint">暂无绑定工具</div>
+          <div v-else class="empty-hint">{{ t('agentProfile.text_12') }}</div>
         </section>
 
         <!-- Skills -->
@@ -153,12 +153,12 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-hint">暂无绑定技能</div>
+          <div v-else class="empty-hint">{{ t('agentProfile.text_13') }}</div>
         </section>
 
         <!-- Deliverables -->
         <section class="profile-card" v-if="deliverables.length">
-          <h2><el-icon><Document /></el-icon> 交付物</h2>
+          <h2><el-icon><Document /></el-icon>{{ t('agentProfile.text_14') }}</h2>
           <div class="deliverables-list">
             <div v-for="(d, i) in deliverables" :key="i" class="deliverable-item">
               <el-icon :size="14" :style="{ color: agent.color }"><CircleCheck /></el-icon>
@@ -169,9 +169,9 @@
 
         <!-- Boundary -->
         <section class="profile-card" v-if="boundary">
-          <h2><el-icon><Guide /></el-icon> 工作边界</h2>
+          <h2><el-icon><Guide /></el-icon>{{ t('agentProfile.text_15') }}</h2>
           <div class="boundary-section" v-if="boundary.handles?.length">
-            <h4>擅长处理</h4>
+            <h4>{{ t('agentProfile.text_16') }}</h4>
             <div class="boundary-tags">
               <el-tag v-for="h in boundary.handles" :key="h" type="success" size="small" effect="plain">
                 {{ h }}
@@ -179,7 +179,7 @@
             </div>
           </div>
           <div class="boundary-section" v-if="boundary.delegates_to && Object.keys(boundary.delegates_to).length">
-            <h4>委派给其他专家</h4>
+            <h4>{{ t('agentProfile.text_17') }}</h4>
             <div class="delegate-list">
               <div v-for="(desc, key) in boundary.delegates_to" :key="key" class="delegate-item">
                 <el-tag size="small" type="info" effect="plain">{{ key }}</el-tag>
@@ -191,7 +191,7 @@
 
         <!-- Standards -->
         <section class="profile-card" v-if="standards.length">
-          <h2><el-icon><Aim /></el-icon> 质量标准</h2>
+          <h2><el-icon><Aim /></el-icon>{{ t('agentProfile.text_18') }}</h2>
           <ol class="standards-list">
             <li v-for="(s, i) in standards" :key="i">{{ s }}</li>
           </ol>
@@ -207,6 +207,9 @@ import { useRoute } from 'vue-router'
 import { useAgentStore } from '@/stores/agents'
 import type { AgentProfile as AgentProfileType } from '@/stores/agents'
 import { resolveAgentIcon } from '@/utils/agentIcon'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const route = useRoute()
 const agentStore = useAgentStore()

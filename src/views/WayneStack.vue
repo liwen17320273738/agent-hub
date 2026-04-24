@@ -2,15 +2,15 @@
   <div class="wayne-stack-page">
     <header class="page-header">
       <div>
-        <h1>Agent Hub 运行蓝图</h1>
+        <h1>{{ t('wayneStack.text_1') }}</h1>
         <p class="subtitle">
           以 Claude Code 为执行中枢、Cursor 为驾驶舱、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
         </p>
       </div>
       <div class="header-badges">
-        <el-tag type="success" effect="dark">Claude Code 中枢</el-tag>
-        <el-tag type="info">Cursor 驾驶舱</el-tag>
-        <el-tag type="warning">人在环上</el-tag>
+        <el-tag type="success" effect="dark">{{ t('wayneStack.text_2') }}</el-tag>
+        <el-tag type="info">{{ t('wayneStack.text_3') }}</el-tag>
+        <el-tag type="warning">{{ t('wayneStack.text_4') }}</el-tag>
       </div>
     </header>
 
@@ -192,6 +192,9 @@
 
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 type Layer = {
   index: string

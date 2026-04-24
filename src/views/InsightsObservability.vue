@@ -2,15 +2,15 @@
   <div class="obs-page dark">
     <header class="obs-header">
       <div>
-        <h1>Agent 观测台</h1>
-        <p class="obs-sub">成本 / 质量 / 速度 全景 · 学习闭环控制面板</p>
+        <h1>{{ t('insightsObservability.text_1') }}</h1>
+        <p class="obs-sub">{{ t('insightsObservability.text_2') }}</p>
       </div>
       <div class="obs-controls">
         <el-radio-group v-model="windowDays" size="small" @change="reload">
-          <el-radio-button :value="3">3 天</el-radio-button>
-          <el-radio-button :value="7">7 天</el-radio-button>
-          <el-radio-button :value="14">14 天</el-radio-button>
-          <el-radio-button :value="30">30 天</el-radio-button>
+          <el-radio-button :value="3">{{ t('insightsObservability.text_3') }}</el-radio-button>
+          <el-radio-button :value="7">{{ t('insightsObservability.text_4') }}</el-radio-button>
+          <el-radio-button :value="14">{{ t('insightsObservability.text_5') }}</el-radio-button>
+          <el-radio-button :value="30">{{ t('insightsObservability.text_6') }}</el-radio-button>
         </el-radio-group>
         <el-button :loading="loading" size="small" @click="reload">
           <el-icon><Refresh /></el-icon> 刷新
@@ -20,38 +20,38 @@
 
     <el-tabs v-model="tab" class="obs-tabs">
       <!-- ─────────── 总览 ─────────── -->
-      <el-tab-pane label="总览" name="overview">
+      <el-tab-pane :label="t('insightsObservability.label_1')" name="overview">
         <div v-if="snap" class="kpi-grid">
-          <KpiCard label="任务" :value="snap.totals.tasks" suffix="个" />
-          <KpiCard label="阶段执行" :value="snap.totals.stages_executed" suffix="次" />
-          <KpiCard label="LLM 调用" :value="snap.totals.llm_calls" suffix="次" />
+          <KpiCard :label="t('insightsObservability.label_2')" :value="snap.totals.tasks" suffix="个" />
+          <KpiCard :label="t('insightsObservability.label_3')" :value="snap.totals.stages_executed" suffix="次" />
+          <KpiCard :label="t('insightsObservability.label_4')" :value="snap.totals.llm_calls" suffix="次" />
           <KpiCard
-            label="总成本"
+            :label="t('insightsObservability.label_5')"
             :value="snap.totals.cost_usd.toFixed(4)"
             suffix="USD"
             tone="warning"
           />
           <KpiCard
-            label="总 token"
+            :label="t('insightsObservability.label_6')"
             :value="formatTokens(snap.totals.tokens)"
             suffix=""
           />
           <KpiCard
-            label="拒绝 / 失败"
+            :label="t('insightsObservability.label_7')"
             :value="`${snap.totals.rejects} / ${snap.totals.fails}`"
             tone="danger"
           />
         </div>
 
         <div v-if="snap" class="chart-row">
-          <ChartCard title="每日成本（USD）" :height="180">
+          <ChartCard :title="t('insightsObservability.title_1')" :height="180">
             <SparkBars
               :values="snap.trend.map((d) => d.cost_usd)"
               :labels="snap.trend.map((d) => d.day.slice(5))"
               color="#facc15"
             />
           </ChartCard>
-          <ChartCard title="每日 token 量" :height="180">
+          <ChartCard :title="t('insightsObservability.title_2')" :height="180">
             <SparkBars
               :values="snap.trend.map((d) => d.tokens)"
               :labels="snap.trend.map((d) => d.day.slice(5))"
@@ -59,7 +59,7 @@
               :format-value="formatTokens"
             />
           </ChartCard>
-          <ChartCard title="每日 LLM 调用" :height="180">
+          <ChartCard :title="t('insightsObservability.title_3')" :height="180">
             <SparkBars
               :values="snap.trend.map((d) => d.llm_calls)"
               :labels="snap.trend.map((d) => d.day.slice(5))"
@@ -69,7 +69,7 @@
         </div>
 
         <div v-if="snap" class="chart-row">
-          <ChartCard title="任务状态分布" :height="160">
+          <ChartCard :title="t('insightsObservability.title_4')" :height="160">
             <div class="status-grid">
               <div
                 v-for="(c, st) in snap.task_status"
@@ -85,7 +85,7 @@
               </div>
             </div>
           </ChartCard>
-          <ChartCard title="审批队列" :height="160">
+          <ChartCard :title="t('insightsObservability.title_5')" :height="160">
             <div class="status-grid">
               <div
                 v-for="(c, st) in snap.approvals.by_status"
@@ -95,10 +95,10 @@
                 <span class="status-label">{{ st }}</span>
                 <span class="status-count">{{ c }}</span>
               </div>
-              <div v-if="!snap.approvals.total" class="empty-mini">无审批请求</div>
+              <div v-if="!snap.approvals.total" class="empty-mini">{{ t('insightsObservability.text_7') }}</div>
             </div>
             <div class="risk-line">
-              <span>风险等级：</span>
+              <span>{{ t('insightsObservability.text_8') }}</span>
               <el-tag
                 v-for="(c, risk) in snap.approvals.by_risk"
                 :key="risk"
@@ -109,7 +109,7 @@
               </el-tag>
             </div>
           </ChartCard>
-          <ChartCard title="预算治理事件" :height="160">
+          <ChartCard :title="t('insightsObservability.title_6')" :height="160">
             <div class="status-grid">
               <div class="status-pill">
                 <span class="status-label">block</span>
@@ -129,9 +129,9 @@
       </el-tab-pane>
 
       <!-- ─────────── 阶段热力图 ─────────── -->
-      <el-tab-pane label="阶段表现" name="stages">
+      <el-tab-pane :label="t('insightsObservability.label_8')" name="stages">
         <el-table v-if="snap" :data="snap.stage_heatmap" stripe size="small">
-          <el-table-column prop="stage_id" label="阶段" width="160">
+          <el-table-column prop="stage_id" :label="t('insightsObservability.label_9')" width="160">
             <template #default="{ row }">
               <span class="mono">{{ row.stage_id }}</span>
             </template>
@@ -632,6 +632,9 @@ import {
   type SandboxDenial,
   type SchedulerStatus,
 } from '@/services/insightsApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 // ─── inline mini components ───
 const KpiCard = (props: { label: string; value: string | number; suffix?: string; tone?: string }) =>
@@ -823,7 +826,7 @@ const cellEditor = reactive({
 
 function openCellEditor(role: string, tool: string) {
   if (sandboxPolicy.value?.common_tools.includes(tool)) {
-    ElMessage.info('common 工具对所有角色开放，不支持单元格覆盖')
+    ElMessage.info(t('insightsObservability.elMessage_1'))
     return
   }
   const summary = sandboxPolicy.value?.roles[role]
@@ -861,7 +864,7 @@ async function saveCellEdit() {
         cellEditor.note || undefined,
       )
     }
-    ElMessage.success('沙箱策略已更新')
+    ElMessage.success(t('insightsObservability.elMessage_2'))
     cellEditor.open = false
     // Refresh the policy snapshot so the matrix reflects the change.
     const p = await fetchSandboxPolicy().catch(() => null)

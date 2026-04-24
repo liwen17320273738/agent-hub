@@ -48,6 +48,13 @@ DEFAULT_REGISTRY_PATH = (
 GITHUB_REGISTRY_PATH = (
     Path(__file__).resolve().parent.parent.parent / "data" / "github_skill_registry.json"
 )
+# The crawler writes auto-discovered / untrusted entries here; the
+# review pipeline endpoints in ``api/pipeline.py`` read & mutate this
+# file. Deliberately NOT included in ``_registry_sources`` so pending
+# entries never leak into the public market listing.
+GITHUB_PENDING_REGISTRY_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "github_pending_registry.json"
+)
 REGISTRY_CACHE_TTL_SEC = 300
 FETCH_TIMEOUT_SEC = 15
 MAX_SKILL_MD_BYTES = 256 * 1024  # 256KB

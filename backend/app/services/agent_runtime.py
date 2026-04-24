@@ -125,6 +125,11 @@ class AgentRuntime:
         observations: List[str] = []
         final_output = ""
 
+        _is_local = (
+            getattr(app_settings, "pipeline_force_local_llm", False)
+            or model_info.get("provider") == "local"
+        )
+
         for step in range(self.max_steps):
             # 使用标准 function calling 格式
             call_kwargs: Dict[str, Any] = {
@@ -132,10 +137,6 @@ class AgentRuntime:
                 "messages": messages,
                 "temperature": self.temperature,
             }
-            _is_local = (
-                getattr(app_settings, "pipeline_force_local_llm", False)
-                or model_info.get("provider") == "local"
-            )
             if _is_local and app_settings.llm_api_url:
                 call_kwargs["api_url"] = app_settings.llm_api_url
             if self.tools:
@@ -188,6 +189,27 @@ class AgentRuntime:
                     "tool_call_id": tc.get("id", ""),
                     "content": observation,
                 })
+
+        if not (final_output or "").strip():
+            synth_messages = list(messages)
+            synth_messages.append({
+                "role": "user",
+                "content": (
+                    "工具调用阶段已结束。请根据上述全部工具输出，用 Markdown **一次性** 写出最终完整报告"
+                    "（不少于 500 字），**禁止再请求工具**。"
+                    "验收阶段请包含 `APPROVED` 或 `REJECTED REJECT_TO: <stage_id>` 作为结论行。"
+                ),
+            })
+            synth_kwargs: Dict[str, Any] = {
+                "model": model,
+                "messages": synth_messages,
+                "temperature": self.temperature,
+            }
+            if _is_local and app_settings.llm_api_url:
+                synth_kwargs["api_url"] = app_settings.llm_api_url
+            synth = await chat_completion(**synth_kwargs)
+            if not synth.get("error"):
+                final_output = synth.get("content", "") or ""
 
         verification = verify_stage_output(
             stage_id="agent-output", role=self.agent_id, output=final_output,

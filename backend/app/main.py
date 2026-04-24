@@ -54,6 +54,7 @@ from .api import (
     deliverables as deliverables_api,
     task_artifacts as task_artifacts_api,
     worktree as worktree_api,
+    translate as translate_api,
 )
 
 logging.basicConfig(
@@ -153,6 +154,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if synced:
         logger.info(f"Synced {synced} filesystem skills to database.")
 
+    # Physical workspace (data/workspace) — must exist before code extraction
+    try:
+        from .services.task_workspace import ensure_global_workspace_dirs
+
+        _ws_root = ensure_global_workspace_dirs()
+        logger.info("Workspace root ready: %s", _ws_root)
+    except Exception as exc:
+        logger.error("Workspace directory init failed: %s", exc)
+
     # Register built-in stage hooks (code extractor, test validator, etc.)
     try:
         from .services.stage_hooks import register_builtin_hooks
@@ -204,11 +214,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning(f"Sandbox preload skipped: {exc}")
 
+    # Opt-in background task that periodically re-crawls GitHub for
+    # new SKILL.md files. Controlled by SKILL_CRAWLER_ENABLED=1; see
+    # services/skill_crawler_scheduler.py for the full env surface.
+    try:
+        from .services import skill_crawler_scheduler
+        skill_crawler_scheduler.start()
+    except Exception as exc:
+        logger.warning(f"Skill crawler scheduler not started: {exc}")
+
+    try:
+        import asyncio
+
+        from .services.translator import prewarm_from_recent_task_titles
+
+        async def _pregen() -> None:
+            try:
+                await prewarm_from_recent_task_titles()
+            except Exception as e:
+                logger.warning("translate pregen background task failed: %s", e)
+
+        asyncio.create_task(_pregen())
+    except Exception as exc:
+        logger.warning("translate pregen not scheduled: %s", exc)
+
     yield
 
     try:
         from .services.sandbox_overrides import stop_invalidation_listener
         await stop_invalidation_listener()
+    except Exception:
+        pass
+
+    try:
+        from .services import skill_crawler_scheduler
+        await skill_crawler_scheduler.stop()
     except Exception:
         pass
 
@@ -347,6 +387,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(deliverables_api.router)
     application.include_router(task_artifacts_api.router, prefix="/api")
     application.include_router(worktree_api.router, prefix="/api")
+    application.include_router(translate_api.router)
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)
@@ -365,6 +406,19 @@ AI Agent Hub — 全栈智能体协作平台
         from .services.llm_router import get_provider_health
         provider_health = get_provider_health()
 
+        from .services.task_workspace import ensure_global_workspace_dirs
+
+        workspace_root = str(ensure_global_workspace_dirs())
+        workspace_writable = True
+        workspace_error: str | None = None
+        try:
+            probe = ensure_global_workspace_dirs() / ".probe_write"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+        except Exception as wexc:
+            workspace_writable = False
+            workspace_error = str(wexc)
+
         return {
             "status": "healthy",
             "service": "agent-hub",
@@ -379,6 +433,11 @@ AI Agent Hub — 全栈智能体协作平台
                 ("cloudflare", settings.cloudflare_api_token),
                 ("miniprogram", settings.wechat_mp_appid),
             ] if v),
+            "workspace": {
+                "root": workspace_root,
+                "writable": workspace_writable,
+                "error": workspace_error,
+            },
         }
 
     @application.get("/api/config", tags=["health"])

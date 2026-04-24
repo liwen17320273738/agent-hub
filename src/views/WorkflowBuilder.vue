@@ -31,7 +31,7 @@
       <div class="right">
         <el-select
           v-model="selectedTemplate"
-          placeholder="加载模板"
+          :placeholder="t('workflowBuilder.placeholder_1')"
           size="small"
           style="width: 180px"
           :disabled="loadingTemplates"
@@ -48,24 +48,24 @@
           <el-icon><Plus /></el-icon>
           新增阶段
         </el-button>
-        <el-button size="small" @click="autoLayout">自动布局</el-button>
+        <el-button size="small" @click="autoLayout">{{ t('workflowBuilder.text_1') }}</el-button>
         <el-button size="small" @click="openSaveDialog">
           <el-icon><Folder /></el-icon>
           {{ currentSavedId ? '保存' : '保存到服务器' }}
         </el-button>
-        <el-button size="small" @click="openLoadDialog">打开</el-button>
+        <el-button size="small" @click="openLoadDialog">{{ t('workflowBuilder.text_2') }}</el-button>
         <el-button size="small" @click="showJsonPreview = true">
           <el-icon><DocumentCopy /></el-icon>
           查看 JSON
         </el-button>
-        <el-button size="small" @click="exportJson">导出</el-button>
+        <el-button size="small" @click="exportJson">{{ t('workflowBuilder.text_3') }}</el-button>
         <el-upload
           accept=".json,application/json"
           :show-file-list="false"
           :auto-upload="false"
           :on-change="onImportFile"
         >
-          <el-button size="small">导入</el-button>
+          <el-button size="small">{{ t('workflowBuilder.text_4') }}</el-button>
         </el-upload>
         <el-button size="small" type="danger" plain @click="resetCanvas">
           清空
@@ -141,25 +141,25 @@
       width="480px"
     >
       <el-form label-width="80px" label-position="left">
-        <el-form-item label="名称" required>
+        <el-form-item :label="t('workflowBuilder.label_1')" required>
           <el-input
             v-model="saveForm.name"
-            placeholder="例如：Web App 标准 SDLC"
+            :placeholder="t('workflowBuilder.placeholder_2')"
             maxlength="100"
             show-word-limit
           />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('workflowBuilder.label_2')">
           <el-input
             v-model="saveForm.description"
             type="textarea"
             :rows="3"
-            placeholder="（可选）这套 workflow 的目标 / 适用场景"
+            :placeholder="t('workflowBuilder.placeholder_3')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showSaveDialog = false">取消</el-button>
+        <el-button @click="showSaveDialog = false">{{ t('workflowBuilder.text_5') }}</el-button>
         <el-button
           type="primary"
           :disabled="!saveForm.name.trim()"
@@ -338,6 +338,9 @@ import {
   type SavedWorkflow,
 } from '@/services/workflowsApi'
 import type { PipelineEvent } from '@/agents/types'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 // ───────────────────────────────────────────────────────────────────
 // Vue Flow needs node-types to be NON-reactive (markRaw) — otherwise
@@ -644,7 +647,7 @@ function autoLayout() {
     edges.value.map((e) => ({ id: e.id, source: e.source, target: e.target })),
   )
   if (!conv.ok) {
-    ElMessage.warning('图未通过校验，无法重排')
+    ElMessage.warning(t('workflowBuilder.elMessage_1'))
     return
   }
   const fauxTemplate = {
@@ -682,11 +685,11 @@ function onImportFile(file: any) {
   reader.onload = () => {
     const doc = importDocFromJson(String(reader.result || ''))
     if (!doc) {
-      ElMessage.error('JSON 格式无效（需 version: 1 的 WorkflowDoc）')
+      ElMessage.error(t('workflowBuilder.elMessage_2'))
       return
     }
     applyDoc(doc)
-    ElMessage.success('已导入')
+    ElMessage.success(t('workflowBuilder.elMessage_3'))
   }
   reader.readAsText(f)
 }
@@ -721,9 +724,9 @@ const backendJsonPretty = computed(() => {
 async function copyBackendJson() {
   try {
     await navigator.clipboard.writeText(backendJsonPretty.value)
-    ElMessage.success('已复制 JSON 到剪贴板')
+    ElMessage.success(t('workflowBuilder.elMessage_4'))
   } catch {
-    ElMessage.warning('剪贴板写入失败，请手动复制')
+    ElMessage.warning(t('workflowBuilder.elMessage_5'))
   }
 }
 
@@ -738,7 +741,7 @@ const saveForm = ref({ name: '', description: '' })
 
 function openSaveDialog() {
   if (nodes.value.length === 0) {
-    ElMessage.warning('画布是空的，没有内容可保存')
+    ElMessage.warning(t('workflowBuilder.elMessage_6'))
     return
   }
   // Pre-fill from "current saved" if we're editing one already.
@@ -804,7 +807,7 @@ async function openLoadDialog() {
 
 function loadFromServer(w: SavedWorkflow) {
   if (!w.doc || !Array.isArray(w.doc.nodes)) {
-    ElMessage.error('该 workflow 的 doc 格式无效')
+    ElMessage.error(t('workflowBuilder.elMessage_7'))
     return
   }
   applyDoc(w.doc)
@@ -870,11 +873,11 @@ let unsubSSE: (() => void) | null = null
 
 function openRunDialog() {
   if (topology.value.warning) {
-    ElMessage.warning('画布有错误，无法运行')
+    ElMessage.warning(t('workflowBuilder.elMessage_8'))
     return
   }
   if (nodes.value.length === 0) {
-    ElMessage.warning('请先添加至少一个阶段')
+    ElMessage.warning(t('workflowBuilder.elMessage_9'))
     return
   }
   // Default title to "based on" lineage so the user just hits Enter.
@@ -1027,7 +1030,7 @@ function onSSE(evt: PipelineEvent) {
 
     case 'pipeline:dag-completed':
       isRunning.value = false
-      ElMessage.success('Workflow 执行完毕')
+      ElMessage.success(t('workflowBuilder.elMessage_10'))
       break
 
     case 'pipeline:auto-paused':

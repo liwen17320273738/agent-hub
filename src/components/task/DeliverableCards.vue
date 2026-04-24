@@ -1,7 +1,7 @@
 <template>
   <div class="deliverable-cards">
     <div class="cards-header">
-      <h3>交付包</h3>
+      <h3>{{ t('deliverableCards.text_1') }}</h3>
       <el-button v-if="!isShareMode" size="small" @click="refresh" :loading="loading">
         <el-icon><Refresh /></el-icon>
         刷新
@@ -20,8 +20,8 @@
         <div class="card-body">
           <div class="card-title">{{ card.title }}</div>
           <div class="card-meta">
-            <span v-if="card.exists" class="card-status done">已产出</span>
-            <span v-else class="card-status empty">待填写</span>
+            <span v-if="card.exists" class="card-status done">{{ t('deliverableCards.text_2') }}</span>
+            <span v-else class="card-status empty">{{ t('deliverableCards.text_3') }}</span>
             <span v-if="card.updatedAt" class="card-time">{{ formatTime(card.updatedAt) }}</span>
           </div>
         </div>
@@ -38,8 +38,8 @@
               编辑
             </el-button>
             <template v-if="editing">
-              <el-button size="small" type="primary" @click="save" :loading="saving">保存</el-button>
-              <el-button size="small" text @click="cancelEdit">取消</el-button>
+              <el-button size="small" type="primary" @click="save" :loading="saving">{{ t('deliverableCards.text_4') }}</el-button>
+              <el-button size="small" text @click="cancelEdit">{{ t('deliverableCards.text_5') }}</el-button>
             </template>
             <el-button size="small" text @click="closeViewer">
               <el-icon><Close /></el-icon>
@@ -60,10 +60,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { listTaskDocs, readTaskDoc, writeTaskDoc, initTaskWorkspace } from '@/services/deliveryDocs'
 import type { TaskDocMeta } from '@/services/deliveryDocs'
+
+const { t } = useI18n()
+
+function formatTime(ts: string | number | null | undefined) {
+  if (ts == null || ts === '') return ''
+  const n = typeof ts === 'number' ? ts : Date.parse(ts)
+  if (Number.isNaN(n)) return ''
+  return new Date(n).toLocaleString(undefined, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 const props = defineProps<{
   taskId: string
@@ -141,7 +156,7 @@ async function refresh() {
       docs.value = await listTaskDocs(props.taskId)
     }
   } catch {
-    ElMessage.warning('加载交付文档失败')
+    ElMessage.warning(t('deliverableCards.elMessage_1'))
   } finally {
     loading.value = false
   }
@@ -192,10 +207,10 @@ async function save() {
     const doc = await writeTaskDoc(props.taskId, activeDoc.value, editBuffer.value)
     docContent.value = doc.content
     editing.value = false
-    ElMessage.success('已保存')
+    ElMessage.success(t('deliverableCards.elMessage_2'))
     await refresh()
   } catch {
-    ElMessage.error('保存失败')
+    ElMessage.error(t('deliverableCards.elMessage_3'))
   } finally {
     saving.value = false
   }
@@ -203,8 +218,6 @@ async function save() {
 
 onMounted(refresh)
 
-// When entering edit mode, populate buffer
-import { watch } from 'vue'
 watch(editing, (val) => {
   if (val && docContent.value) {
     editBuffer.value = docContent.value

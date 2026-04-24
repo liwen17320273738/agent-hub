@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.user import User
-from .pipeline import get_pipeline_auth
+from ..security import get_pipeline_auth_optional
 from ..services.task_workspace import get_task_root, DOC_SPECS
 
 router = APIRouter(prefix="/tasks", tags=["worktree"])
@@ -56,7 +56,7 @@ def _find_task_root(task_id: str) -> Optional[Path]:
 @router.get("/{task_id}/worktree")
 async def list_worktree(
     task_id: str,
-    _user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    _user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
 ):
     """Return the full file tree of a task's workspace."""
     root = _find_task_root(task_id)
@@ -109,7 +109,7 @@ async def list_worktree(
 async def read_worktree_file(
     task_id: str,
     file_path: str,
-    _user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    _user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
     max_size: int = Query(default=500_000, le=2_000_000),
 ):
     """Read a single file from the task's workspace."""

@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..models.workspace import Workspace, WorkspaceMember
 from ..models.user import User
-from ..security import get_current_user
+from ..security import get_current_user, get_current_user_optional
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -58,9 +58,11 @@ def _ws_dict(ws: Workspace, members: list = None) -> dict:
 
 @router.get("/")
 async def list_workspaces(
-    user: User = Depends(get_current_user),
+    user: Optional[User] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
+    if user is None:
+        return []
     result = await db.execute(
         select(Workspace)
         .where(Workspace.org_id == user.org_id)

@@ -61,6 +61,31 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_optional(
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Optional[User]:
+    """JWT auth when a Bearer token is present; anonymous (None) when omitted.
+
+    Invalid or expired tokens still raise 401.
+    """
+    if credentials is None:
+        return None
+    try:
+        payload = decode_token(credentials.credentials)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="无效凭证")
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="凭证已过期或无效")
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id), User.is_active.is_(True)))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    return user
+
+
 async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> User:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
@@ -78,5 +103,24 @@ async def get_pipeline_auth(
     token = credentials.credentials
     if settings.pipeline_api_key and secrets.compare_digest(token, settings.pipeline_api_key):
         return None  # API key auth — no user context
+
+    return await get_current_user(credentials, db)
+
+
+async def get_pipeline_auth_optional(
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Optional[User]:
+    """Same as get_pipeline_auth but allows missing credentials (anonymous read).
+
+    Used for GET artifact / worktree where the task UUID acts as an opaque capability.
+    If a Bearer token is present it must be valid (JWT or PIPELINE_API_KEY).
+    """
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+    if settings.pipeline_api_key and secrets.compare_digest(token, settings.pipeline_api_key):
+        return None
 
     return await get_current_user(credentials, db)

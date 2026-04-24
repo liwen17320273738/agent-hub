@@ -14,8 +14,8 @@
   -->
   <aside class="stage-palette">
     <div class="palette-header">
-      <h3>角色 / 阶段</h3>
-      <span class="hint">拖到画布即可新建</span>
+      <h3>{{ t('stagePalette.text_1') }}</h3>
+      <span class="hint">{{ t('stagePalette.text_2') }}</span>
     </div>
     <ul class="palette-list">
       <li
@@ -34,10 +34,7 @@
       </li>
     </ul>
     <div class="palette-footer">
-      <p class="tip">
-        💡 提示：<br />
-        · 拖到画布 = 新增阶段<br />
-        · 阶段右把手 → 左把手 = 依赖<br />
+      <p class="tip">{{ t('stagePalette.text_3') }}<br />{{ t('stagePalette.text_4') }}<br />{{ t('stagePalette.text_5') }}<br />
         · 点节点 = 配置面板
       </p>
     </div>
@@ -46,6 +43,9 @@
 
 <script setup lang="ts">
 import { KNOWN_ROLES, roleEmoji, roleLabel } from '@/services/workflowBuilder'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface PaletteItem {
   role: string

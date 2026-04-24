@@ -29,7 +29,12 @@ class AgentDefinition(Base):
 
     # Capabilities metadata
     capabilities: Mapped[dict] = mapped_column(JsonDict(), default=dict)
-    # e.g. {"can_code": true, "can_design": false, "languages": ["python", "typescript"]}
+
+    # Structured role card fields (Step 4: agency-agents-zh pattern)
+    role_card: Mapped[dict] = mapped_column(JsonDict(), default=dict)
+    # { "persona": str, "mission": [str], "workflow_steps": [str],
+    #   "output_template": str, "success_metrics": [str],
+    #   "handoff_protocol": { "when": "condition", "to": "agent-id", "context": str } }
 
     preferred_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     max_tokens: Mapped[int] = mapped_column(Integer, default=4096)

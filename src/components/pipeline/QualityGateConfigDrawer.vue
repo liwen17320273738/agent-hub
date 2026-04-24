@@ -17,7 +17,7 @@
   -->
   <el-drawer
     v-model="visible"
-    title="质量门禁阈值配置"
+    :title="t('qualityGateConfigDrawer.title_1')"
     direction="rtl"
     size="42%"
     :before-close="handleClose"
@@ -28,7 +28,7 @@
           <el-icon><Setting /></el-icon>
           质量门禁阈值配置
         </h3>
-        <span v-if="hasUnsavedChanges" class="unsaved-tag">● 未保存</span>
+        <span v-if="hasUnsavedChanges" class="unsaved-tag">{{ t('qualityGateConfigDrawer.text_1') }}</span>
       </div>
     </template>
 
@@ -186,6 +186,9 @@ import {
   updateQualityGateConfig,
   type StageGateConfig,
 } from '@/services/pipelineApi'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   taskId: string
@@ -335,7 +338,7 @@ async function handleSave() {
   saving.value = true
   try {
     await updateQualityGateConfig(props.taskId, payload)
-    ElMessage.success('门禁阈值已保存')
+    ElMessage.success(t('qualityGateConfigDrawer.elMessage_1'))
     emit('saved')
     visible.value = false
   } catch (e: unknown) {

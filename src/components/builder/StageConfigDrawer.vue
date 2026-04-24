@@ -22,7 +22,7 @@
   >
     <div v-if="data" class="cfg-form">
       <el-form label-position="top" size="default">
-        <el-form-item label="阶段 ID（stage_id）">
+        <el-form-item :label="t('stageConfigDrawer.label_1')">
           <el-input
             v-model="data.stageId"
             placeholder="development"
@@ -142,6 +142,9 @@ import { computed, ref, watch } from 'vue'
 import { Delete, InfoFilled } from '@element-plus/icons-vue'
 import { KNOWN_ROLES } from '@/services/workflowBuilder'
 import type { BuilderNode } from '@/services/workflowBuilder'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   visible: boolean
