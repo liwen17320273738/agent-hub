@@ -2,20 +2,22 @@
 Planner-Worker Separation — 强模型规划 + 便宜模型执行
 
 核心思路:
-- Lead Agent (Planner) 使用强模型 (Claude Opus / GPT-4.5) 做任务分析和规划
-- Worker Agents 使用便宜模型 (DeepSeek / GPT-4o-mini) 执行具体子任务
+- Lead Agent (Planner) 使用强模型做任务分析和规划
+- Worker Agents 使用便宜模型执行具体子任务
 - 根据任务复杂度动态选择模型，在质量和成本之间取最优平衡
 
 模型分级:
-- Tier 1 (Planning): claude-opus-4, gpt-4.5 — 用于需求分析、架构决策、验收评审
-- Tier 2 (Execution): claude-sonnet-4, gpt-4o — 用于代码实现、文档撰写
-- Tier 3 (Routine): deepseek-chat, gpt-4o-mini, qwen-plus — 用于格式化、翻译、简单生成
+- Tier 1 (Planning): qwen-reasoning-distilled (local) / glm-4-plus (zhipu) — 用于需求分析、架构决策、验收评审
+- Tier 2 (Execution): gemma-4-26b (local) / glm-4-flash (zhipu) — 用于代码实现、文档撰写
+- Tier 3 (Routine): gemma-4-26b (local) / glm-4-flash (zhipu) — 用于格式化、翻译、简单生成
 """
 from __future__ import annotations
 
 import logging
 from enum import Enum
 from typing import Optional, Dict, Any
+
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +28,33 @@ class ModelTier(str, Enum):
     ROUTINE = "routine"      # Tier 3: cost-efficient
 
 
+_LOCAL_STRONG = settings.local_llm_model_strong or "qwen3.6-35b-a3b-claude-4.6-opus-reasoning-distilled@q6_k"
+_LOCAL_BASE = settings.llm_model or "google/gemma-4-26b-a4b"
+_LOCAL_MODELS = {_LOCAL_STRONG, _LOCAL_BASE}
+
+
+def _is_local_model(model_id: str) -> bool:
+    """Check if a model ID matches one of the configured local models."""
+    return model_id in _LOCAL_MODELS
+
 TIER_MODELS: Dict[ModelTier, list] = {
     ModelTier.PLANNING: [
+        {"id": _LOCAL_STRONG, "provider": "local", "cost_per_1k": 0.0},
         {"id": "glm-4-plus", "provider": "zhipu", "cost_per_1k": 0.0071},
+        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "claude-opus-4-20250514", "provider": "anthropic", "cost_per_1k": 0.045},
         {"id": "gpt-4.5", "provider": "openai", "cost_per_1k": 0.1125},
-        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "gemini-2.5-pro", "provider": "google", "cost_per_1k": 0.00575},
     ],
     ModelTier.EXECUTION: [
+        {"id": _LOCAL_BASE, "provider": "local", "cost_per_1k": 0.0},
         {"id": "glm-4-flash", "provider": "zhipu", "cost_per_1k": 0.0001},
+        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "claude-sonnet-4-20250514", "provider": "anthropic", "cost_per_1k": 0.009},
         {"id": "gpt-4o", "provider": "openai", "cost_per_1k": 0.00625},
-        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
     ],
     ModelTier.ROUTINE: [
+        {"id": _LOCAL_BASE, "provider": "local", "cost_per_1k": 0.0},
         {"id": "glm-4-flash", "provider": "zhipu", "cost_per_1k": 0.0001},
         {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "gpt-4o-mini", "provider": "openai", "cost_per_1k": 0.000375},
@@ -116,7 +130,8 @@ def resolve_model(
     5. Fallback to cheapest available
     """
     if preferred_model:
-        return {"model": preferred_model, "tier": "preferred", "reason": "agent preference"}
+        prov = "local" if _is_local_model(preferred_model) else "unknown"
+        return {"model": preferred_model, "provider": prov, "tier": "preferred", "reason": "agent preference"}
 
     if complexity == "high":
         tier = ModelTier.PLANNING

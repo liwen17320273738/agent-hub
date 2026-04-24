@@ -53,6 +53,7 @@ from .api import (
     credentials as credentials_api,
     deliverables as deliverables_api,
     task_artifacts as task_artifacts_api,
+    worktree as worktree_api,
 )
 
 logging.basicConfig(
@@ -151,6 +152,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await db.commit()
     if synced:
         logger.info(f"Synced {synced} filesystem skills to database.")
+
+    # Register built-in stage hooks (code extractor, test validator, etc.)
+    try:
+        from .services.stage_hooks import register_builtin_hooks
+        register_builtin_hooks()
+        logger.info("Stage hooks registered.")
+    except Exception as exc:
+        logger.warning(f"Failed to register stage hooks: {exc}")
+
+    # Probe LLM providers in background (local models can be slow, don't block startup)
+    try:
+        from .services.llm_router import probe_all_providers
+
+        async def _background_probe():
+            try:
+                health = await probe_all_providers()
+                healthy = [p for p, ok in health.items() if ok]
+                unhealthy = [p for p, ok in health.items() if not ok]
+                if healthy:
+                    logger.info(f"LLM providers healthy: {', '.join(healthy)}")
+                if unhealthy:
+                    logger.warning(f"LLM providers unhealthy: {', '.join(unhealthy)}")
+                if not healthy:
+                    logger.error("No healthy LLM providers! Pipeline will not work.")
+            except Exception as exc:
+                logger.warning(f"LLM provider probe failed: {exc}")
+
+        import asyncio
+        asyncio.create_task(_background_probe())
+        logger.info("LLM provider probe started in background...")
+    except Exception as exc:
+        logger.warning(f"LLM provider probe skipped: {exc}")
 
     # Eager-load DB-backed sandbox overrides into the in-memory cache so
     # the FIRST tool call doesn't pay the table-scan cost. Failures here
@@ -313,6 +346,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(credentials_api.router, prefix="/api")
     application.include_router(deliverables_api.router)
     application.include_router(task_artifacts_api.router, prefix="/api")
+    application.include_router(worktree_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)
@@ -328,6 +362,9 @@ AI Agent Hub — 全栈智能体协作平台
         from .redis_client import _fallback_mode
         cache_type = "memory-fallback" if _fallback_mode else "redis"
 
+        from .services.llm_router import get_provider_health
+        provider_health = get_provider_health()
+
         return {
             "status": "healthy",
             "service": "agent-hub",
@@ -335,6 +372,8 @@ AI Agent Hub — 全栈智能体协作平台
             "database": db_type,
             "cache": cache_type,
             "providers_count": len(provider_keys),
+            "providers_healthy": [p for p, ok in provider_health.items() if ok],
+            "providers_unhealthy": [p for p, ok in provider_health.items() if not ok],
             "deploy_platforms_count": sum(1 for _, v in [
                 ("vercel", settings.vercel_token),
                 ("cloudflare", settings.cloudflare_api_token),

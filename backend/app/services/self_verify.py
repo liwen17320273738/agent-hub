@@ -51,42 +51,55 @@ class StageVerification(BaseModel):
 
 STAGE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
     "planning": {
-        "required_sections": ["目标", "范围", "用户故事", "验收标准"],
-        "min_length": 500,
+        "required_sections": ["目标", "范围", "用户故事", "验收标准", "优先级"],
+        "min_length": 800,
         "format": "markdown",
         "must_contain": ["验收"],
+        "min_sections": 4,
+        "min_user_stories": 3,
+    },
+    "design": {
+        "required_sections": ["界面", "交互", "布局", "配色"],
+        "min_length": 500,
+        "format": "markdown",
+        "must_contain": ["用户"],
+        "must_contain_any": True,
     },
     "architecture": {
         "required_sections": ["技术选型", "架构", "数据模型", "API", "实现步骤"],
-        "min_length": 800,
-        "format": "markdown",
-        "must_contain": ["风险"],
-    },
-    "development": {
-        "required_sections": ["项目结构", "代码", "依赖"],
         "min_length": 1000,
         "format": "markdown",
+        "must_contain": ["风险"],
+        "min_code_blocks": 1,
+    },
+    "development": {
+        "required_sections": ["项目结构", "代码"],
+        "min_length": 1500,
+        "format": "markdown",
         "must_contain": ["```"],
+        "min_code_blocks": 3,
+        "min_code_files": 2,
     },
     "testing": {
-        "required_sections": ["测试范围", "测试用例", "边界条件"],
-        "min_length": 400,
+        "required_sections": ["测试范围", "测试用例"],
+        "min_length": 600,
         "format": "markdown",
-        "must_contain": ["PASS", "NEEDS WORK", "结论"],
+        "must_contain": ["PASS", "NEEDS WORK", "结论", "通过", "失败"],
         "must_contain_any": True,
+        "min_test_cases": 5,
     },
     "reviewing": {
-        "required_sections": ["评估", "验收"],
-        "min_length": 300,
+        "required_sections": ["评估"],
+        "min_length": 400,
         "format": "markdown",
-        "must_contain": ["APPROVED", "REJECTED"],
+        "must_contain": ["APPROVE", "REJECT", "通过", "驳回"],
         "must_contain_any": True,
     },
     "deployment": {
-        "required_sections": ["环境", "构建", "部署"],
+        "required_sections": ["环境", "部署"],
         "min_length": 400,
         "format": "markdown",
-        "must_contain": ["docker", "Docker", "CI", "回滚"],
+        "must_contain": ["docker", "Docker", "CI", "回滚", "部署", "启动"],
         "must_contain_any": True,
     },
 }
@@ -129,6 +142,23 @@ def verify_stage_output(
     # 6. Common quality checks
     checks.append(_check_no_placeholder(output))
     checks.append(_check_no_truncation(output))
+
+    # 7. Stage-specific structural checks
+    min_code_blocks = reqs.get("min_code_blocks", 0)
+    if min_code_blocks:
+        checks.append(_check_code_blocks(output, min_code_blocks))
+
+    min_code_files = reqs.get("min_code_files", 0)
+    if min_code_files:
+        checks.append(_check_code_files(output, min_code_files))
+
+    min_test_cases = reqs.get("min_test_cases", 0)
+    if min_test_cases:
+        checks.append(_check_test_cases(output, min_test_cases))
+
+    min_user_stories = reqs.get("min_user_stories", 0)
+    if min_user_stories:
+        checks.append(_check_user_stories(output, min_user_stories))
 
     overall = _compute_overall(checks)
     auto_proceed = overall != VerifyStatus.FAIL
@@ -276,6 +306,105 @@ def _check_no_truncation(output: str) -> VerifyResult:
             message="内容可能被截断",
         )
     return VerifyResult(check_name="no_truncation", status=VerifyStatus.PASS, message="内容完整")
+
+
+def _check_code_blocks(output: str, min_count: int) -> VerifyResult:
+    """Count fenced code blocks (``` ... ```)."""
+    blocks = re.findall(r"```\w*", output)
+    count = len(blocks)
+    if count >= min_count:
+        return VerifyResult(
+            check_name="code_blocks",
+            status=VerifyStatus.PASS,
+            message=f"包含 {count} 个代码块",
+        )
+    if count > 0:
+        return VerifyResult(
+            check_name="code_blocks",
+            status=VerifyStatus.WARN,
+            message=f"代码块不足 ({count}/{min_count})",
+        )
+    return VerifyResult(
+        check_name="code_blocks",
+        status=VerifyStatus.FAIL,
+        message=f"未找到代码块 (需要至少 {min_count} 个)",
+    )
+
+
+def _check_code_files(output: str, min_count: int) -> VerifyResult:
+    """Count code blocks with file path annotations (```lang:path)."""
+    file_blocks = re.findall(r"```\w+:[^\n`]+", output)
+    filepath_comments = re.findall(
+        r"(?://|#)\s*(?:filepath|file|文件)[:\s]", output, re.IGNORECASE
+    )
+    count = len(file_blocks) + len(filepath_comments)
+    if count >= min_count:
+        return VerifyResult(
+            check_name="code_files",
+            status=VerifyStatus.PASS,
+            message=f"包含 {count} 个带路径的代码文件",
+        )
+    if count > 0:
+        return VerifyResult(
+            check_name="code_files",
+            status=VerifyStatus.WARN,
+            message=f"带路径代码文件不足 ({count}/{min_count})",
+        )
+    return VerifyResult(
+        check_name="code_files",
+        status=VerifyStatus.WARN,
+        message=f"未检测到带路径的代码文件（建议使用 ```lang:path 格式）",
+    )
+
+
+def _check_test_cases(output: str, min_count: int) -> VerifyResult:
+    """Count test case entries (numbered items, TC-xxx, test_xxx, etc.)."""
+    patterns = [
+        re.findall(r"TC[-_]?\d+", output, re.IGNORECASE),
+        re.findall(r"test[-_]\w+", output, re.IGNORECASE),
+        re.findall(r"(?:测试用例|用例)\s*\d+", output),
+        re.findall(r"^\s*\d+\.\s.*(?:测试|test|验证|检查)", output, re.MULTILINE | re.IGNORECASE),
+    ]
+    unique = set()
+    for matches in patterns:
+        unique.update(matches)
+    count = len(unique)
+    if count >= min_count:
+        return VerifyResult(
+            check_name="test_cases",
+            status=VerifyStatus.PASS,
+            message=f"包含 {count} 个测试用例",
+        )
+    if count >= min_count // 2:
+        return VerifyResult(
+            check_name="test_cases",
+            status=VerifyStatus.WARN,
+            message=f"测试用例偏少 ({count}/{min_count})",
+        )
+    return VerifyResult(
+        check_name="test_cases",
+        status=VerifyStatus.WARN,
+        message=f"测试用例过少 ({count}/{min_count})",
+    )
+
+
+def _check_user_stories(output: str, min_count: int) -> VerifyResult:
+    """Count user story entries (作为...我希望..., As a...I want...)."""
+    zh = re.findall(r"作为.*?[，,].*?(?:希望|能够|可以)", output)
+    en = re.findall(r"As a.*?I (?:want|need|can)", output, re.IGNORECASE)
+    numbered = re.findall(r"^\s*\d+\.\s.*(?:用户|功能|需求)", output, re.MULTILINE)
+    count = len(zh) + len(en) + len(numbered)
+    if count >= min_count:
+        return VerifyResult(
+            check_name="user_stories",
+            status=VerifyStatus.PASS,
+            message=f"包含 {count} 个用户故事/需求项",
+        )
+    return VerifyResult(
+        check_name="user_stories",
+        status=VerifyStatus.WARN,
+        message=f"用户故事/需求项偏少 ({count}/{min_count})",
+    )
 
 
 def _compute_overall(checks: List[VerifyResult]) -> VerifyStatus:

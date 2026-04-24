@@ -4,6 +4,7 @@ Supports both blocking and streaming modes for all providers.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 import logging
@@ -25,11 +26,12 @@ logger = logging.getLogger(__name__)
 # attempted on the same call. Lives here (not cost_governor) to avoid an
 # import cycle between llm_router ↔ cost_governor.
 PROVIDER_FALLBACK_CHAIN: List[Dict[str, str]] = [
+    {"provider": "local",     "model": settings.llm_model or "default"},
+    {"provider": "zhipu",     "model": "glm-4-flash"},
     {"provider": "deepseek",  "model": "deepseek-chat"},
     {"provider": "openai",    "model": "gpt-4o-mini"},
     {"provider": "anthropic", "model": "claude-3-5-haiku-20241022"},
     {"provider": "qwen",      "model": "qwen-turbo"},
-    {"provider": "zhipu",     "model": "glm-4-flash"},
     {"provider": "google",    "model": "gemini-2.5-flash"},
 ]
 
@@ -81,6 +83,7 @@ PROVIDER_ENDPOINTS: Dict[str, str] = {
     "zhipu": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     "google": "https://generativelanguage.googleapis.com/v1beta/models",
+    "local": settings.llm_api_url or "",
 }
 
 _ALLOWED_API_HOSTS = {
@@ -604,6 +607,137 @@ async def chat_completion(
         return {"error": f"上游请求失败: {e}", "status": 502, "latency_ms": latency_ms}
 
 
+# ---------------------------------------------------------------------------
+# Rate-limit aware wrapper: retry 429/1302 on the SAME provider with backoff
+# ---------------------------------------------------------------------------
+_RATE_LIMIT_BACKOFFS = [2.0, 4.0, 8.0]
+
+_RATE_LIMIT_ERROR_PATTERNS = (
+    "rate limit", "rate_limit", "ratelimit",
+    "1302", "1303",
+    "您的账户已达到速率限制",
+    "too many requests",
+)
+
+
+def _is_rate_limited(result: Dict[str, Any]) -> bool:
+    if result.get("status") == 429:
+        return True
+    err = str(result.get("error") or "").lower()
+    return any(p in err for p in _RATE_LIMIT_ERROR_PATTERNS)
+
+
+async def chat_completion_with_retry(
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Wrap ``chat_completion`` with same-provider retry on rate limits.
+
+    Retries up to 3 times with exponential backoff (2s / 4s / 8s) before
+    giving up. Non-rate-limit errors return immediately.
+    """
+    result = await chat_completion(**kwargs)
+    if not _is_rate_limited(result):
+        return result
+
+    for backoff in _RATE_LIMIT_BACKOFFS:
+        logger.info(
+            "[llm-retry] rate limited on %s, waiting %.0fs before retry",
+            kwargs.get("model", "?"), backoff,
+        )
+        await asyncio.sleep(backoff)
+        result = await chat_completion(**kwargs)
+        if not _is_rate_limited(result):
+            return result
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Provider health probe — called at startup to mark providers healthy/unhealthy
+# ---------------------------------------------------------------------------
+_provider_health: Dict[str, bool] = {}
+
+
+async def probe_provider(provider: str, model: str) -> bool:
+    """Send a minimal request to verify the provider is reachable."""
+    try:
+        result = await asyncio.wait_for(
+            chat_completion(
+                model=model,
+                messages=[{"role": "user", "content": "hi"}],
+                temperature=0.0,
+                max_tokens=30,
+            ),
+            timeout=60.0,
+        )
+        healthy = bool(result.get("content")) and not result.get("error")
+        _provider_health[provider] = healthy
+        return healthy
+    except (asyncio.TimeoutError, Exception):
+        _provider_health[provider] = False
+        return False
+
+
+async def probe_all_providers() -> Dict[str, bool]:
+    """Probe all configured providers in parallel. Returns {provider: healthy}."""
+    keys = settings.get_provider_keys()
+    probe_models = {
+        "zhipu": "glm-4-flash",
+        "deepseek": "deepseek-chat",
+        "openai": "gpt-4o-mini",
+        "anthropic": "claude-3-5-haiku-20241022",
+        "qwen": "qwen-turbo",
+        "google": "gemini-2.5-flash",
+        "local": settings.llm_model or "default",
+    }
+    tasks = []
+    providers = []
+    for provider, key in keys.items():
+        if not key:
+            continue
+        model = probe_models.get(provider, "default")
+        providers.append(provider)
+        tasks.append(probe_provider(provider, model))
+
+    if tasks:
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for p, r in zip(providers, results):
+            if isinstance(r, Exception):
+                _provider_health[p] = False
+                logger.warning("[llm-probe] %s failed: %s", p, r)
+            else:
+                status = "healthy" if r else "unhealthy"
+                logger.info("[llm-probe] %s: %s %s", p, "✅" if r else "❌", status)
+
+    # Also probe the strong local model if configured
+    strong_model = settings.local_llm_model_strong
+    if strong_model and "local" in keys:
+        try:
+            result = await asyncio.wait_for(
+                chat_completion(
+                    model=strong_model,
+                    messages=[{"role": "user", "content": "hi"}],
+                    temperature=0.0,
+                    max_tokens=30,
+                    api_url=settings.llm_api_url or "",
+                ),
+                timeout=60.0,
+            )
+            ok = bool(result.get("content")) and not result.get("error")
+            logger.info("[llm-probe] local-strong (%s): %s", strong_model[:40], "✅ healthy" if ok else "❌ unhealthy")
+        except (asyncio.TimeoutError, Exception) as e:
+            logger.warning("[llm-probe] local-strong probe failed: %s", e)
+
+    if not tasks:
+        logger.warning("[llm-probe] No providers with API keys configured!")
+
+    return dict(_provider_health)
+
+
+def get_provider_health() -> Dict[str, bool]:
+    return dict(_provider_health)
+
+
 async def chat_completion_stream(
     *,
     model: str,
@@ -888,12 +1022,19 @@ async def chat_completion_with_fallback(
         if len(attempts) >= max_attempts:
             break
 
+    logger.info("[llm-fallback] attempts=%s health=%s", attempts, _provider_health)
     last_result: Dict[str, Any] = {}
     for idx, attempt in enumerate(attempts):
+        # Skip providers known to be unhealthy (unless it's the primary — always try once)
+        if idx > 0 and not _provider_health.get(attempt["provider"], True):
+            logger.info("[llm-fallback] skipping %s (marked unhealthy)", attempt["provider"])
+            continue
+        logger.info("[llm-fallback] trying idx=%d provider=%s model=%s", idx, attempt["provider"], attempt["model"])
+
         # Primary uses caller's api_url (could be a custom OpenAI-compatible
         # endpoint). Fallbacks always use the canonical provider endpoint.
         attempt_api_url = api_url if idx == 0 else ""
-        last_result = await chat_completion(
+        last_result = await chat_completion_with_retry(
             model=attempt["model"],
             messages=messages,
             temperature=temperature,

@@ -1,6 +1,7 @@
 <template>
   <div class="inbox-view">
-    <h1>收件箱</h1>
+    <h1>{{ t('inbox.title') }}</h1>
+    <p class="inbox-subtitle">{{ t('inbox.subtitle') }}</p>
 
     <div class="stat-cards">
       <button
@@ -18,17 +19,17 @@
     </div>
 
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="待审批" name="pending">
-        <TaskTable :tasks="pending" empty-text="暂无待审批任务" @click-task="goTask" />
+      <el-tab-pane :label="t('inbox.pending')" name="pending">
+        <TaskTable :tasks="pending" :empty-text="t('inbox.emptyPending')" @click-task="goTask" />
       </el-tab-pane>
-      <el-tab-pane label="进行中" name="running">
-        <TaskTable :tasks="running" empty-text="暂无执行中任务" @click-task="goTask" />
+      <el-tab-pane :label="t('inbox.running')" name="running">
+        <TaskTable :tasks="running" :empty-text="t('inbox.emptyRunning')" @click-task="goTask" />
       </el-tab-pane>
-      <el-tab-pane label="已完成" name="done">
-        <TaskTable :tasks="done" empty-text="暂无已完成任务" @click-task="goTask" />
+      <el-tab-pane :label="t('inbox.done')" name="done">
+        <TaskTable :tasks="done" :empty-text="t('inbox.emptyDone')" @click-task="goTask" />
       </el-tab-pane>
-      <el-tab-pane label="失败" name="failed">
-        <TaskTable :tasks="failed" empty-text="暂无失败任务" @click-task="goTask" />
+      <el-tab-pane :label="t('inbox.failed')" name="failed">
+        <TaskTable :tasks="failed" :empty-text="t('inbox.emptyFailed')" @click-task="goTask" />
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -37,10 +38,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { fetchTasks } from '@/services/pipelineApi'
 import type { PipelineTask } from '@/agents/types'
 import TaskTable from '@/components/inbox/TaskTable.vue'
 
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const tasks = ref<PipelineTask[]>([])
@@ -54,25 +57,19 @@ function tabFromQuery(): InboxTab {
 }
 const activeTab = ref<InboxTab>(tabFromQuery())
 
-// Honor deep-links from Dashboard / external sources. Also keep the URL
-// in sync when the user clicks a tab so the page is shareable / refreshable.
 watch(() => route.query.tab, () => { activeTab.value = tabFromQuery() })
-watch(activeTab, (t) => {
-  if (route.query.tab !== t) {
-    router.replace({ path: '/inbox', query: { ...route.query, tab: t } })
+watch(activeTab, (cur) => {
+  if (route.query.tab !== cur) {
+    router.replace({ path: '/inbox', query: { ...route.query, tab: cur } })
   }
 })
 
-// Single source of truth for the stat cards. Each card owns the tab it
-// switches to so they can't visually drift from the underlying tabs (the
-// previous version had cards but no "失败" tab, so clicking it would have
-// been a dead-end even if the click had worked).
-const statCards: { tab: InboxTab; label: string }[] = [
-  { tab: 'pending', label: '待审批' },
-  { tab: 'running', label: '执行中' },
-  { tab: 'done', label: '已完成' },
-  { tab: 'failed', label: '失败' },
-]
+const statCards = computed<{ tab: InboxTab; label: string }[]>(() => [
+  { tab: 'pending', label: t('inbox.pending') },
+  { tab: 'running', label: t('inbox.running') },
+  { tab: 'done',    label: t('inbox.done') },
+  { tab: 'failed',  label: t('inbox.failed') },
+])
 
 onMounted(async () => {
   try { tasks.value = await fetchTasks() } catch { /* empty */ }
@@ -111,6 +108,12 @@ function goTask(task: PipelineTask) {
 
 .inbox-view h1 {
   font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.inbox-subtitle {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
   margin-bottom: 20px;
 }
 

@@ -1,7 +1,7 @@
 from .user import Org, User
 from .conversation import Conversation
 from .agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugin, AgentMcp
-from .skill import Skill
+from .skill import Skill, SkillRating
 from .model_provider import ModelProvider, TokenUsage
 from .pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from .memory import TaskMemory, LearnedPattern
@@ -29,6 +29,7 @@ __all__ = [
     "AgentPlugin",
     "AgentMcp",
     "Skill",
+    "SkillRating",
     "ModelProvider",
     "TokenUsage",
     "PipelineTask",

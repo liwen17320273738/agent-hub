@@ -30,6 +30,7 @@ from .observability import (
     start_trace, start_span, complete_span, complete_trace, PipelineTrace,
 )
 from .llm_router import chat_completion as llm_chat
+from .llm_router import chat_completion_with_retry as llm_chat_with_retry
 from .llm_router import chat_completion_with_fallback as llm_chat_with_fallback
 from .token_tracker import estimate_cost
 from .sse import emit_event
@@ -468,7 +469,23 @@ STAGE_ROLE_PROMPTS = {
 - 代码可直接运行，无语法错误
 - 包含错误处理和边界情况
 - 遵循最佳实践（类型注解、合理命名、职责单一）
-用 Markdown 格式输出，代码块标注语言和文件路径。""",
+
+📁 **代码输出格式要求（必须严格遵循）**：
+每个文件用 Markdown 代码块输出，第一行必须标注语言和相对文件路径，格式如下：
+
+```python:backend/app/main.py
+# 这里是代码内容
+```
+
+```typescript:frontend/src/App.tsx
+// 这里是代码内容
+```
+
+```yaml:docker-compose.yml
+# 这里是配置内容
+```
+
+确保每个代码块的路径是相对路径，包含完整目录结构。系统会自动提取这些代码块并创建对应的文件。""",
     },
     "testing": {
         "role": "qa-lead",
@@ -488,8 +505,14 @@ STAGE_ROLE_PROMPTS = {
 8. **结论** — **PASS ✅** 或 **NEEDS WORK ❌**
    - 如 NEEDS WORK，列出具体缺陷和修复建议，指明需要退回到哪个阶段
 
-⚠️ CEO Agent 将根据你的报告做最终验收决定。请严格把关，不放过任何隐患。
-用 Markdown 格式输出。""",
+📁 **测试代码输出格式**：
+测试代码用 Markdown 代码块输出，第一行标注语言和文件路径：
+
+```python:tests/test_main.py
+# 测试代码
+```
+
+⚠️ CEO Agent 将根据你的报告做最终验收决定。请严格把关，不放过任何隐患。""",
     },
     "reviewing": {
         "role": "acceptance",
@@ -722,7 +745,7 @@ async def review_stage_output(
         for sid, out in previous_outputs.items():
             if sid != stage_id and out:
                 lbl = stage_label_map.get(sid, sid)
-                context_parts.append(f"## 前置阶段 — {lbl}\n{out[:2000]}")
+                context_parts.append(f"## 前置阶段 — {lbl}\n{out[:800]}")
         if context_parts:
             review_user = "\n\n".join(context_parts) + "\n\n" + review_user
 
@@ -1001,8 +1024,11 @@ async def execute_stage(
 
     # --- Layer 1: Planner-Worker → select model ---
     from ..config import settings as app_settings
+    from .llm_router import get_provider_health
     provider_keys = app_settings.get_provider_keys()
-    effective_providers = available_providers or list(provider_keys.keys())
+    health = get_provider_health()
+    healthy_providers = [p for p in provider_keys if health.get(p, True)]
+    effective_providers = available_providers or healthy_providers or list(provider_keys.keys())
 
     force_local = bool(getattr(app_settings, "pipeline_force_local_llm", False))
     if force_local and (app_settings.llm_api_url or "").strip() and (app_settings.llm_api_key or "").strip():
@@ -1011,6 +1037,7 @@ async def execute_stage(
         model_resolution = {
             "model": model,
             "tier": tier,
+            "provider": "local",
             "reason": "pipeline_force_local_llm — use LLM_MODEL + LLM_API_URL only",
         }
     elif provider_keys:
@@ -1026,11 +1053,13 @@ async def execute_stage(
         model = app_settings.llm_model or "deepseek-chat"
         tier = "local"
         reason = f"no cloud providers, using local: {model}"
-        model_resolution = {"model": model, "tier": tier, "reason": reason}
+        model_resolution = {"model": model, "tier": tier, "provider": "local", "reason": reason}
     else:
         return {"ok": False, "error": "未配置任何 LLM API Key（请在 .env 设置 ZHIPU_API_KEY 等）"}
 
     logger.info(f"[pipeline] Stage {stage_id}: model={model}, tier={tier}, reason={model_resolution['reason']}")
+
+    resolved_provider = model_resolution.get("provider", "")
 
     # --- Cost Governor: budget pre-check (downgrade or block before LLM call) ---
     from .cost_governor import pre_check_budget, record_stage_cost
@@ -1132,6 +1161,26 @@ async def execute_stage(
             "reason": guardrail_result.get("reason", "Blocked by guardrail"),
         }
 
+    # --- Layer 3.5: Pre-stage hooks ---
+    task_worktree = None
+    try:
+        from .task_workspace import ensure_task_workspace
+        task_worktree = await ensure_task_workspace(task_id, task_title)
+    except Exception as ws_err:
+        logger.warning("[pipeline] Failed to ensure task workspace: %s", ws_err)
+
+    try:
+        from .stage_hooks import run_hooks, HookContext
+        pre_ctx = HookContext(
+            task_id=task_id, stage_id=stage_id, worktree=task_worktree,
+            model=model, agent_id=_AGENT_KEY_TO_SEED_ID.get(stage_conf.get("agent", ""), ""),
+        )
+        pre_results = await run_hooks("pre", pre_ctx)
+        if pre_results:
+            logger.info("[pipeline] Pre-hooks for %s: %s", stage_id, pre_results)
+    except Exception as hook_err:
+        logger.warning("[pipeline] Pre-stage hooks failed for %s: %s", stage_id, hook_err)
+
     # --- Layer 4: LLM Call (with optional AgentRuntime tool loop) ---
     llm_result = None
     try:
@@ -1140,6 +1189,51 @@ async def execute_stage(
         stage_agent_id = _AGENT_KEY_TO_SEED_ID.get(agent_key, "")
         agent_tools = AGENT_TOOLS.get(stage_agent_id, [])
 
+        # Add task worktree to sandbox so file tools work in the right directory
+        if task_worktree and agent_tools:
+            try:
+                from .tools.sandbox import add_allowed_dir
+                add_allowed_dir(str(task_worktree))
+            except Exception:
+                pass
+
+            # Inject workspace path into system prompt so the agent writes to the right place
+            _tool_stages = {"development", "testing", "deployment", "architecture"}
+            if stage_id in _tool_stages:
+                system_prompt += (
+                    f"\n\n## 工作目录\n"
+                    f"你的工作目录是: `{task_worktree}`\n"
+                    f"所有文件操作请使用此目录的绝对路径。"
+                    f"代码文件写入 `{task_worktree}/src/` 目录。\n"
+                    f"配置文件写入 `{task_worktree}/config/` 目录。"
+                )
+
+        # Load MCP tools from DB for this agent
+        mcp_defs: dict = {}
+        mcp_handlers: dict = {}
+        if stage_agent_id:
+            try:
+                from ..models.agent import AgentMcp
+                from .mcp_client import build_tool_handlers
+                from sqlalchemy import select as sa_select
+
+                mcp_rows = (await db.execute(
+                    sa_select(AgentMcp).where(
+                        AgentMcp.agent_id == stage_agent_id,
+                        AgentMcp.enabled.is_(True),
+                    )
+                )).scalars().all()
+                if mcp_rows:
+                    records = [
+                        {"id": str(r.id), "name": r.name, "server_url": r.server_url,
+                         "tools": r.tools or [], "config": r.config or {}, "enabled": True}
+                        for r in mcp_rows
+                    ]
+                    mcp_defs, mcp_handlers = await build_tool_handlers(records, fetch_if_empty=True)
+                    logger.info("[pipeline] Loaded %d MCP tools for %s", len(mcp_defs), stage_agent_id)
+            except Exception as mcp_err:
+                logger.warning("[pipeline] MCP tool loading failed for %s: %s", stage_agent_id, mcp_err)
+
         if agent_tools:
             from .agent_runtime import AgentRuntime
             runtime = AgentRuntime(
@@ -1147,10 +1241,12 @@ async def execute_stage(
                 system_prompt=system_prompt,
                 tools=agent_tools,
                 model_preference={"execution": model},
-                max_steps=5,
+                max_steps=8,
                 temperature=0.7,
                 task_id=task_id,
                 role=role,
+                dynamic_tools=mcp_defs or None,
+                dynamic_handlers=mcp_handlers or None,
             )
             runtime_result = await runtime.execute(
                 db,
@@ -1169,7 +1265,7 @@ async def execute_stage(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
             ]
-            api_url = app_settings.llm_api_url if tier == "local" else ""
+            api_url = app_settings.llm_api_url if (tier == "local" or resolved_provider == "local") else ""
 
             async def _on_provider_fallback(payload: Dict[str, Any]) -> None:
                 """Surface provider rotation to the UI. Without this the user
@@ -1182,9 +1278,14 @@ async def execute_stage(
                     **payload,
                 })
 
+            _reasoning_keywords = ("reasoning", "distilled", "thinking", "o1", "o3")
+            _is_reasoning_model = any(k in model.lower() for k in _reasoning_keywords)
+            stage_max_tokens = 16384 if _is_reasoning_model else 8192
+
             llm_result = await llm_chat_with_fallback(
                 model=model,
                 messages=messages,
+                max_tokens=stage_max_tokens,
                 api_url=api_url,
                 image_attachments=att_images if att_images else None,
                 on_fallback=_on_provider_fallback,
@@ -1222,7 +1323,7 @@ async def execute_stage(
         })
         return {"ok": False, "error": str(e)}
 
-    if tier == "local":
+    if tier == "local" or resolved_provider == "local":
         api_url = app_settings.llm_api_url or ""
         if api_url and _needs_output_top_up(stage_id, content):
             try:
@@ -1247,7 +1348,7 @@ async def execute_stage(
         previous_outputs=previous_outputs,
     )
 
-    if tier == "local" and verification.overall_status == VerifyStatus.FAIL:
+    if (tier == "local" or resolved_provider == "local") and verification.overall_status == VerifyStatus.FAIL:
         api_url = app_settings.llm_api_url or ""
         if api_url and stage_id in _STAGE_MIN_OUTPUT_HINTS:
             repair_feedback = "; ".join(
@@ -1414,6 +1515,14 @@ async def execute_full_pipeline(
         if db_task:
             db_stages = {s.stage_id: s for s in db_task.stages}
 
+    # Ensure task worktree exists for post-stage hooks
+    task_worktree = None
+    try:
+        from .task_workspace import ensure_task_workspace
+        task_worktree = await ensure_task_workspace(task_id, task_title)
+    except Exception as ws_err:
+        logger.warning("[pipeline] Failed to ensure task workspace: %s", ws_err)
+
     for stage_id in stages:
         logger.info(f"[pipeline] Executing stage: {stage_id}")
 
@@ -1521,6 +1630,26 @@ async def execute_full_pipeline(
             await write_artifact_v2(db, task_id, stage_id, content)
         except Exception as art_err:
             logger.warning(f"[pipeline] Failed to write v2 artifact for {stage_id}: {art_err}")
+
+        # --- Post-stage hooks (code extraction, test validation, etc.) ---
+        try:
+            from .stage_hooks import run_hooks, HookContext
+            post_ctx = HookContext(
+                task_id=task_id, stage_id=stage_id, worktree=task_worktree,
+                content=content, model=result.get("model", ""),
+                agent_id=_AGENT_KEY_TO_SEED_ID.get(
+                    STAGE_ROLE_PROMPTS.get(stage_id, {}).get("agent", ""), ""),
+            )
+            post_results = await run_hooks("post", post_ctx)
+            if post_results:
+                logger.info("[pipeline] Post-hooks for %s: %s", stage_id, post_results)
+                await emit_event("stage:hooks-complete", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "hooks": post_results,
+                })
+        except Exception as hook_err:
+            logger.warning("[pipeline] Post-stage hooks failed for %s: %s", stage_id, hook_err)
 
         # --- Quality Gate Evaluation ---
         gate_result = None
@@ -1919,9 +2048,13 @@ def _build_user_message(
             "security-review": "安全审计报告",
             "legal-review": "法务审查报告",
         }
+        MAX_PREV_OUTPUT_CHARS = 800
         for sid, output in previous_outputs.items():
             label = stage_label.get(sid, sid)
             if output:
-                parts.append(f"## {label}\n{output}")
+                trimmed = output[:MAX_PREV_OUTPUT_CHARS]
+                if len(output) > MAX_PREV_OUTPUT_CHARS:
+                    trimmed += "\n...(已截断，完整内容见上游阶段产出)"
+                parts.append(f"## {label}\n{trimmed}")
 
     return "\n\n".join(parts)

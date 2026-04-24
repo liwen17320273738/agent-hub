@@ -130,8 +130,8 @@ watch(() => props.taskId, () => loadSummary())
 
 .completion-bar {
   display: flex;
-  gap: 4px;
-  padding: 10px 0;
+  gap: 3px;
+  padding: 12px 4px;
   flex-wrap: wrap;
   margin-bottom: 8px;
 }
@@ -139,33 +139,37 @@ watch(() => props.taskId, () => loadSummary())
 .completion-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
   user-select: none;
+  border: 1px solid transparent;
 }
 .completion-item:hover {
-  filter: brightness(1.1);
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
 .completion-icon { font-size: 15px; }
 .completion-label { font-weight: 500; }
 
 .status-empty {
-  background: var(--el-fill-color-light, #f5f7fa);
-  color: var(--el-text-color-placeholder, #a8abb2);
+  background: #f5f7fa;
+  color: #a8abb2;
+  border-color: #ebeef5;
 }
 .status-done {
-  background: #f0f9eb;
-  color: #67c23a;
+  background: linear-gradient(135deg, #f0f9eb, #e1f3d8);
+  color: #529b2e;
+  border-color: #c2e7b0;
 }
 .status-superseded {
   background: #fef0f0;
   color: #f56c6c;
+  border-color: #fbc4c4;
 }
 
 .artifact-tabs :deep(.el-tabs__content) {

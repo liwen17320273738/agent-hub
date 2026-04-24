@@ -11,7 +11,7 @@
       <div class="sidebar-search-wrap">
         <el-input
           v-model="searchQuery"
-          placeholder="搜索全部会话…"
+          :placeholder="$t('nav.searchPlaceholder')"
           clearable
           size="small"
           class="sidebar-search"
@@ -32,7 +32,7 @@
             <div class="search-hit-snippet">{{ h.snippet }}</div>
           </div>
         </div>
-        <div v-else-if="searchQuery.trim()" class="sidebar-search-empty">无匹配会话</div>
+        <div v-else-if="searchQuery.trim()" class="sidebar-search-empty">{{ $t('nav.searchEmpty') }}</div>
       </div>
 
       <nav class="sidebar-nav">
@@ -68,7 +68,7 @@
           <span class="user-email" :title="authStore.user.email">{{ authStore.user.displayName || authStore.user.email }}</span>
           <el-button text type="danger" size="small" class="logout-btn" @click="handleLogout">
             <el-icon><SwitchButton /></el-icon>
-            退出
+            {{ $t('nav.logout') }}
           </el-button>
         </div>
         <div class="nav-item lang-toggle" @click="toggleLocale">
@@ -77,7 +77,7 @@
         </div>
         <router-link to="/settings" class="nav-item" active-class="active">
           <el-icon><Setting /></el-icon>
-          <span>设置</span>
+          <span>{{ $t('nav.settings') }}</span>
         </router-link>
       </div>
     </aside>

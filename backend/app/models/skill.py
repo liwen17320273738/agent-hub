@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Text, Boolean, Integer
+from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default
 
 
 class Skill(Base):
@@ -37,3 +38,34 @@ class Skill(Base):
 
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+
+
+class SkillRating(Base):
+    """One rating per (skill, user). Aggregated into avg_stars / rating_count
+    when the marketplace endpoint lists skills."""
+
+    __tablename__ = "skill_ratings"
+    __table_args__ = (
+        UniqueConstraint("skill_id", "user_id", name="uq_skill_ratings_skill_user"),
+        Index("ix_skill_ratings_skill_id", "skill_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    skill_id: Mapped[str] = mapped_column(
+        String(100),
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    stars: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
+    comment: Mapped[str] = mapped_column(Text, default="")
+
+    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=utcnow_default(),
+        onupdate=datetime.utcnow,
+    )

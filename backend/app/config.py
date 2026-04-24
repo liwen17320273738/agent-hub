@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     llm_api_url: str = ""
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
+    # Strong local model (reasoning-distilled) for planning/architecture tiers
+    local_llm_model_strong: str = ""
     # Comma-separated hostnames allowed for llm_api_url (e.g. localhost,127.0.0.1 for Ollama).
     llm_allowed_hosts: str = ""
 
@@ -230,6 +232,10 @@ class Settings(BaseSettings):
                 inferred = "google"
             if inferred and inferred not in keys:
                 keys[inferred] = self.llm_api_key
+
+            # Register as "local" provider when URL points to a private/LAN endpoint
+            if not inferred:
+                keys["local"] = self.llm_api_key
 
         return keys
 

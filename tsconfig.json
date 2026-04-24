@@ -13,9 +13,10 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "./server/deliveryDocs.mjs": ["./server/deliveryDocs.d.mts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts"],
+  "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts", "vite.config.ts"],
   "exclude": ["node_modules"]
 }

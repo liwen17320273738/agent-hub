@@ -1,7 +1,43 @@
+/// <reference types="node" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { DELIVERY_DOCS, ensureDeliveryTemplates, listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc } from './server/deliveryDocs.mjs'
+
+type DevServerResponse = {
+  readonly headersSent: boolean
+  statusCode: number
+  setHeader(name: string, value: string | number | readonly string[]): void
+  end(chunk?: string | Uint8Array): void
+}
+
+/** 统一 JSON 错误响应，避免重复发送时抛错。 */
+function sendJsonError(res: DevServerResponse, error: unknown, statusCode = 500) {
+  if (res.headersSent) {
+    return
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  res.statusCode = statusCode
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  try {
+    res.end(JSON.stringify({ error: message }))
+  } catch {
+    res.end('{"error":"Internal server error"}')
+  }
+}
+
+/** 成功 JSON 响应；若序列化失败则回退为统一错误。 */
+function sendJson(res: DevServerResponse, data: unknown) {
+  if (res.headersSent) {
+    return
+  }
+  try {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    res.end(JSON.stringify(data))
+  } catch (error) {
+    sendJsonError(res, error)
+  }
+}
 
 const apiProxy = {
   '/api/proxy/dashscope': {
@@ -50,35 +86,40 @@ export default defineConfig({
     {
       name: 'wayne-delivery-docs-dev',
       configureServer(server) {
-        server.middlewares.use('/api/hub/delivery-docs', async (req, res, next) => {
-          try {
+        server.middlewares.use(
+          '/api/hub/delivery-docs',
+          async (req, res, next) => {
+            const run = async () => {
             await ensureDeliveryTemplates()
 
             if (req.method === 'GET' && req.url === '/') {
               const docs = await listDeliveryDocs()
-              res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify({ docs }))
+              sendJson(res, { docs })
               return
             }
 
             if (req.method === 'POST' && req.url === '/init') {
               const docs = await listDeliveryDocs()
-              res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify({ docs }))
+              sendJson(res, { docs })
               return
             }
 
             const pathname = req.url?.startsWith('/') ? req.url.slice(1) : req.url || ''
-            const name = decodeURIComponent(pathname.split('?')[0] || '')
-            if (!DELIVERY_DOCS.some((doc) => doc.name === name)) {
+            let name: string
+            try {
+              name = decodeURIComponent(pathname.split('?')[0] || '')
+            } catch {
+              sendJsonError(res, new Error('Invalid path encoding'), 400)
+              return
+            }
+            if (!DELIVERY_DOCS.some((doc: { name: string }) => doc.name === name)) {
               next()
               return
             }
 
             if (req.method === 'GET') {
               const doc = await readDeliveryDoc(name)
-              res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify(doc))
+              sendJson(res, doc)
               return
             }
 
@@ -88,26 +129,38 @@ export default defineConfig({
                 raw += chunk
               })
               req.on('end', async () => {
-                const body = raw ? JSON.parse(raw) : {}
-                const doc = await writeDeliveryDoc(name, String(body.content || ''))
-                res.setHeader('Content-Type', 'application/json')
-                res.end(JSON.stringify(doc))
+                try {
+                  let body: Record<string, unknown> = {}
+                  if (raw) {
+                    try {
+                      body = JSON.parse(raw) as Record<string, unknown>
+                    } catch {
+                      sendJsonError(res, new Error('Invalid JSON body'), 400)
+                      return
+                    }
+                  }
+                  const doc = await writeDeliveryDoc(name, String(body.content || ''))
+                  sendJson(res, doc)
+                } catch (error) {
+                  sendJsonError(res, error)
+                }
+              })
+              req.on('error', (err) => {
+                sendJsonError(res, err)
               })
               return
             }
-          } catch (error) {
-            res.statusCode = 500
-            res.setHeader('Content-Type', 'application/json')
-            res.end(
-              JSON.stringify({
-                error: error instanceof Error ? error.message : String(error),
-              }),
-            )
-            return
-          }
 
-          next()
-        })
+            next()
+            }
+
+            try {
+              await run()
+            } catch (error) {
+              sendJsonError(res, error)
+            }
+          },
+        )
       },
     },
   ],

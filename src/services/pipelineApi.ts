@@ -435,17 +435,31 @@ export async function analyzeTask(
 // ===== Skills 技能系统 =====
 
 export interface Skill {
+  id: string
   name: string
   description: string
-  category: 'public' | 'custom'
+  // `category` is a free-form string from SKILL.md frontmatter
+  // (general/development/analysis/security/…). It is NOT the
+  // public/custom split — that lives in `is_builtin` now.
+  category: string
   enabled: boolean
-  license: string
+  version: string
+  author: string
+  tags: string[]
+  is_builtin: boolean
+  sort_order: number
+  install_count: number
+  created_at: string | null
+  updated_at: string | null
   content: string
-  path: string
+  avg_stars: number
+  rating_count: number
+  my_rating: number
 }
 
-export async function fetchSkills(): Promise<Skill[]> {
-  const data = await apiFetch<{ skills: Skill[] }>('/pipeline/skills')
+export async function fetchSkills(opts: { includeDisabled?: boolean } = {}): Promise<Skill[]> {
+  const qs = opts.includeDisabled ? '?include_disabled=true' : ''
+  const data = await apiFetch<{ skills: Skill[] }>(`/pipeline/skills${qs}`)
   return data.skills
 }
 
@@ -456,6 +470,76 @@ export async function toggleSkill(
   return apiFetch(`/pipeline/skills/${skillName}`, {
     method: 'PUT',
     body: JSON.stringify({ enabled }),
+  })
+}
+
+export interface RateSkillResponse {
+  ok: boolean
+  skill_id: string
+  my_rating: number
+  avg_stars: number
+  rating_count: number
+}
+
+export async function rateSkill(
+  skillId: string,
+  stars: number,
+  comment = '',
+): Promise<RateSkillResponse> {
+  return apiFetch(`/pipeline/skills/${encodeURIComponent(skillId)}/rate`, {
+    method: 'POST',
+    body: JSON.stringify({ stars, comment }),
+  })
+}
+
+// ===== Marketplace (remote registry) =====
+
+export interface MarketplaceListing {
+  slug: string
+  name: string
+  description: string
+  category: string
+  version: string
+  author: string
+  tags: string[]
+  homepage: string
+  license: string
+  source_url: string
+  source_repo?: string
+  source_stars?: number
+  install_state: 'not_installed' | 'installed' | 'outdated'
+  local_version: string | null
+  enabled: boolean
+}
+
+export async function fetchMarketplace(): Promise<{
+  items: MarketplaceListing[]
+  error?: string
+}> {
+  return apiFetch('/pipeline/marketplace/listings')
+}
+
+export async function refreshMarketplace(): Promise<{ ok: boolean }> {
+  return apiFetch('/pipeline/marketplace/refresh', { method: 'POST' })
+}
+
+export interface InstallMarketplaceResponse {
+  ok: boolean
+  action: 'installed' | 'upgraded' | 'reinstalled'
+  skill: {
+    id: string
+    name: string
+    version: string
+    category: string
+    enabled: boolean
+  }
+}
+
+export async function installMarketplaceSkill(
+  slug: string,
+): Promise<InstallMarketplaceResponse> {
+  return apiFetch(`/pipeline/marketplace/install/${encodeURIComponent(slug)}`, {
+    method: 'POST',
   })
 }
 

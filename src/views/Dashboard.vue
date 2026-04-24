@@ -3,12 +3,12 @@
     <!-- ── Hero CTA ── -->
     <section class="hero">
       <div class="hero-content">
-        <h1>AI 交付平台</h1>
-        <p class="hero-subtitle">一句话告诉 AI 团队你要做什么</p>
+        <h1>{{ t('dashboard.title') }}</h1>
+        <p class="hero-subtitle">{{ t('dashboard.subtitle') }}</p>
         <div class="hero-input-row">
           <el-input
             v-model="taskInput"
-            placeholder="例：做一份 OpenAI 与 Anthropic 的竞品分析报告"
+            :placeholder="t('dashboard.placeholder')"
             size="large"
             clearable
             @keyup.enter="submitTask(true)"
@@ -16,36 +16,36 @@
         </div>
         <div class="hero-actions">
           <el-button type="primary" size="large" :loading="submitting" @click="submitTask(true)">
-            先给方案
+            {{ t('dashboard.planFirst') }}
           </el-button>
           <el-button size="large" :loading="submitting" @click="submitTask(false)">
-            直接执行
+            {{ t('dashboard.execute') }}
           </el-button>
           <el-button size="large" @click="$router.push('/inbox')">
-            收件箱
+            {{ t('dashboard.inbox') }}
             <el-tag v-if="pendingCount" type="danger" size="small" round class="hero-badge">{{ pendingCount }}</el-tag>
           </el-button>
         </div>
         <div class="hero-templates">
           <button
             v-for="tpl in templates"
-            :key="tpl.text"
+            :key="tpl.key"
             class="tpl-chip"
-            @click="taskInput = tpl.text"
+            @click="taskInput = t(`dashboard.templatesText.${tpl.key}`)"
           >
             <span class="tpl-icon">{{ tpl.icon }}</span>
-            {{ tpl.label }}
+            {{ t(`dashboard.templates.${tpl.key}`) }}
           </button>
         </div>
       </div>
       <div class="hero-stats">
         <button
           v-for="s in statCards"
-          :key="s.label"
+          :key="s.tab"
           type="button"
           class="stat"
           @click="goInbox(s.tab)"
-          :title="`查看${s.label}任务`"
+          :title="t('dashboard.statTitle', { label: s.label })"
         >
           <span class="stat-num" :style="{ color: s.color }">{{ s.value }}</span>
           <span class="stat-label">{{ s.label }}</span>
@@ -57,12 +57,12 @@
     <el-alert v-if="!settingsStore.isConfigured()" type="warning" :closable="false" show-icon class="config-warn">
       <template #title>
         <template v-if="isEnterpriseBuild">
-          服务端尚未配置模型网关，请联系管理员部署环境变量后重启。
+          {{ t('dashboard.configWarnEnterprise') }}
         </template>
         <template v-else>
-          尚未配置 API Key，前往
-          <router-link to="/settings" class="link-accent">设置</router-link>
-          配置。
+          {{ t('dashboard.configWarnBefore') }}
+          <router-link to="/settings" class="link-accent">{{ t('dashboard.configWarnLink') }}</router-link>
+          {{ t('dashboard.configWarnAfter') }}
         </template>
       </template>
     </el-alert>
@@ -71,7 +71,7 @@
     <section v-if="pendingTasks.length" class="section">
       <h2 class="section-title">
         <el-icon><Bell /></el-icon>
-        待办任务
+        {{ t('dashboard.pending') }}
         <el-tag type="warning" size="small" round>{{ pendingTasks.length }}</el-tag>
       </h2>
       <div class="task-cards">
@@ -98,7 +98,7 @@
     <section class="section">
       <h2 class="section-title">
         <el-icon><Clock /></el-icon>
-        最近任务
+        {{ t('dashboard.recent') }}
       </h2>
       <div v-if="recentTasks.length" class="task-cards">
         <div
@@ -120,7 +120,7 @@
           <ArtifactCompletionBar v-if="task.stages?.length" :stages="task.stages" />
         </div>
       </div>
-      <el-empty v-else description="暂无任务，点击上方「新建任务」开始" />
+      <el-empty v-else :description="t('dashboard.emptyRecent')" />
     </section>
   </div>
 </template>
@@ -128,6 +128,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { fetchTasks, createTask as createPipelineTask, smartRunPipeline } from '@/services/pipelineApi'
@@ -135,18 +136,21 @@ import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import { ElMessage } from 'element-plus'
 
+const { t } = useI18n()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const tasks = ref<PipelineTask[]>([])
 const taskInput = ref('')
 const submitting = ref(false)
 
+// Template `label` and `text` are resolved through t() at render time so
+// they react to locale changes without a remount.
 const templates = [
-  { icon: '📊', label: '竞品调研', text: '对比分析 OpenAI 与 Anthropic 的最新产品能力、定价和生态' },
-  { icon: '📝', label: '周报生成', text: '根据本周 git commit 和完成的任务生成研发周报' },
-  { icon: '🛠', label: 'PRD→代码', text: '实现一个用户注册登录模块，包含前端页面和后端 API' },
-  { icon: '💬', label: '客服问答', text: '基于产品文档搭建一个智能客服问答系统' },
-  { icon: '📈', label: '数据分析', text: '分析过去30天的用户行为数据，输出增长建议报告' },
+  { key: 'research', icon: '📊' },
+  { key: 'weeklyReport', icon: '📝' },
+  { key: 'prdToCode', icon: '🛠' },
+  { key: 'support', icon: '💬' },
+  { key: 'analytics', icon: '📈' },
 ]
 
 onMounted(async () => {
@@ -176,10 +180,10 @@ const pendingCount = computed(() => pendingTasks.value.length)
 // straight to the right list. Without this the card was a dead pixel —
 // users would see "失败 3" and have no way to reach those 3 tasks.
 const statCards = computed(() => [
-  { tab: 'pending', label: '待审批', value: pendingTasks.value.length, color: '#e6a23c' },
-  { tab: 'running', label: '执行中', value: runningTasks.value.length, color: '#409eff' },
-  { tab: 'done',    label: '已完成', value: doneTasks.value.length,    color: '#67c23a' },
-  { tab: 'failed',  label: '失败',   value: failedTasks.value.length,  color: '#f56c6c' },
+  { tab: 'pending', label: t('dashboard.stats.pending'), value: pendingTasks.value.length, color: '#e6a23c' },
+  { tab: 'running', label: t('dashboard.stats.running'), value: runningTasks.value.length, color: '#409eff' },
+  { tab: 'done',    label: t('dashboard.stats.done'),    value: doneTasks.value.length,    color: '#67c23a' },
+  { tab: 'failed',  label: t('dashboard.stats.failed'),  value: failedTasks.value.length,  color: '#f56c6c' },
 ])
 
 function goInbox(tab: string) {
@@ -194,13 +198,11 @@ function statusType(s: string) {
 }
 
 function statusLabel(s: string) {
-  const map: Record<string, string> = {
-    plan_pending: '待审批', awaiting_final_acceptance: '待验收',
-    active: '执行中', running: '执行中',
-    done: '已完成', accepted: '已验收',
-    failed: '失败', rejected: '已拒绝',
-  }
-  return map[s] || s
+  const key = `status.${s}`
+  const translated = t(key)
+  // `t()` returns the key itself when no translation exists, which would
+  // leak "status.foo" into the UI — fall back to the raw string instead.
+  return translated === key ? s : translated
 }
 
 function formatDate(iso: string) {
@@ -211,7 +213,7 @@ function formatDate(iso: string) {
 async function submitTask(planMode: boolean) {
   const text = taskInput.value.trim()
   if (!text) {
-    ElMessage.warning('请输入你的需求')
+    ElMessage.warning(t('dashboard.inputEmpty'))
     return
   }
   submitting.value = true
@@ -224,19 +226,19 @@ async function submitTask(planMode: boolean) {
     taskInput.value = ''
 
     if (planMode) {
-      ElMessage.success('任务已创建，请在详情页查看方案')
+      ElMessage.success(t('dashboard.submitOkPlan'))
       router.push(`/pipeline/task/${task.id}`)
     } else {
       try {
         await smartRunPipeline(task.id)
-        ElMessage.success('任务已创建并开始执行')
+        ElMessage.success(t('dashboard.submitOkExec'))
       } catch {
-        ElMessage.success('任务已创建，自动执行启动中…')
+        ElMessage.success(t('dashboard.submitInfo'))
       }
       router.push(`/pipeline/task/${task.id}`)
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '提交失败')
+    ElMessage.error(e.message || t('dashboard.submitError'))
   } finally {
     submitting.value = false
   }

@@ -8,7 +8,7 @@
       :row-class-name="rowClass"
       @row-click="(row: any) => emit('clickTask', row)"
     >
-      <el-table-column prop="title" label="任务" min-width="260" show-overflow-tooltip>
+      <el-table-column prop="title" :label="t('taskTable.task')" min-width="260" show-overflow-tooltip>
         <template #default="{ row }">
           <div class="cell-title">
             <span class="title-text">{{ row.title }}</span>
@@ -17,7 +17,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="状态" width="100">
+      <el-table-column :label="t('taskTable.status')" width="100">
         <template #default="{ row }">
           <el-tag :type="statusType(row.status)" size="small" effect="light">
             {{ statusLabel(row.status) }}
@@ -25,7 +25,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="当前阶段" width="140">
+      <el-table-column :label="t('taskTable.stage')" width="140">
         <template #default="{ row }">
           <span class="stage-cell" :title="row.currentStageId">
             {{ stageLabel(row) }}
@@ -33,7 +33,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="进度" width="120">
+      <el-table-column :label="t('taskTable.progress')" width="120">
         <template #default="{ row }">
           <div class="progress-cell" :title="`${doneCount(row)}/${row.stages?.length || 0}`">
             <div class="progress-bar">
@@ -44,7 +44,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="成本" width="80">
+      <el-table-column label="Cost" width="80">
         <template #default="{ row }">
           <span v-if="row.budgetInfo?.spent_usd != null" class="cost-cell" :class="costClass(row)">
             ${{ row.budgetInfo.spent_usd.toFixed(4) }}
@@ -53,7 +53,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="更新于" width="130">
+      <el-table-column :label="t('taskTable.updated')" width="130">
         <template #default="{ row }">
           <span :class="['fresh', freshnessClass(row)]" :title="absDate(row.updatedAt || row.createdAt)">
             {{ relativeTime(row.updatedAt || row.createdAt) }}
@@ -67,7 +67,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { PipelineTask } from '@/agents/types'
+
+const { t, locale } = useI18n()
 
 defineProps<{
   tasks: PipelineTask[]
@@ -84,26 +87,15 @@ function statusType(s: string) {
 }
 
 function statusLabel(s: string) {
-  const map: Record<string, string> = {
-    plan_pending: '待审批',
-    awaiting_final_acceptance: '待验收',
-    active: '执行中',
-    running: '执行中',
-    paused: '已暂停',
-    done: '已完成',
-    accepted: '已验收',
-    failed: '失败',
-    rejected: '已拒绝',
-    cancelled: '已取消',
-  }
-  return map[s] || s
+  const key = `status.${s}`
+  const out = t(key)
+  return out === key ? s : out
 }
 
 function sourceLabel(s: string) {
-  const map: Record<string, string> = {
-    feishu: '飞书', qq: 'QQ', web: 'Web', api: 'API',
-  }
-  return map[s] || s
+  const key = `taskTable.source.${s}`
+  const out = t(key)
+  return out === key ? s : out
 }
 
 function stageLabel(row: any): string {
@@ -123,13 +115,14 @@ function progressPct(row: any): number {
   return Math.round((doneCount(row) / total) * 100)
 }
 
-// Absolute time on hover, relative on screen — reading "5分钟前" is faster
+// Absolute time on hover, relative on screen — reading "5min ago" is faster
 // than reading "12-08 14:23" when triaging an inbox.
 function absDate(ts: number | string | null | undefined): string {
   if (!ts) return '-'
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
   if (isNaN(d.getTime())) return '-'
-  return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const loc = locale.value === 'en' ? 'en-US' : 'zh-CN'
+  return d.toLocaleString(loc, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function relativeTime(ts: number | string | null | undefined): string {
@@ -137,11 +130,12 @@ function relativeTime(ts: number | string | null | undefined): string {
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
   const ms = Date.now() - d.getTime()
   if (isNaN(ms)) return '-'
-  if (ms < 60_000) return '刚刚'
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} 分钟前`
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} 小时前`
-  if (ms < 7 * 86_400_000) return `${Math.floor(ms / 86_400_000)} 天前`
-  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  if (ms < 60_000) return t('taskTable.justNow')
+  if (ms < 3_600_000) return t('taskTable.minutesAgo', { n: Math.floor(ms / 60_000) })
+  if (ms < 86_400_000) return t('taskTable.hoursAgo', { n: Math.floor(ms / 3_600_000) })
+  if (ms < 7 * 86_400_000) return t('taskTable.daysAgo', { n: Math.floor(ms / 86_400_000) })
+  const loc = locale.value === 'en' ? 'en-US' : 'zh-CN'
+  return d.toLocaleDateString(loc, { month: '2-digit', day: '2-digit' })
 }
 
 // Visual freshness so stale "执行中" tasks (probably stuck) jump out.

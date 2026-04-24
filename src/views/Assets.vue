@@ -1,49 +1,49 @@
 <template>
   <div class="assets-view">
-    <h1>资产中心</h1>
-    <p class="view-subtitle">模型、技能、MCP 服务器、评测 — 集中管理</p>
+    <h1>{{ t('assets.title') }}</h1>
+    <p class="view-subtitle">{{ t('assets.subtitle') }}</p>
 
     <el-tabs v-model="activeTab">
-      <el-tab-pane label="模型" name="models">
+      <el-tab-pane :label="t('assets.tabs.models')" name="models">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/model-lab')">模型实验室</el-button>
+          <el-button type="primary" @click="$router.push('/model-lab')">{{ t('assets.buttons.modelLab') }}</el-button>
         </div>
-        <el-empty description="模型管理与测试" />
+        <el-empty :description="t('assets.empty.models')" />
       </el-tab-pane>
 
-      <el-tab-pane label="技能" name="skills">
+      <el-tab-pane :label="t('assets.tabs.skills')" name="skills">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/skills')">技能中心</el-button>
+          <el-button type="primary" @click="$router.push('/skills')">{{ t('assets.buttons.skillCenter') }}</el-button>
         </div>
-        <el-empty description="可复用技能包" />
+        <el-empty :description="t('assets.empty.skills')" />
       </el-tab-pane>
 
-      <el-tab-pane label="MCP 服务器" name="mcp">
+      <el-tab-pane :label="t('assets.tabs.mcp')" name="mcp">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/mcp-servers')">MCP 管理</el-button>
+          <el-button type="primary" @click="$router.push('/mcp-servers')">{{ t('assets.buttons.mcp') }}</el-button>
         </div>
-        <el-empty description="外部工具与协议服务器" />
+        <el-empty :description="t('assets.empty.mcp')" />
       </el-tab-pane>
 
-      <el-tab-pane label="评测" name="eval">
+      <el-tab-pane :label="t('assets.tabs.eval')" name="eval">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/eval-lab')">评测实验室</el-button>
+          <el-button type="primary" @click="$router.push('/eval-lab')">{{ t('assets.buttons.evalLab') }}</el-button>
         </div>
-        <el-empty description="Agent 质量评测" />
+        <el-empty :description="t('assets.empty.eval')" />
       </el-tab-pane>
 
-      <el-tab-pane label="代码索引" name="codebase">
+      <el-tab-pane :label="t('assets.tabs.codebase')" name="codebase">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/codebase-lab')">代码索引</el-button>
+          <el-button type="primary" @click="$router.push('/codebase-lab')">{{ t('assets.buttons.codebaseLab') }}</el-button>
         </div>
-        <el-empty description="代码库检索与分析" />
+        <el-empty :description="t('assets.empty.codebase')" />
       </el-tab-pane>
 
-      <el-tab-pane label="观测台" name="observability">
+      <el-tab-pane :label="t('assets.tabs.observability')" name="observability">
         <div class="asset-action">
-          <el-button type="primary" @click="$router.push('/insights/observability')">Agent 观测台</el-button>
+          <el-button type="primary" @click="$router.push('/insights/observability')">{{ t('assets.buttons.observability') }}</el-button>
         </div>
-        <el-empty description="运行时指标与链路追踪" />
+        <el-empty :description="t('assets.empty.observability')" />
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -51,7 +51,9 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const activeTab = ref('models')
 </script>
 

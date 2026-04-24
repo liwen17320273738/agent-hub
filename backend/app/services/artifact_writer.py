@@ -6,6 +6,7 @@ and triggers manifest refresh. Controlled by config.artifact_store_v2 flag.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from typing import Optional
@@ -27,6 +28,20 @@ STAGE_TO_ARTIFACT: dict[str, str] = {
     "reviewing":    "acceptance",
     "deployment":   "ops_runbook",
 }
+
+STAGE_TO_DOC_FILE: dict[str, str] = {
+    "planning":     "docs/01-prd.md",
+    "design":       "docs/02-ui-spec.md",
+    "architecture": "docs/03-architecture.md",
+    "development":  "docs/04-implementation-notes.md",
+    "testing":      "docs/05-test-report.md",
+    "reviewing":    "docs/06-acceptance.md",
+    "deployment":   "docs/07-ops-runbook.md",
+}
+
+
+def _content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
 
 
 async def write_artifact_v2(
@@ -67,6 +82,8 @@ async def write_artifact_v2(
         artifact_type=artifact_type,
         title=artifact_type,
         content=content,
+        content_hash=_content_hash(content),
+        storage_path=STAGE_TO_DOC_FILE.get(stage_id, ""),
         version=new_version,
         is_latest=True,
         status="active",

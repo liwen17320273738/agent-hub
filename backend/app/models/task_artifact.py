@@ -73,6 +73,7 @@ class TaskArtifact(Base):
     created_by_user: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     content: Mapped[str] = mapped_column(Text, default="")
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JsonDict(), default=dict)
 
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())

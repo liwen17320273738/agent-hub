@@ -8,11 +8,13 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
 
+import httpx
+
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -888,11 +890,203 @@ async def auto_run_pipeline(
 async def list_pipeline_skills(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    include_disabled: bool = False,
 ):
-    from ..models.skill import Skill as SkillModel
-    result = await db.execute(select(SkillModel).where(SkillModel.enabled.is_(True)))
+    """List installed skills.
+
+    By default returns only enabled skills (backward compatible). When
+    `include_disabled=true` is passed, disabled skills are also included
+    so the skill hub UI can render an "off" pile — otherwise users have
+    no way to see or re-enable what they've turned off.
+    """
+    from ..models.skill import Skill as SkillModel, SkillRating
+
+    stmt = select(SkillModel)
+    if not include_disabled:
+        stmt = stmt.where(SkillModel.enabled.is_(True))
+    stmt = stmt.order_by(SkillModel.sort_order.desc(), SkillModel.install_count.desc(), SkillModel.name.asc())
+
+    result = await db.execute(stmt)
     skills = result.scalars().all()
-    return {"skills": skills}
+
+    # Aggregate ratings in a single query so we don't N+1 on card render.
+    rating_stmt = (
+        select(
+            SkillRating.skill_id,
+            func.avg(SkillRating.stars).label("avg_stars"),
+            func.count(SkillRating.id).label("rating_count"),
+        )
+        .group_by(SkillRating.skill_id)
+    )
+    rating_rows = (await db.execute(rating_stmt)).all()
+    rating_map: dict[str, dict[str, float | int]] = {
+        row.skill_id: {
+            "avg_stars": float(row.avg_stars or 0),
+            "rating_count": int(row.rating_count or 0),
+        }
+        for row in rating_rows
+    }
+
+    # If we know the caller, surface their own rating so the UI can
+    # pre-select the stars they already gave.
+    my_ratings: dict[str, int] = {}
+    if user is not None:
+        my_stmt = select(SkillRating.skill_id, SkillRating.stars).where(
+            SkillRating.user_id == user.id
+        )
+        my_rows = (await db.execute(my_stmt)).all()
+        my_ratings = {row.skill_id: int(row.stars) for row in my_rows}
+
+    # Serialize explicitly so we don't leak internal schema fields
+    # (prompt_template can be huge) and so the client gets a stable shape
+    # instead of "whatever the ORM happens to project today".
+    def _to_dict(s: SkillModel) -> dict:
+        stats = rating_map.get(s.id, {})
+        return {
+            "id": s.id,
+            "name": s.name,
+            "category": s.category or "general",
+            "description": s.description or "",
+            "version": s.version or "1.0.0",
+            "author": s.author or "system",
+            "tags": s.tags or [],
+            "enabled": bool(s.enabled),
+            "is_builtin": bool(s.is_builtin),
+            "sort_order": int(s.sort_order or 0),
+            "install_count": int(s.install_count or 0),
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            "content": s.prompt_template or "",
+            "avg_stars": round(float(stats.get("avg_stars", 0.0)), 2),
+            "rating_count": int(stats.get("rating_count", 0)),
+            "my_rating": my_ratings.get(s.id, 0),
+        }
+
+    return {"skills": [_to_dict(s) for s in skills]}
+
+
+class RateSkillRequest(BaseModel):
+    stars: int
+    comment: str = ""
+
+    @field_validator("stars")
+    @classmethod
+    def _stars_range(cls, v: int) -> int:
+        if v < 1 or v > 5:
+            raise ValueError("stars 必须在 1~5 之间")
+        return v
+
+
+@router.get("/marketplace/listings")
+async def marketplace_listings(
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Return the remote registry merged with local install state."""
+    from ..services.skill_registry import list_marketplace
+    try:
+        items = await list_marketplace(db)
+    except Exception as e:
+        logger.warning("marketplace listings failed: %s", e)
+        # Soft-fail so the UI tab can render an empty state with an
+        # explicit error rather than 500-ing the whole skills page.
+        return {"items": [], "error": str(e)}
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/marketplace/refresh")
+async def marketplace_refresh(
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+):
+    """Drop the registry cache — next /listings call re-fetches upstream."""
+    if not user:
+        raise HTTPException(status_code=403, detail="需要登录")
+    from ..services.skill_registry import refresh_registry_cache
+    refresh_registry_cache()
+    return {"ok": True}
+
+
+@router.post("/marketplace/install/{slug}")
+async def marketplace_install(
+    slug: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Install or upgrade a skill from the registry."""
+    if not user:
+        raise HTTPException(status_code=403, detail="需要登录后才能安装技能")
+    from ..services.skill_registry import install_from_registry
+    try:
+        return await install_from_registry(db, slug, actor=user.email or str(user.id))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="技能不在市场中")
+    except httpx.HTTPError as e:  # network errors
+        raise HTTPException(status_code=502, detail=f"无法下载 SKILL.md: {e}")
+    except ValueError as e:  # parse / size errors
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("marketplace install failed for %s", slug)
+        raise HTTPException(status_code=500, detail=f"安装失败: {e}")
+
+
+@router.post("/skills/{skill_id}/rate")
+async def rate_pipeline_skill(
+    skill_id: str,
+    body: RateSkillRequest,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Upsert a rating for a skill. One rating per (skill, user)."""
+    if not user:
+        raise HTTPException(status_code=403, detail="需要登录后才能评分")
+
+    from ..models.skill import Skill as SkillModel, SkillRating
+
+    # Accept either the slug id or the display name so the UI can call
+    # `/skills/{name}/rate` without knowing the primary-key form.
+    skill = await db.get(SkillModel, skill_id)
+    if not skill:
+        row = await db.execute(select(SkillModel).where(SkillModel.name == skill_id))
+        skill = row.scalar_one_or_none()
+    if not skill:
+        raise HTTPException(status_code=404, detail="技能不存在")
+
+    existing = await db.execute(
+        select(SkillRating).where(
+            SkillRating.skill_id == skill.id,
+            SkillRating.user_id == user.id,
+        )
+    )
+    rating = existing.scalar_one_or_none()
+    if rating:
+        rating.stars = body.stars
+        rating.comment = body.comment or ""
+    else:
+        rating = SkillRating(
+            skill_id=skill.id,
+            user_id=user.id,
+            stars=body.stars,
+            comment=body.comment or "",
+        )
+        db.add(rating)
+
+    await db.flush()
+
+    # Return fresh aggregate so the card can update without a full reload.
+    agg = await db.execute(
+        select(
+            func.avg(SkillRating.stars),
+            func.count(SkillRating.id),
+        ).where(SkillRating.skill_id == skill.id)
+    )
+    avg, count = agg.one()
+    return {
+        "ok": True,
+        "skill_id": skill.id,
+        "my_rating": body.stars,
+        "avg_stars": round(float(avg or 0), 2),
+        "rating_count": int(count or 0),
+    }
 
 
 @router.put("/skills/{skill_name}")
@@ -907,7 +1101,14 @@ async def toggle_pipeline_skill(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员可修改技能状态")
     from ..models.skill import Skill as SkillModel
+
+    # Historically the loader wrote `id = meta["name"]`, but some skills now
+    # have slug IDs (`api-design`) while the UI shows the display name
+    # (`API 设计`). Look up by both so toggling works either way.
     skill = await db.get(SkillModel, skill_name)
+    if not skill:
+        result = await db.execute(select(SkillModel).where(SkillModel.name == skill_name))
+        skill = result.scalar_one_or_none()
     if not skill:
         raise HTTPException(status_code=404, detail="技能不存在")
     skill.enabled = body.get("enabled", True)

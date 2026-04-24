@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings as app_settings
-from .llm_router import chat_completion
+from .llm_router import chat_completion_with_fallback as chat_completion
 from .planner_worker import resolve_model
 from .memory import get_context_from_history, store_memory
 from .self_verify import verify_stage_output
@@ -132,8 +132,12 @@ class AgentRuntime:
                 "messages": messages,
                 "temperature": self.temperature,
             }
-            if getattr(app_settings, "pipeline_force_local_llm", False):
-                call_kwargs["api_url"] = app_settings.llm_api_url or ""
+            _is_local = (
+                getattr(app_settings, "pipeline_force_local_llm", False)
+                or model_info.get("provider") == "local"
+            )
+            if _is_local and app_settings.llm_api_url:
+                call_kwargs["api_url"] = app_settings.llm_api_url
             if self.tools:
                 # 直接传 function 定义列表，llm_router 负责按 provider 格式包装
                 call_kwargs["tools"] = self.tools
@@ -144,8 +148,13 @@ class AgentRuntime:
 
             result = await chat_completion(**call_kwargs)
 
-            if "error" in result:
-                return {"ok": False, "error": result["error"], "step": step}
+            if result.get("error"):
+                trail = result.get("tried_providers") or []
+                trail_str = ", ".join(f"{t['provider']}/{t['model']}" for t in trail) if trail else ""
+                err = result["error"]
+                if trail_str:
+                    err = f"{err} (tried: {trail_str})"
+                return {"ok": False, "error": err, "step": step}
 
             # 检查是否有 function call
             tool_calls = result.get("tool_calls") or []

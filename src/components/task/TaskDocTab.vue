@@ -97,16 +97,64 @@ async function fetchArtifact(version?: number) {
     )
     if (res.status === 404) {
       currentArtifact.value = null
+      await fetchFromWorktree()
       return
     }
     if (!res.ok) throw new Error(`${res.status}`)
-    currentArtifact.value = await res.json()
+    const data = await res.json()
+    if (!data.content && data.storage_path) {
+      await fetchFromWorktree(data.storage_path)
+      if (currentArtifact.value?.content) {
+        currentArtifact.value = { ...data, content: currentArtifact.value.content }
+      } else {
+        currentArtifact.value = data
+      }
+    } else {
+      currentArtifact.value = data
+    }
     selectedVersion.value = currentArtifact.value?.version ?? 0
   } catch {
     currentArtifact.value = null
   } finally {
     loading.value = false
   }
+}
+
+const ARTIFACT_TO_DOC: Record<string, string> = {
+  brief: 'docs/01-prd.md',
+  prd: 'docs/01-prd.md',
+  ui_spec: 'docs/02-ui-spec.md',
+  architecture: 'docs/03-architecture.md',
+  implementation: 'docs/04-implementation-notes.md',
+  test_report: 'docs/05-test-report.md',
+  acceptance: 'docs/06-acceptance.md',
+  ops_runbook: 'docs/07-ops-runbook.md',
+}
+
+async function fetchFromWorktree(path?: string) {
+  const docPath = path || ARTIFACT_TO_DOC[props.artifactType]
+  if (!docPath) return
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE || '/api'
+    const token = getAuthToken()
+    const res = await fetch(
+      `${baseUrl}/tasks/${props.taskId}/worktree/${docPath}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    )
+    if (!res.ok) return
+    const data = await res.json()
+    if (data.content) {
+      currentArtifact.value = {
+        id: '',
+        content: data.content,
+        version: 1,
+        status: 'active',
+        is_latest: true,
+        updated_at: null,
+        versions: [],
+      }
+    }
+  } catch { /* silent fallback */ }
 }
 
 function handleVersionChange(v: number) {
