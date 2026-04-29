@@ -36,6 +36,16 @@ def _ensure_sandbox_allowed():
     except Exception:
         pass
 
+    # Also allow workspace tasks directory for pipeline worktrees.
+    # Derive from repo root (same logic as task_workspace._workspace_root)
+    try:
+        repo_root = Path(__file__).resolve().parent.parent.parent.parent
+        workspace_tasks = str(repo_root / "data" / "workspace" / "tasks")
+        if workspace_tasks not in ALLOWED_WORK_DIRS:
+            ALLOWED_WORK_DIRS.append(workspace_tasks)
+    except Exception:
+        pass
+
 
 _ensure_sandbox_allowed()
 
@@ -123,7 +133,7 @@ async def execute_claude_code(
         }
 
     claude_bin = os.environ.get("CLAUDE_PATH") or shutil.which("claude") or "claude"
-    args = [claude_bin, "-p", "--output-format", "text", "--permission-mode", "auto"]
+    args = [claude_bin, "-p", "--output-format", "text", "--permission-mode", "acceptEdits"]
     if allowed_tools:
         args.extend(["--allowedTools", ",".join(allowed_tools)])
 

@@ -42,7 +42,8 @@ async def db() -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest_asyncio.fixture
-async def client() -> AsyncGenerator[AsyncClient, None]:
+async def client(db) -> AsyncGenerator[AsyncClient, None]:
+    """Depends on ``db`` so ``Base.metadata.create_all`` runs before ASGI calls."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c

@@ -65,7 +65,6 @@
         :nodes-connectable="false"
         :elements-selectable="true"
         @node-click="onNodeClick"
-        fit-view-on-init
       >
         <Background pattern-color="#1e293b" :gap="22" />
         <Controls />
@@ -158,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useVueFlow, VueFlow, type Edge, type Node } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -369,8 +368,27 @@ watch(
 )
 
 // ── Vue Flow viewport helpers ──
-const { fitView } = useVueFlow()
-function autoFit() { fitView({ padding: 0.15, duration: 250 }) }
+// Defer fitView until the pane has a non-zero layout (avoids init warnings
+// when the parent tab was just shown).
+const { fitView, onInit } = useVueFlow()
+onInit(() => {
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      try {
+        fitView({ padding: 0.15, duration: 200 })
+      } catch {
+        /* viewport may still be settling */
+      }
+    })
+  })
+})
+function autoFit() {
+  try {
+    fitView({ padding: 0.15, duration: 250 })
+  } catch {
+    /* ignore */
+  }
+}
 
 function onNodeClick(payload: { node: Node }) {
   const stageId = (payload.node.data as { stageId?: string })?.stageId

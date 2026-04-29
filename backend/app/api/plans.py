@@ -17,13 +17,18 @@ helpers the IM gateway uses, so behavior is identical regardless of channel.
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime
 from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..models.pipeline import PipelineTask
 from ..models.user import User
 from ..security import get_current_user, require_admin
 from ..services import plan_session
@@ -83,6 +88,7 @@ def _runtime_options(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "auto_final_accept": bool(meta.get("auto_final_accept", False)),
         "source_message_id": str(meta.get("source_message_id") or ""),
+        "pending_task_id": str(meta.get("pending_task_id") or ""),
     }
 
 
@@ -125,20 +131,53 @@ async def approve_plan(
     if not title:
         raise HTTPException(status_code=400, detail="plan has no title; cannot create task")
 
-    await plan_session.clear_plan(source, user_id)
     options = _runtime_options(payload)
-    task = await gateway._create_task_from_gateway(
-        db,
-        title,
-        description,
-        source,
-        options.get("source_message_id") or "",
-        user_id,
-    )
-    await db.flush()
+    await plan_session.clear_plan(source, user_id)
+
+    task = None
+    pending_task_id = options.get("pending_task_id") or ""
+    if pending_task_id:
+        try:
+            result = await db.execute(
+                select(PipelineTask)
+                .options(selectinload(PipelineTask.stages))
+                .where(PipelineTask.id == uuid.UUID(pending_task_id))
+            )
+            task = result.scalar_one_or_none()
+        except Exception:
+            task = None
+
+    if task:
+        if admin.org_id and task.org_id is None:
+            task.org_id = admin.org_id
+        task.status = "active"
+        task.current_stage_id = "planning"
+        for stage in sorted(task.stages, key=lambda s: s.sort_order):
+            if stage.stage_id == "planning":
+                stage.status = "active"
+                stage.started_at = datetime.utcnow()
+            elif stage.status != "done":
+                stage.status = "pending"
+                stage.started_at = None
+        await db.flush()
+    else:
+        task = await gateway._create_task_from_gateway(
+            db,
+            title,
+            description,
+            source,
+            options.get("source_message_id") or "",
+            user_id,
+            org_id=admin.org_id,
+        )
+        await db.flush()
+
     if options["auto_final_accept"]:
         task.auto_final_accept = True
         await db.flush()
+
+    await gateway._commit_task_before_background(db, task)
+
     background_tasks.add_task(
         gateway._run_pipeline_background,
         str(task.id),
@@ -171,11 +210,26 @@ async def reject_plan(
     source: str,
     user_id: str,
     admin: Annotated[User, Depends(require_admin)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     payload = await plan_session.load_plan(source, user_id)
     if not payload:
         raise HTTPException(status_code=404, detail="no pending plan")
+    options = _runtime_options(payload)
+    pending_task_id = options.get("pending_task_id") or ""
     await plan_session.clear_plan(source, user_id)
+
+    if pending_task_id:
+        try:
+            result = await db.execute(
+                select(PipelineTask).where(PipelineTask.id == uuid.UUID(pending_task_id))
+            )
+            t = result.scalar_one_or_none()
+            if t:
+                t.status = "cancelled"
+                await db.flush()
+        except Exception as e:
+            logger.warning("[plans.reject] pending task cancel failed: %s", e)
 
     try:
         from ..services.notify import notify_user_text

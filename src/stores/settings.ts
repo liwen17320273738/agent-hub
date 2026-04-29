@@ -39,6 +39,9 @@ function normalizeSettings(input: LLMSettings): LLMSettings {
   next.contextMaxMessages = Math.min(128, Math.max(4, Math.round(next.contextMaxMessages)))
   next.contextMaxChars = Math.min(200_000, Math.max(4000, Math.round(next.contextMaxChars)))
   if (typeof next.enableTools !== 'boolean') next.enableTools = defaultSettings.enableTools
+  if (typeof next.agentChatUseBackendRuntime !== 'boolean') {
+    next.agentChatUseBackendRuntime = defaultSettings.agentChatUseBackendRuntime
+  }
   return next
 }
 

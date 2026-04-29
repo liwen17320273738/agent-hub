@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import secrets as _secrets
+import uuid
 from datetime import datetime
 from typing import Annotated, Any, Dict, Optional
 
@@ -16,9 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
+from jose import JWTError
+
 from ..config import settings
 from ..database import get_db, async_session_factory
 from ..models.pipeline import PipelineTask, PipelineStage
+from ..models.user import User
+from ..security import decode_token
 from ..services.sse import emit_event
 from ..services.collaboration import PIPELINE_STAGES
 
@@ -34,6 +39,32 @@ def _default_stages():
     ]
 
 
+async def _session_org_id_from_request(request: Request, db: AsyncSession) -> Optional[uuid.UUID]:
+    """Optional JWT in ``X-Agent-Hub-Session: Bearer <jwt>`` (web UI + pipeline key).
+
+    Binds OpenClaw-created tasks to the logged-in user's org so ``GET /pipeline/tasks/{id}``
+    with the same JWT does not 404 due to org scoping.
+    """
+    raw = (request.headers.get("x-agent-hub-session") or "").strip()
+    if not raw.lower().startswith("bearer "):
+        return None
+    token = raw[7:].strip()
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        result = await db.execute(
+            select(User).where(User.id == uuid.UUID(str(user_id)), User.is_active.is_(True))
+        )
+        u = result.scalar_one_or_none()
+        return u.org_id if u else None
+    except (JWTError, ValueError, TypeError):
+        return None
+
+
 async def _create_task_from_gateway(
     db: AsyncSession,
     title: str,
@@ -41,6 +72,7 @@ async def _create_task_from_gateway(
     source: str,
     source_message_id: str = "",
     source_user_id: str = "",
+    org_id: Optional[uuid.UUID] = None,
 ) -> PipelineTask:
     task = PipelineTask(
         title=title,
@@ -49,6 +81,7 @@ async def _create_task_from_gateway(
         source_message_id=source_message_id or None,
         source_user_id=source_user_id or None,
         created_by="gateway",
+        org_id=org_id,
         current_stage_id="planning",
     )
     db.add(task)
@@ -146,6 +179,7 @@ def _plan_runtime_options(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "auto_final_accept": bool(meta.get("auto_final_accept", False)),
         "source_message_id": str(meta.get("source_message_id") or ""),
+        "pending_task_id": str(meta.get("pending_task_id") or ""),
     }
 
 
@@ -913,6 +947,7 @@ async def openclaw_intake(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     _require_openclaw_secret(request)
+    web_org_id = await _session_org_id_from_request(request, db)
 
     if not body.title.strip():
         raise HTTPException(status_code=400, detail="title is required")
@@ -934,6 +969,47 @@ async def openclaw_intake(
                 "source_message_id": body.messageId,
             },
         )
+
+        task = await _create_task_from_gateway(
+            db,
+            body.title.strip(),
+            (body.description or body.title).strip(),
+            source,
+            body.messageId,
+            body.userId.strip(),
+            org_id=web_org_id,
+        )
+        task.status = "plan_pending"
+        task.current_stage_id = "planning"
+        stage_rows = (await db.execute(
+            select(PipelineStage).where(PipelineStage.task_id == task.id)
+        )).scalars().all()
+        for stage in stage_rows:
+            stage.status = "awaiting_approval" if stage.stage_id == "planning" else "pending"
+            if stage.stage_id != "planning":
+                stage.started_at = None
+        await db.flush()
+        await _commit_task_before_background(db, task)
+
+        from ..services import plan_session
+        pending = await plan_session.load_plan(source, body.userId.strip())
+        if pending:
+            meta = pending.get("metadata") if isinstance(pending.get("metadata"), dict) else {}
+            pending["metadata"] = {
+                **meta,
+                "pending_task_id": str(task.id),
+                "auto_final_accept": bool(body.autoFinalAccept),
+                "source_message_id": body.messageId,
+            }
+            await plan_session.save_plan(source, body.userId.strip(), pending)
+
+        fresh = await db.execute(
+            select(PipelineTask)
+            .options(selectinload(PipelineTask.stages))
+            .where(PipelineTask.id == task.id)
+        )
+        full_task = fresh.scalar_one()
+
         result["planMode"] = True
         result["autoFinalAccept"] = bool(body.autoFinalAccept)
         result["planSession"] = {
@@ -942,11 +1018,14 @@ async def openclaw_intake(
             "links": _openclaw_plan_links(source, body.userId.strip()),
         }
         result["pipelineTriggered"] = False
+        result["taskId"] = str(task.id)
+        result["task"] = full_task
         return result
 
     task = await _create_task_from_gateway(
         db, body.title, body.description, source,
         body.messageId, body.userId,
+        org_id=web_org_id,
     )
 
     if body.autoFinalAccept:
@@ -991,6 +1070,7 @@ async def openclaw_approve_plan(
     from ..services import plan_session
 
     _require_openclaw_secret(request)
+    web_org_id = await _session_org_id_from_request(request, db)
     payload = await plan_session.load_plan(source, user_id)
     if not payload:
         raise HTTPException(status_code=404, detail="no pending plan")
@@ -1002,14 +1082,42 @@ async def openclaw_approve_plan(
 
     options = _plan_runtime_options(payload)
     await plan_session.clear_plan(source, user_id)
-    task = await _create_task_from_gateway(
-        db,
-        title,
-        description,
-        source,
-        options.get("source_message_id") or "",
-        user_id,
-    )
+    task = None
+    pending_task_id = options.get("pending_task_id") or ""
+    if pending_task_id:
+        try:
+            result = await db.execute(
+                select(PipelineTask)
+                .options(selectinload(PipelineTask.stages))
+                .where(PipelineTask.id == uuid.UUID(pending_task_id))
+            )
+            task = result.scalar_one_or_none()
+        except Exception:
+            task = None
+
+    if task:
+        if web_org_id and task.org_id is None:
+            task.org_id = web_org_id
+        task.status = "active"
+        task.current_stage_id = "planning"
+        for stage in sorted(task.stages, key=lambda s: s.sort_order):
+            if stage.stage_id == "planning":
+                stage.status = "active"
+                stage.started_at = datetime.utcnow()
+            elif stage.status != "done":
+                stage.status = "pending"
+                stage.started_at = None
+        await db.flush()
+    else:
+        task = await _create_task_from_gateway(
+            db,
+            title,
+            description,
+            source,
+            options.get("source_message_id") or "",
+            user_id,
+            org_id=web_org_id,
+        )
     if options["auto_final_accept"]:
         task.auto_final_accept = True
         await db.flush()
@@ -1035,6 +1143,7 @@ async def openclaw_reject_plan(
     source: str,
     user_id: str,
     request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     from ..services import plan_session
 
@@ -1042,7 +1151,22 @@ async def openclaw_reject_plan(
     payload = await plan_session.load_plan(source, user_id)
     if not payload:
         raise HTTPException(status_code=404, detail="no pending plan")
+    options = _plan_runtime_options(payload)
+    pending_task_id = options.get("pending_task_id") or ""
     await plan_session.clear_plan(source, user_id)
+
+    if pending_task_id:
+        try:
+            result = await db.execute(
+                select(PipelineTask).where(PipelineTask.id == uuid.UUID(pending_task_id))
+            )
+            t = result.scalar_one_or_none()
+            if t:
+                t.status = "cancelled"
+                await db.flush()
+        except Exception as e:
+            logger.debug(f"[openclaw_reject_plan] pending task cancel failed: {e}")
+
     return {"ok": True, "action": "plan_rejected"}
 
 

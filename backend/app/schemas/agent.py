@@ -11,6 +11,55 @@ class ToolBindingOut(BaseModel):
     permissions: List[str] = []
 
 
+class AgentSkillOut(BaseModel):
+    id: Any
+    skill_id: str
+    config: dict = {}
+    enabled: bool = True
+    model_config = {"from_attributes": True}
+
+
+class AgentRuleOut(BaseModel):
+    id: Any
+    name: str
+    description: str = ""
+    rule_type: str
+    content: str = ""
+    priority: int = 0
+    enabled: bool = True
+    model_config = {"from_attributes": True}
+
+
+class AgentHookOut(BaseModel):
+    id: Any
+    name: str
+    hook_type: str
+    handler: str = ""
+    config: dict = {}
+    enabled: bool = True
+    model_config = {"from_attributes": True}
+
+
+class AgentPluginOut(BaseModel):
+    id: Any
+    name: str
+    plugin_type: str
+    config: dict = {}
+    version: str = "1.0.0"
+    enabled: bool = True
+    model_config = {"from_attributes": True}
+
+
+class AgentMcpOut(BaseModel):
+    id: Any
+    name: str
+    server_url: str = ""
+    tools: list = []
+    config: dict = {}
+    enabled: bool = True
+    model_config = {"from_attributes": True}
+
+
 class AgentOut(BaseModel):
     id: str
     name: str
@@ -72,52 +121,3 @@ class AgentUpdate(BaseModel):
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     is_active: Optional[bool] = None
-
-
-class AgentSkillOut(BaseModel):
-    id: Any
-    skill_id: str
-    config: dict = {}
-    enabled: bool = True
-    model_config = {"from_attributes": True}
-
-
-class AgentRuleOut(BaseModel):
-    id: Any
-    name: str
-    description: str = ""
-    rule_type: str
-    content: str = ""
-    priority: int = 0
-    enabled: bool = True
-    model_config = {"from_attributes": True}
-
-
-class AgentHookOut(BaseModel):
-    id: Any
-    name: str
-    hook_type: str
-    handler: str = ""
-    config: dict = {}
-    enabled: bool = True
-    model_config = {"from_attributes": True}
-
-
-class AgentPluginOut(BaseModel):
-    id: Any
-    name: str
-    plugin_type: str
-    config: dict = {}
-    version: str = "1.0.0"
-    enabled: bool = True
-    model_config = {"from_attributes": True}
-
-
-class AgentMcpOut(BaseModel):
-    id: Any
-    name: str
-    server_url: str = ""
-    tools: list = []
-    config: dict = {}
-    enabled: bool = True
-    model_config = {"from_attributes": True}

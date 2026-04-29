@@ -41,11 +41,40 @@
       </div>
     </header>
 
+    <section v-if="task.status === 'plan_pending'" class="plan-pending-banner">
+      <div class="plan-pending-inner">
+        <div class="plan-pending-text">
+          <strong>{{ t('pipelineTaskDetail.planGateTitle') }}</strong>
+          <p>{{ t('pipelineTaskDetail.planGateBody') }}</p>
+          <p v-if="!task.sourceUserId" class="plan-pending-warn">{{ t('pipelineTaskDetail.planGateNoUserHint') }}</p>
+        </div>
+        <div class="plan-pending-actions">
+          <el-button
+            type="success"
+            size="large"
+            :loading="planGateLoading === 'approve'"
+            @click="handlePlanGateApprove"
+          >
+            <el-icon><Check /></el-icon> {{ t('pipelineTaskDetail.planGateApprove') }}
+          </el-button>
+          <el-button
+            type="danger"
+            size="large"
+            plain
+            :loading="planGateLoading === 'reject'"
+            @click="handlePlanGateReject"
+          >
+            <el-icon><Close /></el-icon> {{ t('pipelineTaskDetail.planGateReject') }}
+          </el-button>
+        </div>
+      </div>
+    </section>
+
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
       <el-tab-pane :label="t('pipelineTaskDetail.tabArtifacts')" name="artifacts">
         <TaskArtifactTabs :task-id="task.id" />
       </el-tab-pane>
-      <el-tab-pane :label="t('pipelineTaskDetail.tabOverview')" name="overview">
+      <el-tab-pane :label="t('pipelineTaskDetail.tabOverview')" name="overview" lazy>
     <section v-if="qualitySummary.total > 0" class="quality-summary">
       <div class="quality-bar">
         <span class="quality-label">{{ t('pipelineTaskDetail.qualityLabel') }}</span>
@@ -60,8 +89,10 @@
       </div>
     </section>
 
+    <!-- Vue Flow must not mount while the tab pane is display:none — zero-size
+         viewport causes "Viewport not initialized" and patch DOM errors. -->
     <PipelineDagCanvas
-      v-if="task.stages.length"
+      v-if="task.stages.length && activeMainTab === 'overview'"
       :task="task"
       :processing-stage-id="processingStage"
       @node-click="scrollToStage"
@@ -187,7 +218,7 @@
 
             <!-- Human approval buttons -->
             <div
-              v-if="stage.status === 'awaiting_approval'"
+              v-if="stage.status === 'awaiting_approval' && task.status !== 'plan_pending'"
               class="approval-actions"
               :class="['sla-' + (approvalSLA.get(stage.id)?.level || 'normal')]"
             >
@@ -714,7 +745,7 @@ import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
   smartRunPipeline, subscribePipelineEvents,
-  approveStage as apiApproveStage, resumePipeline, resumeDagPipeline,
+  approveStage as apiApproveStage, resumePipeline, resumeDagPipeline, resolvePlanPending,
   compileDeliverables, fetchQualityReport, overrideQualityGate,
   uploadTaskAttachment, downloadTaskAttachment,
   getTaskRca,
@@ -748,6 +779,41 @@ const pipelineStore = usePipelineStore()
 const task = ref<PipelineTask | null>(null)
 const loadError = ref('')
 const activeMainTab = ref('artifacts')
+const planGateLoading = ref<'approve' | 'reject' | null>(null)
+
+async function handlePlanGateApprove() {
+  if (!task.value?.id) return
+  planGateLoading.value = 'approve'
+  try {
+    await resolvePlanPending(String(task.value.id), true)
+    await loadTask()
+    await nextTick()
+    ElMessage.success(t('pipelineTaskDetail.planGateApprovedMsg'))
+  } catch (e: unknown) {
+    await nextTick()
+    const msg = e instanceof Error ? e.message : String(e)
+    ElMessage.error(msg || t('pipelineTaskDetail.planGateErr'))
+  } finally {
+    planGateLoading.value = null
+  }
+}
+
+async function handlePlanGateReject() {
+  if (!task.value?.id) return
+  planGateLoading.value = 'reject'
+  try {
+    await resolvePlanPending(String(task.value.id), false)
+    await loadTask()
+    await nextTick()
+    ElMessage.success(t('pipelineTaskDetail.planGateRejectedMsg'))
+  } catch (e: unknown) {
+    await nextTick()
+    const msg = e instanceof Error ? e.message : String(e)
+    ElMessage.error(msg || t('pipelineTaskDetail.planGateErr'))
+  } finally {
+    planGateLoading.value = null
+  }
+}
 
 // Approval SLA — drives the "stuck for N min" pill and overdue toast.
 // onCritical fires once per stage per page session — the user gets one
@@ -1263,18 +1329,59 @@ function toggleFeedback(stageId: string) {
   else expandedFeedback.add(stageId)
 }
 
+function toastAfterPaint(kind: 'success' | 'error', text: string) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (kind === 'success') ElMessage.success(text)
+      else ElMessage.error(text)
+    })
+  })
+}
+
+/** Leave overview before heavy DOM refresh — avoids ElTabs + lazy pane + Vue Flow patch races (insertBefore null). */
+async function leaveOverviewForStablePatch() {
+  if (activeMainTab.value !== 'overview') return
+  activeMainTab.value = 'artifacts'
+  await nextTick()
+}
+
 async function handleApproveStage(stageId: string, approved: boolean) {
   if (!task.value) return
   approvingStage.value = stageId
+  const tid = String(task.value.id)
+  const wasPlanPending = task.value.status === 'plan_pending'
   try {
-    await apiApproveStage(String(task.value.id), stageId, approved)
-    ElMessage.success(approved ? t('pipelineTaskDetail.elMessage_12') : t('pipelineTaskDetail.elMessage_13'))
+    await apiApproveStage(tid, stageId, approved)
+    await leaveOverviewForStablePatch()
     await loadTask()
-    if (approved) {
-      await resumePipeline(String(task.value.id), undefined, false)
+    if (approved && !(wasPlanPending && stageId === 'planning')) {
+      await resumePipeline(tid, undefined, false)
     }
-  } catch (e: any) {
-    ElMessage.error(e?.message || t('pipelineTaskDetail.elMessage_14'))
+    toastAfterPaint(
+      'success',
+      approved ? t('pipelineTaskDetail.elMessage_12') : t('pipelineTaskDetail.elMessage_13'),
+    )
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const noApproval = /no pending approval|not found|404|http 404/i.test(msg)
+    if (noApproval && stageId === 'planning' && wasPlanPending) {
+      try {
+        await resolvePlanPending(tid, approved)
+        await leaveOverviewForStablePatch()
+        await loadTask()
+        toastAfterPaint(
+          'success',
+          approved ? t('pipelineTaskDetail.elMessage_12') : t('pipelineTaskDetail.elMessage_13'),
+        )
+        return
+      } catch (e2: unknown) {
+        await leaveOverviewForStablePatch()
+        toastAfterPaint('error', e2 instanceof Error ? e2.message : String(e2))
+        return
+      }
+    }
+    await leaveOverviewForStablePatch()
+    toastAfterPaint('error', msg || t('pipelineTaskDetail.elMessage_14'))
   } finally {
     approvingStage.value = null
   }
@@ -1775,6 +1882,42 @@ watch(() => route.params.id, () => {
 }
 
 .detail-header { margin-bottom: 32px; }
+
+.plan-pending-banner {
+  margin: -8px 0 24px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid var(--el-color-warning-light-5);
+  background: linear-gradient(135deg, rgba(230, 162, 60, 0.1), rgba(230, 162, 60, 0.02));
+}
+.plan-pending-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.plan-pending-text strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+.plan-pending-text p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.plan-pending-warn {
+  margin-top: 8px !important;
+  color: var(--el-color-danger) !important;
+}
+.plan-pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
 
 .header-breadcrumb {
   display: flex;

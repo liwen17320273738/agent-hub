@@ -22,6 +22,9 @@ services:
       POSTGRES_DB: agenthub
     volumes:
       - agenthub_pg:/var/lib/postgresql/data
+    ports:
+      # Host port for local `make dev` (backend uses localhost, not Docker network).
+      - "${AGENTHUB_DB_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agenthub -d agenthub"]
       interval: 5s
@@ -38,6 +41,8 @@ services:
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - agenthub_redis:/data
+    ports:
+      - "${AGENTHUB_REDIS_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

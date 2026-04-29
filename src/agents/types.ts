@@ -43,7 +43,7 @@ export interface PipelineTask {
   source: 'feishu' | 'qq' | 'web' | 'api'
   sourceMessageId?: string
   sourceUserId?: string
-  status: 'active' | 'paused' | 'done' | 'cancelled' | 'failed' | 'awaiting_final_acceptance'
+  status: 'plan_pending' | 'active' | 'running' | 'paused' | 'done' | 'accepted' | 'cancelled' | 'failed' | 'rejected' | 'awaiting_final_acceptance'
   currentStageId: string
   template?: string | null
   repoUrl?: string | null

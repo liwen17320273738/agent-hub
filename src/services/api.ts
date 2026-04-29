@@ -22,6 +22,16 @@ export function getAuthToken(): string | null {
   return _token
 }
 
+/** JWT (web) or `PIPELINE_API_KEY` (gateway-style) — both satisfy `get_pipeline_auth` on the backend. */
+export function getAuthTokenOrPipelineKey(): string | null {
+  const jwt = getAuthToken()
+  if (jwt) return jwt
+  const fromEnv = import.meta.env.VITE_PIPELINE_API_KEY || ''
+  const fromStorage = localStorage.getItem('agent-hub-pipeline-key') || ''
+  const k = String(fromEnv || fromStorage).trim()
+  return k || null
+}
+
 function authHeaders(): Record<string, string> {
   const token = getAuthToken()
   if (!token) return {}

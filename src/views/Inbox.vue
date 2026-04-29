@@ -3,6 +3,15 @@
     <h1>{{ t('inbox.title') }}</h1>
     <p class="inbox-subtitle">{{ t('inbox.subtitle') }}</p>
 
+    <el-alert
+      v-if="backendOffline"
+      class="offline-alert"
+      type="error"
+      :title="t('inbox.offlineMode')"
+      show-icon
+      :closable="false"
+    />
+
     <div class="stat-cards">
       <button
         v-for="card in statCards"
@@ -39,7 +48,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { fetchTasks } from '@/services/pipelineApi'
+import { fetchBackendTasks } from '@/services/pipelineApi'
 import type { PipelineTask } from '@/agents/types'
 import TaskTable from '@/components/inbox/TaskTable.vue'
 
@@ -47,6 +56,7 @@ const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const tasks = ref<PipelineTask[]>([])
+const backendOffline = ref(false)
 type InboxTab = 'pending' | 'running' | 'done' | 'failed'
 
 function tabFromQuery(): InboxTab {
@@ -72,7 +82,13 @@ const statCards = computed<{ tab: InboxTab; label: string }[]>(() => [
 ])
 
 onMounted(async () => {
-  try { tasks.value = await fetchTasks() } catch { /* empty */ }
+  try {
+    tasks.value = await fetchBackendTasks()
+    backendOffline.value = false
+  } catch {
+    tasks.value = []
+    backendOffline.value = true
+  }
 })
 
 const pending = computed(() => tasks.value.filter(t =>
@@ -115,6 +131,10 @@ function goTask(task: PipelineTask) {
   color: var(--el-text-color-secondary);
   font-size: 13px;
   margin-bottom: 20px;
+}
+
+.offline-alert {
+  margin-bottom: 16px;
 }
 
 .stat-cards {

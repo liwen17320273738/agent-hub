@@ -14,8 +14,10 @@ Pipeline Engine — 统一管线引擎，集成全部 6 层成熟化能力
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from sqlalchemy import select
@@ -63,6 +65,121 @@ def _needs_output_top_up(stage_id: str, content: str) -> bool:
         or "## " not in text
         or len(text) < int(min_len * 0.7)
     )
+
+
+def _verify_worktree_code_quality(worktree: Path) -> Optional[Any]:
+    """Heuristic code-quality verification based on actual files in worktree.
+
+    Returns a StageVerification-like object when enough files are present.
+    Scoring (0.0–1.0):
+      • File count (≥3 code files)          : 0.30 + 0.05 per extra, max 0.50
+      • Config file present                 : 0.15
+      • No placeholder tokens (TODO/TBD…)   : 0.15
+      • Test files present                  : 0.10
+      • All files non-empty                 : 0.10
+    """
+    try:
+        skip_dirs = {"node_modules", ".git", "__pycache__", ".next", "dist", "build", ".venv", "venv"}
+        code_exts = {
+            ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".rs", ".java",
+            ".kt", ".swift", ".cpp", ".c", ".h", ".cs", ".rb", ".php", ".sh",
+            ".html", ".css", ".scss", ".sql", ".dart", ".scala",
+        }
+        config_names = {
+            "requirements.txt", "package.json", "Dockerfile", "Makefile",
+            "Cargo.toml", "go.mod", "pyproject.toml", "setup.py", "pom.xml",
+            "build.gradle", "composer.json", "Gemfile", "CMakeLists.txt",
+        }
+        placeholder_re = re.compile(r"\b(TODO|FIXME|HACK|XXX|TBD|PLACEHOLDER)\b", re.IGNORECASE)
+
+        all_files: List[Path] = []
+        code_files: List[Path] = []
+        test_files: List[Path] = []
+        config_found = False
+        empty_files = 0
+        placeholder_count = 0
+
+        for root, dirs, filenames in os.walk(worktree):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for fname in filenames:
+                fpath = Path(root) / fname
+                rel = fpath.relative_to(worktree)
+                all_files.append(rel)
+                if fpath.suffix.lower() in code_exts:
+                    code_files.append(rel)
+                if fname.lower() in config_names:
+                    config_found = True
+                # Detect test files
+                lower_name = fname.lower()
+                if "test" in lower_name or "spec" in lower_name:
+                    test_files.append(rel)
+                # Check empty
+                try:
+                    size = fpath.stat().st_size
+                    if size == 0:
+                        empty_files += 1
+                except OSError:
+                    pass
+                # Check placeholders in code files (first 50KB only)
+                if fpath.suffix.lower() in code_exts:
+                    try:
+                        text = fpath.read_text(encoding="utf-8", errors="ignore")[:50000]
+                        placeholder_count += len(placeholder_re.findall(text))
+                    except Exception:
+                        pass
+
+        checks: List[Any] = []
+        total_score = 0.0
+
+        # 1. File count
+        file_score = min(0.50, 0.30 + max(0, len(code_files) - 3) * 0.05)
+        total_score += file_score
+        checks.append({"check_name": "code_file_count", "status": "pass" if len(code_files) >= 3 else "warn", "message": f"{len(code_files)} code files"})
+
+        # 2. Config file
+        if config_found:
+            total_score += 0.15
+            checks.append({"check_name": "config_file", "status": "pass", "message": "Config file found"})
+        else:
+            checks.append({"check_name": "config_file", "status": "warn", "message": "No config file found"})
+
+        # 3. Placeholders
+        if placeholder_count == 0:
+            total_score += 0.15
+            checks.append({"check_name": "placeholders", "status": "pass", "message": "No placeholders"})
+        else:
+            checks.append({"check_name": "placeholders", "status": "warn", "message": f"{placeholder_count} placeholders found"})
+
+        # 4. Test files
+        if test_files:
+            total_score += 0.10
+            checks.append({"check_name": "test_files", "status": "pass", "message": f"{len(test_files)} test files"})
+        else:
+            checks.append({"check_name": "test_files", "status": "warn", "message": "No test files"})
+
+        # 5. Non-empty files
+        if empty_files == 0:
+            total_score += 0.10
+            checks.append({"check_name": "non_empty", "status": "pass", "message": "All files non-empty"})
+        else:
+            checks.append({"check_name": "non_empty", "status": "warn", "message": f"{empty_files} empty files"})
+
+        overall = VerifyStatus.PASS if total_score >= 0.7 else VerifyStatus.WARN if total_score >= 0.4 else VerifyStatus.FAIL
+
+        # Build a lightweight StageVerification-like object using dicts for checks
+        # so we don't need to import VerifyResult here.
+        class _LazyVerification:
+            def __init__(self, overall, checks_list, score):
+                self.overall_status = overall
+                self.checks = checks_list
+                self.score = score
+                self.auto_proceed = overall != VerifyStatus.FAIL
+                self.suggestions = []
+
+        return _LazyVerification(overall, checks, round(total_score, 2))
+    except Exception as e:
+        logger.warning("[pipeline] Worktree code quality check failed: %s", e)
+        return None
 
 
 async def _top_up_stage_output(
@@ -1278,7 +1395,90 @@ async def execute_stage(
             except Exception as mcp_err:
                 logger.warning("[pipeline] MCP tool loading failed for %s: %s", stage_agent_id, mcp_err)
 
-        if agent_tools:
+        # --- Layer 4 (pre): Claude Code execution for development stage ---
+        # Call Claude Code FIRST for development stage to write real code to worktree.
+        # If Claude Code succeeds and writes files, we SKIP the LLM/AgentRuntime
+        # content generation to prevent markdown from overwriting real code output.
+        claude_code_result: Optional[Dict[str, Any]] = None
+        cc_written_files: List[str] = []
+        cc_job_id: str = ""
+        _skip_llm_for_dev = False
+        _cond_dev = (stage_id == "development")
+        _cond_wt = bool(task_worktree)
+        logger.info("[pipeline] Claude Code check stage=%s dev=%s wt=%s", stage_id, _cond_dev, _cond_wt)
+        if _cond_dev and _cond_wt:
+            try:
+                from .codegen.codegen_agent import CodeGenAgent
+
+                logger.info("[pipeline] CodeGenAgent starting for stage=%s worktree=%s", stage_id, task_worktree)
+
+                await emit_event("stage:claude-code-start", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "workDir": str(task_worktree),
+                    "label": "🚀 CodeGenAgent 正在生成代码...",
+                })
+
+                codegen = CodeGenAgent()
+                codegen_result = await codegen.generate_from_pipeline(
+                    task_id=task_id,
+                    task_title=task_title,
+                    pipeline_outputs=previous_outputs or {},
+                    template_id=None,
+                    use_claude_code=True,
+                    existing_project_dir=str(task_worktree),
+                )
+
+                if codegen_result.get("ok"):
+                    cc_written_files = codegen_result.get("files_written", [])
+                    cc_job_id = codegen_result.get("job_id", "")
+                    engine = codegen_result.get("engine", "unknown")
+                    claude_summary = codegen_result.get("claude_output", "")[:2000]
+
+                    content = (
+                        f"## CodeGenAgent 执行结果（引擎: {engine}）\n\n"
+                        f"- **Job ID**: {cc_job_id}\n"
+                        f"- **状态**: success\n"
+                        f"- **写入文件数**: {len(cc_written_files)}\n"
+                        f"- **引擎**: {engine}\n\n"
+                        f"### 文件列表\n\n"
+                        f"```\n{chr(10).join(cc_written_files)}\n```\n\n"
+                        f"### Claude 输出摘要\n\n```\n{claude_summary}\n```\n"
+                    )
+                    _skip_llm_for_dev = True
+                    logger.info("[pipeline] CodeGenAgent succeeded with %d files via %s, skipping LLM", len(cc_written_files), engine)
+                    await emit_event("stage:claude-code-done", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "writtenFiles": cc_written_files,
+                        "jobId": cc_job_id,
+                    })
+                else:
+                    error_msg = codegen_result.get("error", "unknown error")
+                    logger.warning("[pipeline] CodeGenAgent failed: %s", error_msg)
+                    await emit_event("stage:claude-code-error", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "error": error_msg,
+                    })
+                    # Fall through to AgentRuntime/LLM fallback
+            except Exception as cc_err:
+                logger.warning("[pipeline] CodeGenAgent execution failed for %s: %s", task_id, cc_err)
+                await emit_event("stage:claude-code-error", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "error": str(cc_err),
+                })
+                # Non-blocking: continue with AgentRuntime/LLM content if CodeGenAgent fails
+
+        # --- Layer 4.5: AgentRuntime / LLM (skipped for development if Claude Code wrote files) ---
+        if _skip_llm_for_dev:
+            # Real code already written by Claude Code; skip LLM to avoid markdown overwrite.
+            # Still record minimal metrics so cost/trace accounting works.
+            prompt_tokens = 0
+            completion_tokens = 0
+            logger.info("[pipeline] development stage skipped LLM/AgentRuntime because Claude Code wrote %d files", len(cc_written_files))
+        elif agent_tools:
             from .agent_runtime import AgentRuntime
             _max_steps = 8
             if stage_agent_id in ("wayne-acceptance", "wayne-devops", "wayne-qa"):
@@ -1370,6 +1570,7 @@ async def execute_stage(
         })
         return {"ok": False, "error": str(e)}
 
+    # (Layer 4.5 code moved to before Layer 4 - see above)
     if tier == "local" or resolved_provider == "local":
         api_url = app_settings.llm_api_url or ""
         if api_url and _needs_output_top_up(stage_id, content):
@@ -1394,6 +1595,15 @@ async def execute_stage(
         output=content,
         previous_outputs=previous_outputs,
     )
+
+    # For development stage with Claude Code output, override verification
+    # with heuristic scoring based on actual files in the worktree.
+    if stage_id == "development" and _skip_llm_for_dev and task_worktree:
+        code_verification = _verify_worktree_code_quality(task_worktree)
+        if code_verification:
+            verification = code_verification
+            logger.info("[pipeline] development stage quality override: %s (score inferred from %d files)",
+                verification.overall_status.value, len(cc_written_files))
 
     if (tier == "local" or resolved_provider == "local") and verification.overall_status == VerifyStatus.FAIL:
         api_url = app_settings.llm_api_url or ""
@@ -1469,6 +1679,45 @@ async def execute_stage(
     # Store stage output in working memory for subsequent stages
     await set_working_context(task_id, f"stage_{stage_id}_output", content[:2000])
     await set_working_context(task_id, f"stage_{stage_id}_model", model)
+
+    # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
+    try:
+        from .artifact_writer import write_artifact_v2, write_stage_artifacts_v2, _write_one_artifact
+
+        # For development stage with Claude Code output, write both implementation
+        # and a dedicated code_link artifact with the actual file list.
+        if stage_id == "development" and cc_written_files:
+            written_arts = await write_stage_artifacts_v2(
+                db, task_id=task_id, task_title=task_title,
+                stage_id=stage_id, content=content, agent_name=agent_name,
+            )
+            # Overwrite code_link with structured file list instead of markdown summary
+            code_link_json = json.dumps({
+                "job_id": cc_job_id,
+                "files": cc_written_files,
+                "worktree": str(task_worktree) if task_worktree else "",
+                "generated_at": datetime.utcnow().isoformat(),
+            }, ensure_ascii=False, indent=2)
+            await _write_one_artifact(
+                db, task_id, stage_id, "code_link", code_link_json,
+                "docs/code-snapshot.md", agent_name,
+            )
+            logger.info("[pipeline] Wrote %d artifacts for development stage (incl. code_link with %d files)",
+                len(written_arts) + 1, len(cc_written_files))
+        else:
+            await write_artifact_v2(
+                db,
+                task_id=task_id,
+                stage_id=stage_id,
+                content=content,
+                agent_name=agent_name,
+            )
+        await emit_event("stage:artifact-written", {
+            "taskId": task_id,
+            "stageId": stage_id,
+        })
+    except Exception as art_err:
+        logger.warning("[pipeline] Artifact write failed for %s: %s", stage_id, art_err)
 
     await emit_event("stage:completed", {
         "taskId": task_id,
@@ -1673,14 +1922,50 @@ async def execute_full_pipeline(
         except Exception as ws_err:
             logger.warning(f"[pipeline] Failed to write task workspace doc for {stage_id}: {ws_err}")
 
-        try:
-            from .artifact_writer import write_stage_artifacts_v2
-            await write_stage_artifacts_v2(
-                db, task_id, task_title, stage_id, content,
-                agent_name=STAGE_ROLE_PROMPTS.get(stage_id, {}).get("agent", ""),
-            )
-        except Exception as art_err:
-            logger.warning(f"[pipeline] Failed to write v2 artifact for {stage_id}: {art_err}")
+        # Note: artifact writing is now handled inside execute_stage() (Layer 10)
+        # to ensure artifacts are written even when stages are run individually.
+        # The duplicate call here has been removed to avoid double-writing.
+
+        # --- Peer Review (Layer 11) ---
+        review_config = STAGE_REVIEW_CONFIG.get(stage_id)
+        if review_config and review_config.get("reviewer_agent"):
+            try:
+                review_result = await review_stage_output(
+                    db,
+                    task_id=task_id,
+                    stage_id=stage_id,
+                    stage_output=content,
+                    task_title=task_title,
+                    task_description=task_description,
+                    previous_outputs=outputs,
+                )
+                if stage_id in db_stages:
+                    db_stages[stage_id].review_status = "approved" if review_result.get("approved") else "rejected"
+                    db_stages[stage_id].reviewer_feedback = review_result.get("feedback", "")
+                    db_stages[stage_id].reviewer_agent = review_result.get("reviewer_agent", "")
+                    db_stages[stage_id].review_attempts = (db_stages[stage_id].review_attempts or 0) + 1
+                await db.flush()
+
+                if not review_result.get("approved"):
+                    await emit_event("stage:peer-review-blocked", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "reviewer": review_result.get("reviewer", ""),
+                        "feedback": review_result.get("feedback", "")[:500],
+                    })
+                    # If review rejects, pause pipeline unless force_continue
+                    if not force_continue:
+                        await complete_trace(trace.trace_id, status="review_rejected")
+                        return {
+                            "ok": False,
+                            "stopped_at": stage_id,
+                            "reason": "Peer review rejected",
+                            "review_result": review_result,
+                            "results": results,
+                            "trace_id": trace.trace_id,
+                        }
+            except Exception as review_err:
+                logger.warning("[pipeline] Peer review failed for %s: %s", stage_id, review_err)
 
         # --- Post-stage hooks (code extraction, test validation, etc.) ---
         try:

@@ -17,12 +17,6 @@ class RegisterRequest(BaseModel):
     role: str = "member"
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserInfo
-
-
 class UserInfo(BaseModel):
     id: uuid.UUID
     email: str
@@ -31,3 +25,9 @@ class UserInfo(BaseModel):
     org_id: uuid.UUID
 
     model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserInfo

@@ -37,6 +37,10 @@ async function checkServer(): Promise<boolean> {
   return serverAvailable
 }
 
+export async function isPipelineBackendAvailable(): Promise<boolean> {
+  return checkServer()
+}
+
 /** Normalize API date fields (ISO strings or ms) for UI math (durations, timeAgo). */
 function mapTs(v: unknown): number | undefined {
   if (v == null || v === '') return undefined
@@ -80,7 +84,7 @@ function mapArtifacts(raw: any[] | undefined): TaskArtifact[] {
   }))
 }
 
-function mapTask(raw: any): PipelineTask {
+export function mapTask(raw: any): PipelineTask {
   return {
     id: raw.id,
     title: raw.title,
@@ -145,6 +149,17 @@ export async function fetchTasks(filters?: {
     `/pipeline/tasks${qs ? `?${qs}` : ''}`,
   )
   return (data.tasks ?? []).map(mapTask)
+}
+
+export async function fetchBackendTasks(filters?: {
+  status?: string
+  stage?: string
+  source?: string
+}): Promise<PipelineTask[]> {
+  if (!(await checkServer())) {
+    throw new Error('Pipeline backend is offline')
+  }
+  return fetchTasks(filters)
 }
 
 export async function fetchTask(id: string): Promise<PipelineTask> {
@@ -583,9 +598,13 @@ export async function rejectMarketplaceEntry(
 
 export async function triggerMarketplaceCrawl(options: {
   enableTopicSearch?: boolean
+  signal?: AbortSignal
 } = {}): Promise<{ ok: boolean; summary: string }> {
   const qs = options.enableTopicSearch ? '?enable_topic_search=true' : ''
-  return apiFetch(`/pipeline/marketplace/crawl${qs}`, { method: 'POST' })
+  return apiFetch(`/pipeline/marketplace/crawl${qs}`, {
+    method: 'POST',
+    signal: options.signal,
+  })
 }
 
 // ===== 中间件监控 =====
@@ -675,6 +694,23 @@ export async function approveStage(
   return apiFetch(`/pipeline/tasks/${taskId}/stages/${stageId}/approve`, {
     method: 'POST',
     body: JSON.stringify({ approved, comment: comment || '' }),
+  })
+}
+
+/** Plan-first tasks: confirm or cancel without Redis (fixes stale plan_pending when gateway:plan is gone). */
+export async function resolvePlanPending(
+  taskId: string,
+  approved: boolean,
+): Promise<{
+  ok: boolean
+  action: string
+  taskId: string
+  pipelineTriggered?: boolean
+  autoFinalAccept?: boolean
+}> {
+  return apiFetch(`/pipeline/tasks/${taskId}/resolve-plan-pending`, {
+    method: 'POST',
+    body: JSON.stringify({ approved }),
   })
 }
 

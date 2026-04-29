@@ -58,6 +58,10 @@ STAGE_TO_DOC = {
 _SUBDIRS = ("docs", "screenshots", "logs", "artifacts")
 
 
+def _placeholder_doc_content(spec: dict[str, str]) -> str:
+    return f"# {spec['title']}\n\n*(模板待填写)*\n"
+
+
 def ensure_global_workspace_dirs() -> Path:
     """Create workspace root, tasks/, shared/templates at process startup (issuse23)."""
     root = _workspace_root()
@@ -84,8 +88,24 @@ def task_dir_name(task_id: str, title: str = "") -> str:
     return f"TASK-{task_id}-{slug}"
 
 
+def find_task_root(task_id: str) -> Optional[Path]:
+    tasks_dir = _workspace_root() / "tasks"
+    if not tasks_dir.exists():
+        return None
+    prefix = f"TASK-{task_id}"
+    matches = sorted(
+        d for d in tasks_dir.iterdir()
+        if d.is_dir() and d.name.startswith(prefix)
+    )
+    return matches[0] if matches else None
+
+
 def get_task_root(task_id: str, title: str = "") -> Path:
-    return _workspace_root() / "tasks" / task_dir_name(task_id, title)
+    exact = _workspace_root() / "tasks" / task_dir_name(task_id, title)
+    if exact.exists():
+        return exact
+    existing = find_task_root(task_id)
+    return existing or exact
 
 
 def get_shared_templates_dir() -> Path:
@@ -93,20 +113,14 @@ def get_shared_templates_dir() -> Path:
 
 
 def _ensure_shared_templates() -> Path:
-    """Copy canonical templates from docs/delivery/ into shared/templates/."""
+    """Create canonical placeholder templates in shared/templates/."""
     tpl_dir = get_shared_templates_dir()
     tpl_dir.mkdir(parents=True, exist_ok=True)
-
-    old_delivery = _REPO_ROOT / "docs" / "delivery"
     for spec in DOC_SPECS:
         dest = tpl_dir / spec["name"]
         if dest.exists():
             continue
-        src = old_delivery / spec["name"]
-        if src.exists():
-            shutil.copy2(src, dest)
-        else:
-            dest.write_text(f"# {spec['title']}\n\n*(模板待填写)*\n", encoding="utf-8")
+        dest.write_text(_placeholder_doc_content(spec), encoding="utf-8")
     return tpl_dir
 
 
@@ -138,12 +152,17 @@ async def ensure_task_workspace(task_id: str, title: str = "") -> Path:
     Idempotent: safe to call on every stage transition.
     """
     def _create() -> Path:
-        tpl_dir = _ensure_shared_templates()
         task_path = get_task_root(task_id, title)
 
         if task_path.exists():
+            (task_path / "docs").mkdir(exist_ok=True)
+            for spec in DOC_SPECS:
+                dest = task_path / "docs" / spec["name"]
+                if not dest.exists():
+                    dest.write_text(_placeholder_doc_content(spec), encoding="utf-8")
             for extra in ("src", "config", "deploy"):
                 (task_path / extra).mkdir(exist_ok=True)
+            _write_manifest(task_path, task_id, title)
             return task_path
 
         task_path.mkdir(parents=True, exist_ok=True)
@@ -154,11 +173,7 @@ async def ensure_task_workspace(task_id: str, title: str = "") -> Path:
 
         for spec in DOC_SPECS:
             dest = task_path / "docs" / spec["name"]
-            src = tpl_dir / spec["name"]
-            if src.exists():
-                shutil.copy2(src, dest)
-            else:
-                dest.write_text(f"# {spec['title']}\n\n*(待填写)*\n", encoding="utf-8")
+            dest.write_text(_placeholder_doc_content(spec), encoding="utf-8")
 
         _write_manifest(task_path, task_id, title)
         logger.info("Created task workspace: %s", task_path)

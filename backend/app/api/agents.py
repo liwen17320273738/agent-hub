@@ -555,6 +555,7 @@ async def run_agent_stream(
                 "verification": result.get("verification"),
                 "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
                 "error": result.get("error"),
+                "mcp_tools_loaded": list(result.get("mcp_tools_loaded") or []),
             })
         except Exception as e:
             logger.exception(f"[agents/run/stream] runner crashed: {e}")

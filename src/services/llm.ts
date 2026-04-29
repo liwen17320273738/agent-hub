@@ -22,6 +22,10 @@ export interface LLMSettings {
    * 部分兼容接口不支持 tools，失败时可关闭此项。
    */
   enableTools: boolean
+  /**
+   * 专家聊天走后端 `AgentRuntime`（`runAgentStream`）；关闭时用浏览器直连接口 + 轻工具（离线/demo）。
+   */
+  agentChatUseBackendRuntime: boolean
 }
 
 export const defaultSettings: LLMSettings = {
@@ -35,6 +39,7 @@ export const defaultSettings: LLMSettings = {
   contextMaxMessages: 32,
   contextMaxChars: 48000,
   enableTools: false,
+  agentChatUseBackendRuntime: true,
 }
 
 export interface LLMMessage {

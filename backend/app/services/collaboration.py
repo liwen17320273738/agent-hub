@@ -35,8 +35,17 @@ AGENT_TEAM = {
         "icon": "👔",
         "expertise": "30年产品战略 + 团队管理",
         "responsibilities": ["需求分析", "PRD撰写", "项目评审", "团队协调"],
-        "stages": ["planning"],
+        "stages": [],
         "tier": "planning",
+    },
+    "product-agent": {
+        "id": "product-agent",
+        "name": "产品经理 Agent",
+        "icon": "📝",
+        "expertise": "30年产品设计与需求拆解",
+        "responsibilities": ["PRD撰写", "用户故事", "验收标准", "范围管理"],
+        "stages": ["planning"],
+        "tier": "execution",
     },
     "designer-agent": {
         "id": "designer-agent",
@@ -138,7 +147,7 @@ class CollabSession(BaseModel):
 
 
 PIPELINE_STAGES = [
-    {"id": "planning", "label": "需求规划", "role": "product-manager", "agent": "ceo-agent"},
+    {"id": "planning", "label": "需求规划", "role": "product-manager", "agent": "product-agent"},
     {"id": "design", "label": "UI/UX 设计", "role": "designer", "agent": "designer-agent"},
     {"id": "architecture", "label": "架构设计", "role": "architect", "agent": "architect-agent"},
     {"id": "development", "label": "开发实现", "role": "developer", "agent": "developer-agent"},

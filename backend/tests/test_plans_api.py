@@ -42,6 +42,124 @@ async def test_get_plan_exposes_runtime_options(client, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_resolve_plan_pending_without_redis(client, auth_headers, monkeypatch):
+    """DB-only resolve when gateway:plan Redis key is gone (TTL / dev)."""
+    from app.config import settings
+    from app.services import plan_session
+
+    async def _fake_make_plan(title: str, description: str):
+        from app.services.planner import ExecutionPlan, PlanStep
+
+        return ExecutionPlan(
+            title=title,
+            summary=description[:80],
+            steps=[PlanStep(no=1, title="A", role="dev", estimate_min=5)],
+            template="full",
+            deploy_target="vercel",
+            risks=[],
+            estimate_min_total=5,
+            confidence="medium",
+        )
+
+    called: dict = {}
+
+    async def _fake_run(task_id: str, title: str, description: str, *, pause_for_acceptance: bool = True):
+        called["task_id"] = task_id
+
+    monkeypatch.setattr(settings, "pipeline_api_key", "test-secret", raising=False)
+    monkeypatch.setattr("app.services.planner.make_plan", _fake_make_plan, raising=True)
+    monkeypatch.setattr("app.api.gateway._run_pipeline_background", _fake_run, raising=True)
+
+    intake = await client.post(
+        "/api/gateway/openclaw/intake",
+        headers={"Authorization": "Bearer test-secret"},
+        json={
+            "title": "Ship app",
+            "description": "Plan first",
+            "source": "web",
+            "userId": "dashboard",
+            "planMode": True,
+        },
+    )
+    assert intake.status_code == 200, intake.text
+    task_id = intake.json()["taskId"]
+
+    await plan_session.clear_plan("web", "dashboard")
+    assert await plan_session.load_plan("web", "dashboard") is None
+
+    res = await client.post(
+        f"/api/pipeline/tasks/{task_id}/resolve-plan-pending",
+        headers=auth_headers,
+        json={"approved": True},
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["action"] == "plan_approved"
+    assert body["taskId"] == task_id
+    assert called.get("task_id") == task_id
+
+
+@pytest.mark.asyncio
+async def test_approve_plan_reuses_gateway_pending_task(client, auth_headers, monkeypatch):
+    """Web /plans/approve must reuse the task created by plan-mode intake (metadata.pending_task_id)."""
+    from app.config import settings
+    from app.services import plan_session
+    async def _fake_make_plan(title: str, description: str):
+        from app.services.planner import ExecutionPlan, PlanStep
+
+        return ExecutionPlan(
+            title=title,
+            summary=description[:80],
+            steps=[PlanStep(no=1, title="A", role="dev", estimate_min=5)],
+            template="full",
+            deploy_target="vercel",
+            risks=[],
+            estimate_min_total=5,
+            confidence="medium",
+        )
+
+    called: dict = {}
+
+    async def _fake_run(task_id: str, title: str, description: str, *, pause_for_acceptance: bool = True):
+        called["task_id"] = task_id
+
+    monkeypatch.setattr(settings, "pipeline_api_key", "test-secret", raising=False)
+    monkeypatch.setattr("app.services.planner.make_plan", _fake_make_plan, raising=True)
+    monkeypatch.setattr("app.api.gateway._run_pipeline_background", _fake_run, raising=True)
+
+    intake = await client.post(
+        "/api/gateway/openclaw/intake",
+        headers={"Authorization": "Bearer test-secret"},
+        json={
+            "title": "Ship a todo app",
+            "description": "Need plan first",
+            "source": "openclaw",
+            "userId": "wayne-phone",
+            "planMode": True,
+        },
+    )
+    assert intake.status_code == 200, intake.text
+    pending_tid = intake.json()["taskId"]
+
+    res = await client.post(
+        "/api/plans/openclaw/wayne-phone/approve",
+        headers=auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["taskId"] == pending_tid
+    assert body["action"] == "plan_approved"
+    assert called.get("task_id") == pending_tid
+
+    detail = await client.get(f"/api/pipeline/tasks/{pending_tid}", headers=auth_headers)
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["task"]["status"] == "active"
+
+    leftover = await plan_session.load_plan("openclaw", "wayne-phone")
+    assert leftover is None
+
+
+@pytest.mark.asyncio
 async def test_revise_plan_preserves_runtime_options(client, auth_headers, monkeypatch):
     from app.services import plan_session
     from app.services.planner import ExecutionPlan, PlanStep

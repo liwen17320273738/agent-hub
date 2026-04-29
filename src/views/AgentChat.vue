@@ -73,6 +73,19 @@
             recommendedModelLabel
           }}
         </el-tag>
+        <el-tooltip
+          v-if="activeConv"
+          :content="t('agentChat.runtimeModeHint')"
+          placement="bottom"
+        >
+          <el-switch
+            v-model="useBackendRuntime"
+            class="agent-runtime-switch"
+            size="small"
+            :active-text="t('agentChat.runtimeBackend')"
+            :inactive-text="t('agentChat.runtimeLocal')"
+          />
+        </el-tooltip>
         <el-button text size="small" :disabled="isThisConvGenerating" @click="exportMarkdown">
           {{ t('agentChat.exportMd') }}
         </el-button>
@@ -272,8 +285,12 @@ import { useWayneWorkflowStore } from '@/stores/wayneWorkflow'
 import { chatCompletion } from '@/services/llm'
 import { completionWithToolLoop } from '@/services/chatWithTools'
 import { buildLLMMessages } from '@/services/messageContext'
+import { runAgentStream, type AgentRunRequest, type AgentStreamEvent } from '@/services/agentApi'
+import { getAuthTokenOrPipelineKey } from '@/services/api'
+import { resolveStreamAgentKey } from '@/services/agentRuntimeRouting'
+import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { fetchTask } from '@/services/pipelineApi'
-import type { ChatMessage as ChatMessageType, PipelineTask } from '@/agents/types'
+import type { AgentConfig, ChatMessage as ChatMessageType, Conversation, PipelineTask } from '@/agents/types'
 import ChatMessage from '@/components/ChatMessage.vue'
 import { listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc, type DeliveryDocMeta } from '@/services/deliveryDocs'
 import {
@@ -316,6 +333,18 @@ const wayneSuggestions = ref<WayneRouteSuggestion[]>(getWayneDefaultRoutes())
 const deliveryDocOptions = ref<DeliveryDocMeta[]>([])
 const deliveryTargetDoc = ref('01-prd.md')
 const pipelineTask = ref<PipelineTask | null>(null)
+
+function canSendChatWithoutLocalLlm(ag: AgentConfig): boolean {
+  const s = settingsStore.settings
+  if (s.agentChatUseBackendRuntime === false) return false
+  return !!(getAuthTokenOrPipelineKey() && resolveStreamAgentKey(ag))
+}
+
+function canUseChatCompletion(ag: AgentConfig | undefined): boolean {
+  if (!ag) return false
+  if (settingsStore.isConfigured()) return true
+  return canSendChatWithoutLocalLlm(ag)
+}
 
 const agentProfile = computed(() => agentStore.getAgent(route.params.id as string))
 const agent = computed(() => agentProfile.value ? agentStore.agentAsConfig(agentProfile.value) : undefined)
@@ -372,6 +401,13 @@ const streamingMessage = computed<ChatMessageType>(() => {
     timestamp: Date.now(),
     agentId: agent.value?.id ?? '',
   }
+})
+
+const useBackendRuntime = computed({
+  get: () => settingsStore.settings.agentChatUseBackendRuntime !== false,
+  set: (v: boolean) => {
+    settingsStore.save({ ...settingsStore.settings, agentChatUseBackendRuntime: v })
+  },
 })
 
 watch(
@@ -471,7 +507,7 @@ async function launchSeedPrompt(seed: string) {
   const promptText = seed.trim()
   if (!promptText) return
 
-  if (!settingsStore.isConfigured()) {
+  if (!canUseChatCompletion(currentAgent)) {
     inputText.value = promptText
     await router.replace({ name: 'agent-chat', params: { id: currentAgent.id } })
     ElMessage.warning(t('agentChat.elMessage_1'))
@@ -602,7 +638,7 @@ async function confirmEditUser() {
   if (!conv || !mid || !agent.value) return
   const text = editDraft.value.trim()
   if (!text) return
-  if (!settingsStore.isConfigured()) {
+  if (!canUseChatCompletion(agent.value)) {
     ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
@@ -713,6 +749,90 @@ async function generateConversationSummary() {
   }
 }
 
+async function invokeBackendRuntimeCompletion(
+  convId: string,
+  conv: Conversation,
+  currentAgent: AgentConfig,
+  streamKey: string,
+  signal: AbortSignal,
+) {
+  const msgs = conv.messages
+  const lastUser = msgs[msgs.length - 1]
+  if (!lastUser || lastUser.role !== 'user') {
+    throw new Error('no user message')
+  }
+  const prior = msgs.slice(0, -1)
+  let taskBody: string
+  if (prior.length) {
+    const history = prior
+      .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+      .join('\n\n')
+    taskBody = `Prior conversation:\n\n${history}\n\n---\n\nCurrent message:\n${lastUser.content}`
+  } else {
+    taskBody = lastUser.content
+  }
+
+  const context: Record<string, string> = {}
+  if (pipelineTask.value) {
+    context.pipeline_task_id = pipelineTask.value.id
+    context.current_stage = pipelineTask.value.currentStageId
+  }
+
+  const s = settingsStore.settings
+  const modelOverride = isEnterpriseBuild
+    ? settingsStore.effectiveModel()
+    : (s.model?.trim() || '')
+
+  chatStore.setStreamChunk(convId, t('agentChat.streamBackendPrep'))
+
+  const body: AgentRunRequest = {
+    task: taskBody,
+    max_steps: 8,
+    temperature: s.temperature,
+    ...(Object.keys(context).length ? { context } : {}),
+    ...(modelOverride ? { model_override: modelOverride } : {}),
+  }
+
+  let toolLog = ''
+  const stream = runAgentStream(streamKey, body, signal)
+  for await (const evt of stream as AsyncIterable<AgentStreamEvent>) {
+    if (evt.event === 'progress' && evt.phase === 'agent:tool-call') {
+      const d = evt.data as { tool?: string; input?: unknown }
+      const line = `${t('agentChat.streamToolCall')}: ${d.tool || '?'} ${JSON.stringify(d.input ?? '').slice(0, 200)}…`
+      toolLog = toolLog ? `${toolLog}\n${line}` : line
+      chatStore.setStreamChunk(
+        convId,
+        `${t('agentChat.streamBackendPrep')}${toolLog ? `\n\n${toolLog}` : ''}`,
+      )
+    } else if (evt.event === 'progress' && evt.phase === 'agent:execute-start') {
+      chatStore.setStreamChunk(
+        convId,
+        `${t('agentChat.streamBackendPrep')}${toolLog ? `\n\n${toolLog}` : ''}\n\n${t('agentChat.thinking')}`,
+      )
+    } else if (evt.event === 'completed') {
+      let out = evt.content || ''
+      if (evt.error && !out) {
+        out = String(evt.error)
+      }
+      if (evt.verification) {
+        out += `\n\n---\n**Verification:**\n${evt.verification}`
+      }
+      if (evt.mcp_tools_loaded?.length) {
+        out += `\n\n*MCP: ${evt.mcp_tools_loaded.join(', ')}*`
+      }
+      if (!evt.ok && evt.error) {
+        out = `${out}\n\n[${evt.error}]`
+      }
+      chatStore.setStreamChunk(convId, out.trim())
+      chatStore.addMessage(convId, 'assistant', out.trim(), currentAgent.id)
+      return
+    } else if (evt.event === 'error') {
+      throw new Error(evt.error)
+    }
+  }
+  throw new Error('stream ended without completed event')
+}
+
 async function invokeModelCompletion(convId: string) {
   const currentAgent = agent.value
   if (!currentAgent) return
@@ -723,8 +843,44 @@ async function invokeModelCompletion(convId: string) {
   conversationAbortControllers.set(convId, ac)
   chatStore.startGeneration(convId)
 
+  const s = settingsStore.settings
+  const streamKey = resolveStreamAgentKey(currentAgent)
+  const authed = getAuthTokenOrPipelineKey()
+  const shouldTryRuntime = s.agentChatUseBackendRuntime !== false && !!streamKey && !!authed
+
   try {
-    const s = settingsStore.settings
+    if (shouldTryRuntime) {
+      try {
+        await invokeBackendRuntimeCompletion(convId, conv, currentAgent, streamKey, ac.signal)
+        return
+      } catch (e: unknown) {
+        const message = e instanceof Error ? e.message : String(e)
+        const is401 = message.includes('401') || message.includes('未认证')
+        const aborted = e instanceof DOMException && e.name === 'AbortError'
+        if (aborted) {
+          ElMessage.info(t('agentChat.elMessage_8'))
+          return
+        }
+        if (!is401) {
+          requestError.value = { conversationId: convId, message }
+          ElMessage.error(t('agentChat.errRequest', { message }))
+          return
+        }
+        ElMessage.warning(t('agentChat.runtimeNoAuth'))
+      }
+    } else if (s.agentChatUseBackendRuntime !== false) {
+      if (streamKey && !authed) {
+        ElMessage.warning(t('agentChat.runtimeNoAuth'))
+      } else if (!streamKey) {
+        ElMessage.info(t('agentChat.runtimeNoMapping'))
+      }
+    }
+
+    // --- Frontend fallback (demo/offline mode) ---
+    // Per issue24.md: frontend light tools are allowed only as explicit fallback.
+    const fallbackNotice = t('agentChat.fallbackNotice') || '⚠️ [Demo/Offline Mode] Backend runtime unavailable — using frontend light tools. Tool calls, MCP, and verification are disabled.'
+    chatStore.setStreamChunk(convId, fallbackNotice + '\n\n')
+
     const systemPrompt = s.enableTools
       ? `${currentAgent.systemPrompt}\n\n${t('agentChat.toolsPromptSuffix')}`
       : currentAgent.systemPrompt
@@ -752,6 +908,8 @@ async function invokeModelCompletion(convId: string) {
         { signal: ac.signal },
       )
     }
+    // Prefix fallback marker so UI clearly shows this was not backend runtime
+    finalContent = `${fallbackNotice}\n\n---\n\n${finalContent}`
     chatStore.addMessage(convId, 'assistant', finalContent, currentAgent.id)
   } catch (e: unknown) {
     const aborted = e instanceof DOMException && e.name === 'AbortError'
@@ -771,7 +929,7 @@ async function invokeModelCompletion(convId: string) {
 
 async function regenerateLast() {
   if (!agent.value || !activeConv.value) return
-  if (!settingsStore.isConfigured()) {
+  if (!canUseChatCompletion(agent.value)) {
     ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }
@@ -789,7 +947,7 @@ async function regenerateLast() {
 async function sendMessage() {
   if (!inputText.value.trim() || !agent.value) return
 
-  if (!settingsStore.isConfigured()) {
+  if (!canUseChatCompletion(agent.value)) {
     ElMessage.warning(t('agentChat.elMessage_2'))
     return
   }

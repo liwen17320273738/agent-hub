@@ -1596,11 +1596,96 @@ class ApprovalBody(BaseModel):
     comment: str = ""
 
 
+class ResolvePlanPendingBody(BaseModel):
+    """Confirm or discard plan-first mode without requiring a Redis plan session."""
+
+    approved: bool
+
+
+@router.post("/tasks/{task_id}/resolve-plan-pending")
+async def resolve_plan_pending(
+    task_id: str,
+    body: ResolvePlanPendingBody,
+    background_tasks: BackgroundTasks,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Resolve ``plan_pending`` using the DB task row only.
+
+    The OpenClaw plan endpoints require a live Redis entry under
+    ``gateway:plan:<source>:<user_id>``. That session is often missing
+    (expired TTL, dev Redis down, or cleared) while the task row is still
+    ``plan_pending``. This endpoint mirrors the gateway approve/reject
+    transitions so the web UI can always proceed.
+    """
+    from . import gateway
+    from ..services import plan_session
+
+    tid = _parse_task_id(task_id)
+    result = await db.execute(
+        select(PipelineTask)
+        .options(selectinload(PipelineTask.stages))
+        .where(PipelineTask.id == tid),
+    )
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.status != "plan_pending":
+        raise HTTPException(
+            status_code=400,
+            detail="task is not in plan_pending status",
+        )
+
+    source = (task.source or "web").strip() or "web"
+    uid = (task.source_user_id or "").strip()
+    if uid:
+        await plan_session.clear_plan(source, uid)
+
+    if not body.approved:
+        task.status = "cancelled"
+        await db.flush()
+        return {"ok": True, "action": "plan_rejected", "taskId": str(task.id)}
+
+    if user and user.org_id and task.org_id is None:
+        task.org_id = user.org_id
+    task.status = "active"
+    task.current_stage_id = "planning"
+    for stage in sorted(task.stages, key=lambda s: s.sort_order):
+        if stage.stage_id == "planning":
+            stage.status = "active"
+            stage.started_at = datetime.utcnow()
+        elif stage.status != "done":
+            stage.status = "pending"
+            stage.started_at = None
+    await db.flush()
+
+    pause = not bool(task.auto_final_accept)
+    title = str(task.title or "").strip() or "Task"
+    description = str(task.description or task.title or "").strip()
+
+    await gateway._commit_task_before_background(db, task)
+    background_tasks.add_task(
+        gateway._run_pipeline_background,
+        str(task.id),
+        title,
+        description,
+        pause_for_acceptance=pause,
+    )
+    return {
+        "ok": True,
+        "action": "plan_approved",
+        "taskId": str(task.id),
+        "pipelineTriggered": True,
+        "autoFinalAccept": bool(task.auto_final_accept),
+    }
+
+
 @router.post("/tasks/{task_id}/stages/{stage_id}/approve")
 async def approve_stage(
     task_id: str,
     stage_id: str,
     body: ApprovalBody,
+    background_tasks: BackgroundTasks,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -1614,6 +1699,114 @@ async def approve_stage(
     pending = await get_pending_approvals(task_id=task_id)
     approval = next((a for a in pending if a.stage_id == stage_id), None)
     if not approval:
+        # No guardrails ``ApprovalRequest``: still allow DB-only human gates.
+        tid = _parse_task_id(task_id)
+        fb_result = await db.execute(
+            select(PipelineTask)
+            .options(selectinload(PipelineTask.stages))
+            .where(PipelineTask.id == tid),
+        )
+        task_fb = fb_result.scalar_one_or_none()
+        stage_fb = next(
+            (s for s in (task_fb.stages if task_fb else []) if s.stage_id == stage_id),
+            None,
+        )
+        if not task_fb or not stage_fb:
+            raise HTTPException(status_code=404, detail="No pending approval for this stage")
+
+        from . import gateway
+        from ..services import plan_session
+
+        reviewer_email = user.email if user else "api-key"
+
+        # Plan-first: do not require ``awaiting_approval`` on the row (older / inconsistent rows).
+        if task_fb.status == "plan_pending" and stage_id == "planning" and stage_fb.status != "done":
+            src = (task_fb.source or "web").strip() or "web"
+            uid = (task_fb.source_user_id or "").strip()
+            if uid:
+                await plan_session.clear_plan(src, uid)
+            if not body.approved:
+                task_fb.status = "cancelled"
+                await db.flush()
+                await emit_event("stage:approval-denied", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reviewer": reviewer_email,
+                    "comment": body.comment,
+                })
+                await db.commit()
+                return {
+                    "ok": True,
+                    "approved": False,
+                    "stage_id": stage_id,
+                    "comment": body.comment,
+                }
+            if user and user.org_id and task_fb.org_id is None:
+                task_fb.org_id = user.org_id
+            task_fb.status = "active"
+            task_fb.current_stage_id = "planning"
+            for st in sorted(task_fb.stages, key=lambda s: s.sort_order):
+                if st.stage_id == "planning":
+                    st.status = "active"
+                    st.started_at = datetime.utcnow()
+                    st.completed_at = None
+                elif st.status != "done":
+                    st.status = "pending"
+                    st.started_at = None
+            await db.flush()
+            pause = not bool(task_fb.auto_final_accept)
+            title = str(task_fb.title or "").strip() or "Task"
+            description = str(task_fb.description or task_fb.title or "").strip()
+            await gateway._commit_task_before_background(db, task_fb)
+            background_tasks.add_task(
+                gateway._run_pipeline_background,
+                str(task_fb.id),
+                title,
+                description,
+                pause_for_acceptance=pause,
+            )
+            await emit_event("stage:approval-granted", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "reviewer": reviewer_email,
+                "comment": body.comment,
+            })
+            return {
+                "ok": True,
+                "approved": True,
+                "stage_id": stage_id,
+                "comment": body.comment,
+            }
+
+        # Active run: any stage in ``awaiting_approval`` without a guardrails row.
+        if task_fb.status in ("active", "running") and stage_fb.status == "awaiting_approval":
+            if body.approved:
+                task_fb.status = "active"
+                stage_fb.status = "done"
+                stage_fb.completed_at = datetime.utcnow()
+                await emit_event("stage:approval-granted", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reviewer": reviewer_email,
+                    "comment": body.comment,
+                })
+            else:
+                stage_fb.status = "rejected"
+                await emit_event("stage:approval-denied", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reviewer": reviewer_email,
+                    "comment": body.comment,
+                })
+            await db.flush()
+            await db.commit()
+            return {
+                "ok": True,
+                "approved": body.approved,
+                "stage_id": stage_id,
+                "comment": body.comment,
+            }
+
         raise HTTPException(status_code=404, detail="No pending approval for this stage")
 
     reviewer_id = str(user.id) if user else "api"

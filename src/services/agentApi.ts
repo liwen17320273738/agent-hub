@@ -5,7 +5,7 @@
  * The streaming variant returns an async iterator of typed events so the UI
  * can render progress incrementally.
  */
-import { apiFetch, getAuthToken } from './api'
+import { apiFetch, getAuthTokenOrPipelineKey } from './api'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
@@ -137,7 +137,7 @@ export async function* runAgentStream(
   body: AgentRunRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<AgentStreamEvent, void, void> {
-  const token = getAuthToken()
+  const token = getAuthTokenOrPipelineKey()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'text/event-stream',

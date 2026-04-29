@@ -13,19 +13,22 @@
   non-admin users.
 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useSkillCrawlStore } from '@/stores/skillCrawl'
 import {
   fetchMarketplacePending,
   approveMarketplaceEntry,
   rejectMarketplaceEntry,
-  triggerMarketplaceCrawl,
   type PendingMarketplaceEntry,
 } from '@/services/pipelineApi'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const skillCrawl = useSkillCrawlStore()
+const { inProgress, crawlStatus, crawlError, crawlAborted } = storeToRefs(skillCrawl)
 
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 
@@ -40,8 +43,7 @@ const busy = ref<Record<string, 'approving' | 'rejecting'>>({})
 // opt-in because it expands what the crawler indexes from "our curated
 // list" to "anything GitHub users tagged with claude-skill / agent-skill",
 // which needs a human review of the spam that comes with that territory.
-const crawling = ref(false)
-const crawlStatus = ref<{ ok: boolean; summary: string } | null>(null)
+// Long-running crawl state lives in skillCrawl store so SPA navigation does not drop the request.
 const includeTopicSearch = ref(false)
 
 async function load() {
@@ -85,23 +87,8 @@ async function handleReject(entry: PendingMarketplaceEntry) {
 }
 
 async function handleCrawl() {
-  crawling.value = true
-  crawlStatus.value = null
   error.value = null
-  try {
-    const res = await triggerMarketplaceCrawl({
-      enableTopicSearch: includeTopicSearch.value,
-    })
-    crawlStatus.value = res
-    // A fresh crawl usually changes the pending lane, so immediately
-    // refresh the table. If the crawl failed we still reload in case
-    // stale entries got cleared out.
-    await load()
-  } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    crawling.value = false
-  }
+  await skillCrawl.startCrawl(includeTopicSearch.value)
 }
 
 function formatGeneratedAt(iso: string | null): string {
@@ -132,6 +119,15 @@ function iconStyle(name: string): Record<string, string> {
 onMounted(() => {
   if (isAdmin.value) load()
 })
+
+watch(
+  inProgress,
+  (running, wasRunning) => {
+    if (wasRunning && !running && isAdmin.value) {
+      load()
+    }
+  },
+)
 </script>
 
 <template>
@@ -181,7 +177,7 @@ onMounted(() => {
             <input
               type="checkbox"
               v-model="includeTopicSearch"
-              :disabled="crawling"
+              :disabled="inProgress"
             />
             <span>{{ t('adminReview.topicSearch') }}</span>
           </label>
@@ -191,15 +187,25 @@ onMounted(() => {
             @click="load"
           >{{ loading ? t('common.loading') : t('adminReview.refresh') }}</button>
           <button
+            v-if="inProgress"
+            type="button"
+            class="btn btn-stop"
+            @click="skillCrawl.cancelCrawl()"
+          >{{ t('adminReview.crawlCancel') }}</button>
+          <button
+            v-else
+            type="button"
             class="btn btn-crawl"
-            :disabled="crawling"
             @click="handleCrawl"
-          >
-            <span v-if="crawling" class="spinner" aria-hidden>⟳</span>
-            {{ crawling ? t('adminReview.crawling') : t('adminReview.crawlNow') }}
-          </button>
+          >{{ t('adminReview.crawlNow') }}</button>
+          <span v-if="inProgress" class="crawl-running-label">
+            <span class="spinner" aria-hidden>⟳</span>
+            {{ t('adminReview.crawling') }}
+          </span>
         </div>
       </section>
+
+      <p v-if="inProgress" class="crawl-bg-hint">{{ t('adminReview.crawlBackgroundHint') }}</p>
 
       <div v-if="crawlStatus" class="crawl-result" :class="{ 'is-err': !crawlStatus.ok }">
         <strong>{{ crawlStatus.ok ? t('adminReview.crawlOk') : t('adminReview.crawlFail') }}</strong>
@@ -207,6 +213,8 @@ onMounted(() => {
       </div>
 
       <div v-if="error" class="error-banner">{{ error }}</div>
+      <div v-if="crawlAborted" class="info-banner">{{ t('adminReview.crawlAborted') }}</div>
+      <div v-else-if="crawlError" class="error-banner">{{ crawlError }}</div>
 
       <!-- Queue body -->
       <div v-if="!pending.length && !loading" class="empty-state">
@@ -393,7 +401,36 @@ onMounted(() => {
   gap: 6px;
 }
 .btn-crawl:hover:not(:disabled) { background: #4f46e5; border-color: #4f46e5; }
+.btn-stop {
+  background: transparent;
+  color: #ea580c;
+  border-color: rgba(234, 88, 12, 0.5);
+}
+.btn-stop:hover { background: rgba(234, 88, 12, 0.08); border-color: #ea580c; }
 .spinner { display: inline-block; animation: spin 0.8s linear infinite; }
+.crawl-bg-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary, #64748b);
+  line-height: 1.5;
+}
+.crawl-running-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1;
+}
+.info-banner {
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 3px solid #3b82f6;
+  border-radius: 6px;
+  color: var(--el-text-color-regular, #1e40af);
+  font-size: 13px;
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .btn-approve {

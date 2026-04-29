@@ -11,14 +11,26 @@
             :placeholder="t('dashboard.placeholder')"
             size="large"
             clearable
+            :disabled="submitLoading !== null"
             @keyup.enter="submitTask(true)"
           />
         </div>
         <div class="hero-actions">
-          <el-button type="primary" size="large" :loading="submitting" @click="submitTask(true)">
+          <el-button
+            type="primary"
+            size="large"
+            :loading="submitLoading === 'plan'"
+            :disabled="submitLoading !== null"
+            @click="submitTask(true)"
+          >
             {{ t('dashboard.planFirst') }}
           </el-button>
-          <el-button size="large" :loading="submitting" @click="submitTask(false)">
+          <el-button
+            size="large"
+            :loading="submitLoading === 'direct'"
+            :disabled="submitLoading !== null"
+            @click="submitTask(false)"
+          >
             {{ t('dashboard.execute') }}
           </el-button>
           <el-button size="large" @click="$router.push('/inbox')">
@@ -54,6 +66,12 @@
     </section>
 
     <!-- ── Config warning ── -->
+    <el-alert v-if="backendOffline" type="error" :closable="false" show-icon class="config-warn">
+      <template #title>
+        {{ t('dashboard.offlineMode') }}
+      </template>
+    </el-alert>
+
     <el-alert v-if="!settingsStore.isConfigured()" type="warning" :closable="false" show-icon class="config-warn">
       <template #title>
         <template v-if="isEnterpriseBuild">
@@ -87,7 +105,7 @@
           </div>
           <div class="task-card-meta">
             <span>{{ task.source || '-' }}</span>
-            <span>{{ formatDate(task.created_at) }}</span>
+            <span>{{ formatDate(task.createdAt) }}</span>
           </div>
           <ArtifactCompletionBar v-if="task.stages?.length" :stages="task.stages" />
         </div>
@@ -114,8 +132,8 @@
           </div>
           <div class="task-card-meta">
             <span>{{ task.source || '-' }}</span>
-            <span>{{ task.current_stage || '-' }}</span>
-            <span>{{ formatDate(task.updated_at || task.created_at) }}</span>
+            <span>{{ task.currentStageId || '-' }}</span>
+            <span>{{ formatDate(task.updatedAt || task.createdAt) }}</span>
           </div>
           <ArtifactCompletionBar v-if="task.stages?.length" :stages="task.stages" />
         </div>
@@ -132,7 +150,8 @@ import { useI18n } from 'vue-i18n'
 import { appLocaleToBcp47 } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
-import { fetchTasks, createTask as createPipelineTask, smartRunPipeline } from '@/services/pipelineApi'
+import { fetchBackendTasks } from '@/services/pipelineApi'
+import { openClawIntake } from '@/services/gatewayApi'
 import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import { ElMessage } from 'element-plus'
@@ -142,7 +161,9 @@ const router = useRouter()
 const settingsStore = useSettingsStore()
 const tasks = ref<PipelineTask[]>([])
 const taskInput = ref('')
-const submitting = ref(false)
+/** Which CTA is in flight — avoids both buttons showing loading (shared flag looked like "both ran"). */
+const submitLoading = ref<'plan' | 'direct' | null>(null)
+const backendOffline = ref(false)
 
 // Template `label` and `text` are resolved through t() at render time so
 // they react to locale changes without a remount.
@@ -155,7 +176,13 @@ const templates = [
 ]
 
 onMounted(async () => {
-  try { tasks.value = await fetchTasks() } catch { /* empty */ }
+  try {
+    tasks.value = await fetchBackendTasks()
+    backendOffline.value = false
+  } catch {
+    tasks.value = []
+    backendOffline.value = true
+  }
 })
 
 const pendingTasks = computed(() =>
@@ -172,7 +199,7 @@ const failedTasks = computed(() =>
 )
 const recentTasks = computed(() =>
   [...tasks.value]
-    .sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime())
+    .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .slice(0, 10)
 )
 const pendingCount = computed(() => pendingTasks.value.length)
@@ -206,9 +233,9 @@ function statusLabel(s: string) {
   return translated === key ? s : translated
 }
 
-function formatDate(iso: string) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleString(appLocaleToBcp47(locale.value), {
+function formatDate(ts: number | string | undefined | null) {
+  if (!ts) return '-'
+  return new Date(ts).toLocaleString(appLocaleToBcp47(locale.value), {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -222,31 +249,39 @@ async function submitTask(planMode: boolean) {
     ElMessage.warning(t('dashboard.inputEmpty'))
     return
   }
-  submitting.value = true
+  if (submitLoading.value !== null) return
+  submitLoading.value = planMode ? 'plan' : 'direct'
   try {
-    const task = await createPipelineTask({
+    const result = await openClawIntake({
       title: text.slice(0, 80),
       description: text,
       source: 'web',
+      userId: 'dashboard',
+      messageId: `web-${Date.now()}`,
+      planMode,
+      autoFinalAccept: false,
     })
     taskInput.value = ''
+    backendOffline.value = false
+
+    if (result.task) {
+      tasks.value = [result.task, ...tasks.value.filter(t => t.id !== result.task?.id)]
+    }
 
     if (planMode) {
       ElMessage.success(t('dashboard.submitOkPlan'))
-      router.push(`/pipeline/task/${task.id}`)
+      if (result.taskId) router.push(`/pipeline/task/${result.taskId}`)
+      else router.push({ path: '/inbox', query: { tab: 'pending' } })
     } else {
-      try {
-        await smartRunPipeline(task.id)
-        ElMessage.success(t('dashboard.submitOkExec'))
-      } catch {
-        ElMessage.success(t('dashboard.submitInfo'))
-      }
-      router.push(`/pipeline/task/${task.id}`)
+      ElMessage.success(t('dashboard.submitOkExec'))
+      if (result.taskId) router.push(`/pipeline/task/${result.taskId}`)
+      else router.push({ path: '/inbox', query: { tab: 'running' } })
     }
   } catch (e: any) {
+    backendOffline.value = true
     ElMessage.error(e.message || t('dashboard.submitError'))
   } finally {
-    submitting.value = false
+    submitLoading.value = null
   }
 }
 </script>

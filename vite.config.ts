@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { DELIVERY_DOCS, ensureDeliveryTemplates, listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc } from './server/deliveryDocs.mjs'
@@ -38,6 +38,14 @@ function sendJson(res: DevServerResponse, data: unknown) {
     sendJsonError(res, error)
   }
 }
+
+/** Marketplace crawl can take 1–2+ min; node-http-proxy defaults otherwise drop the connection (worse when the tab is backgrounded). */
+const backendDevProxy = {
+  target: 'http://127.0.0.1:8000',
+  changeOrigin: true,
+  timeout: 600_000,
+  proxyTimeout: 600_000,
+} as const
 
 const apiProxy = {
   '/api/proxy/dashscope': {
@@ -79,8 +87,16 @@ const apiProxy = {
  */
 const base = process.env.VITE_BASE_PATH || '/'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const pipelineKeyForClient =
+    (env.VITE_PIPELINE_API_KEY || env.PIPELINE_API_KEY || '').trim()
+
+  return {
   base,
+  define: {
+    'import.meta.env.VITE_PIPELINE_API_KEY': JSON.stringify(pipelineKeyForClient),
+  },
   plugins: [
     vue(),
     {
@@ -174,24 +190,16 @@ export default defineConfig({
     // More specific /api/proxy/* routes MUST come before the catch-all /api → backend
     proxy: {
       ...apiProxy,
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
-      '/health': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
+      '/api': { ...backendDevProxy },
+      '/health': { ...backendDevProxy },
     },
   },
   preview: {
     port: 5200,
     proxy: {
       ...apiProxy,
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-      },
+      '/api': { ...backendDevProxy },
     },
   },
+  }
 })
