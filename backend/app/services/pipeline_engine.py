@@ -182,6 +182,39 @@ def _verify_worktree_code_quality(worktree: Path) -> Optional[Any]:
         return None
 
 
+def _detect_build_command(worktree: Path) -> Optional[str]:
+    """Detect project type and return an appropriate build/test command."""
+    try:
+        root_files = {f.name for f in worktree.iterdir() if f.is_file()}
+        # Root-level detection
+        if "package.json" in root_files:
+            return "npm install && npm run build"
+        if "requirements.txt" in root_files or "setup.py" in root_files or "pyproject.toml" in root_files:
+            return "pip install -r requirements.txt && python -m pytest"
+        if "Cargo.toml" in root_files:
+            return "cargo build"
+        if "go.mod" in root_files:
+            return "go build ./..."
+        if "pom.xml" in root_files:
+            return "mvn compile"
+        if "build.gradle" in root_files:
+            return "./gradlew build"
+        if "Makefile" in root_files:
+            return "make"
+        if "Dockerfile" in root_files:
+            return "docker build -t test ."
+        # Check one level deep for package.json (common for frontend-in-subdir)
+        for sub in worktree.iterdir():
+            if sub.is_dir():
+                sub_files = {f.name for f in sub.iterdir() if f.is_file()}
+                if "package.json" in sub_files:
+                    return f"cd {sub.name} && npm install && npm run build"
+        return None
+    except Exception as e:
+        logger.warning("[pipeline] Build command detection failed: %s", e)
+        return None
+
+
 async def _top_up_stage_output(
     *,
     stage_id: str,
@@ -1478,6 +1511,58 @@ async def execute_stage(
             prompt_tokens = 0
             completion_tokens = 0
             logger.info("[pipeline] development stage skipped LLM/AgentRuntime because Claude Code wrote %d files", len(cc_written_files))
+
+        # --- Layer 4.6: Testing stage build verification ---
+        # Before the testing agent generates a report, try to build the code
+        # that was written in the development stage. If build fails, auto-fix.
+        if stage_id == "testing" and task_worktree:
+            try:
+                from .codegen.codegen_agent import CodeGenAgent
+                codegen = CodeGenAgent()
+                build_cmd = _detect_build_command(task_worktree)
+                if build_cmd:
+                    logger.info("[pipeline] Testing stage build attempt: %s in %s", build_cmd, task_worktree)
+                    build_result = await codegen.run_build(str(task_worktree), build_cmd)
+                    build_log = build_result.get("output", "")
+                    build_ok = build_result.get("ok", False)
+                    if not build_ok:
+                        logger.warning("[pipeline] Build failed, attempting auto-fix: %s", build_log[:500])
+                        fix_result = await codegen.auto_fix(
+                            task_id=task_id,
+                            project_dir=str(task_worktree),
+                            error_output=build_log,
+                            attempt=1,
+                        )
+                        if fix_result.get("ok"):
+                            # Retry build after fix
+                            build_result = await codegen.run_build(str(task_worktree), build_cmd)
+                            build_log = build_result.get("output", "")
+                            build_ok = build_result.get("ok", False)
+                            logger.info("[pipeline] Build retry after auto-fix: ok=%s", build_ok)
+                        else:
+                            logger.warning("[pipeline] Auto-fix failed: %s", fix_result.get("output", "")[:500])
+                    # Inject build result into user_message so the testing agent sees it
+                    build_section = (
+                        f"\n\n## 实际构建结果（自动执行）\n\n"
+                        f"构建命令: `{build_cmd}`\n"
+                        f"构建状态: {'✅ 通过' if build_ok else '❌ 失败'}\n"
+                        f"构建日志:\n```\n{build_log[:4000]}\n```\n"
+                    )
+                    user_message += build_section
+                    await emit_event("stage:build-result", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "buildOk": build_ok,
+                        "buildCmd": build_cmd,
+                    })
+                else:
+                    logger.info("[pipeline] No build command detected for testing stage in %s", task_worktree)
+            except Exception as build_err:
+                logger.warning("[pipeline] Testing stage build check failed: %s", build_err)
+
+        if _skip_llm_for_dev:
+            # Already handled above; keep this branch so AgentRuntime/LLM is skipped
+            pass
         elif agent_tools:
             from .agent_runtime import AgentRuntime
             _max_steps = 8

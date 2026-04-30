@@ -47,3 +47,6 @@ skills/custom/*
 
 # Docker
 docker/provisioner/
+
+# SQLite memory DB artifacts
+file::memory:
