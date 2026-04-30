@@ -17,20 +17,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.user import User
 from ..security import get_pipeline_auth_optional
-from ..services.task_workspace import get_task_root, DOC_SPECS
+from ..services.task_workspace import get_task_root, find_task_root, DOC_SPECS
 
 router = APIRouter(prefix="/tasks", tags=["worktree"])
 
 _TEXT_EXTENSIONS = {
-    ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".html", ".css", ".scss",
-    ".json", ".yaml", ".yml", ".toml", ".md", ".txt", ".sh", ".sql",
-    ".java", ".go", ".rs", ".c", ".cpp", ".h", ".xml", ".csv",
-    ".env", ".gitignore", ".dockerfile", "Dockerfile",
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".html", ".css", ".scss", ".sass", ".less",
+    ".json", ".yaml", ".yml", ".toml", ".md", ".txt", ".sh", ".sql", ".ps1", ".bat",
+    ".java", ".go", ".rs", ".c", ".cpp", ".h", ".hpp", ".xml", ".csv", ".ini", ".cfg",
+    ".env", ".gitignore", ".dockerfile", ".dockerignore", ".editorconfig", ".npmignore",
+    ".lock", ".sum", ".mod", ".gradle", ".properties", ".conf", ".log",
+    "Dockerfile", "Makefile", "README", "LICENSE", "CHANGELOG",
+}
+
+# Extensions considered "source code" (for src_files count)
+_CODE_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".rs", ".java", ".kt", ".swift",
+    ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".dart", ".scala", ".r", ".m",
+    ".sh", ".ps1", ".bat", ".html", ".css", ".scss", ".sass", ".less", ".sql",
 }
 
 
 def _is_text_file(path: Path) -> bool:
     return path.suffix.lower() in _TEXT_EXTENSIONS or path.name in _TEXT_EXTENSIONS
+
+
+def _is_code_file(path: Path) -> bool:
+    return path.suffix.lower() in _CODE_EXTENSIONS or path.name in _CODE_EXTENSIONS
 
 
 def _file_hash(path: Path) -> str:
@@ -40,33 +53,24 @@ def _file_hash(path: Path) -> str:
         return ""
 
 
-def _find_task_root(task_id: str) -> Optional[Path]:
-    """Find the task root directory by scanning the workspace/tasks/ folder."""
-    from ..services.task_workspace import _workspace_root
-    tasks_dir = _workspace_root() / "tasks"
-    if not tasks_dir.exists():
-        return None
-    prefix = f"TASK-{task_id}"
-    for d in tasks_dir.iterdir():
-        if d.is_dir() and d.name.startswith(prefix):
-            return d
-    return None
-
-
 @router.get("/{task_id}/worktree")
 async def list_worktree(
     task_id: str,
     _user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
 ):
     """Return the full file tree of a task's workspace."""
-    root = _find_task_root(task_id)
+    root = find_task_root(task_id)
     if not root or not root.exists():
         raise HTTPException(404, f"Task workspace not found: {task_id}")
 
     tree = []
     for dirpath, dirnames, filenames in os.walk(root):
+        # Skip archive and hidden directories
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "_archive"]
         rel_dir = Path(dirpath).relative_to(root)
         for fn in sorted(filenames):
+            if fn.startswith("."):
+                continue
             fp = Path(dirpath) / fn
             rel = rel_dir / fn
             stat = fp.stat()
@@ -75,6 +79,7 @@ async def list_worktree(
                 "name": fn,
                 "size": stat.st_size,
                 "is_text": _is_text_file(fp),
+                "is_code": _is_code_file(fp),
                 "hash": _file_hash(fp),
                 "modified_at": stat.st_mtime,
             })
@@ -93,7 +98,8 @@ async def list_worktree(
             "size": size,
         })
 
-    src_files = [f for f in tree if f["path"].startswith("src/")]
+    # Count all code files, not just those under src/
+    src_files = [f for f in tree if f.get("is_code")]
 
     return {
         "task_id": task_id,
@@ -113,7 +119,7 @@ async def read_worktree_file(
     max_size: int = Query(default=500_000, le=2_000_000),
 ):
     """Read a single file from the task's workspace."""
-    root = _find_task_root(task_id)
+    root = find_task_root(task_id)
     if not root or not root.exists():
         raise HTTPException(404, f"Task workspace not found: {task_id}")
 

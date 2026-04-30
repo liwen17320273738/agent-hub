@@ -540,33 +540,39 @@ async def run_agent_stream(
     async def _runner() -> None:
         stop_evt = asyncio.Event()
         listener = asyncio.create_task(_redis_listener(stop_evt))
-        try:
-            await queue.put({"event": "started", "agent_id": seed_id, "task": body.task[:200]})
-            result = await _run_agent_inner(db, seed_id=seed_id, body=body)
-            await db.commit()
-            await asyncio.sleep(0.2)
-            await queue.put({
-                "event": "completed",
-                "ok": bool(result.get("ok")),
-                "agent_id": seed_id,
-                "content": result.get("content", "") or "",
-                "steps": int(result.get("steps", 0) or 0),
-                "model": result.get("model", ""),
-                "verification": result.get("verification"),
-                "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
-                "error": result.get("error"),
-                "mcp_tools_loaded": list(result.get("mcp_tools_loaded") or []),
-            })
-        except Exception as e:
-            logger.exception(f"[agents/run/stream] runner crashed: {e}")
-            await queue.put({"event": "error", "error": str(e)})
-        finally:
-            stop_evt.set()
+        # Use a fresh DB session in the background task so we don't race with
+        # get_db()'s context manager (which commits/closes when the endpoint
+        # returns the EventSourceResponse).
+        from ..database import async_session
+        async with async_session() as runner_db:
             try:
-                await asyncio.wait_for(listener, timeout=2.0)
-            except (asyncio.TimeoutError, Exception):
-                listener.cancel()
-            await queue.put(None)
+                await queue.put({"event": "started", "agent_id": seed_id, "task": body.task[:200]})
+                result = await _run_agent_inner(runner_db, seed_id=seed_id, body=body)
+                await runner_db.commit()
+                await asyncio.sleep(0.2)
+                await queue.put({
+                    "event": "completed",
+                    "ok": bool(result.get("ok")),
+                    "agent_id": seed_id,
+                    "content": result.get("content", "") or "",
+                    "steps": int(result.get("steps", 0) or 0),
+                    "model": result.get("model", ""),
+                    "verification": result.get("verification"),
+                    "elapsed_ms": int(result.get("elapsed_ms", 0) or 0),
+                    "error": result.get("error"),
+                    "mcp_tools_loaded": list(result.get("mcp_tools_loaded") or []),
+                })
+            except Exception as e:
+                await runner_db.rollback()
+                logger.exception(f"[agents/run/stream] runner crashed: {e}")
+                await queue.put({"event": "error", "error": str(e)})
+            finally:
+                stop_evt.set()
+                try:
+                    await asyncio.wait_for(listener, timeout=2.0)
+                except (asyncio.TimeoutError, Exception):
+                    listener.cancel()
+                await queue.put(None)
 
     asyncio.create_task(_runner())
 

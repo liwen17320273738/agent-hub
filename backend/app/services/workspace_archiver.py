@@ -71,21 +71,30 @@ async def archive_stale_tasks(db: AsyncSession) -> List[str]:
             continue
 
         try:
-            docs_dir = worktree / "docs"
+            # Collect directories to archive (excluding docs/)
             dirs_to_archive = [
                 d for d in worktree.iterdir()
-                if d.is_dir() and d.name not in ("docs",)
+                if d.is_dir() and d.name not in ("docs", "_archive")
+            ]
+            # Also collect loose files in the root (e.g. app.py, Dockerfile)
+            files_to_archive = [
+                f for f in worktree.iterdir()
+                if f.is_file()
             ]
 
-            if not dirs_to_archive:
+            if not dirs_to_archive and not files_to_archive:
                 continue
 
             with tarfile.open(str(archive_path), "w:gz") as tar:
                 for d in dirs_to_archive:
                     tar.add(str(d), arcname=d.name)
+                for f in files_to_archive:
+                    tar.add(str(f), arcname=f.name)
 
             for d in dirs_to_archive:
                 shutil.rmtree(str(d), ignore_errors=True)
+            for f in files_to_archive:
+                f.unlink(missing_ok=True)
 
             archived.append(task_id)
             logger.info("Archived task %s → %s", task_id, archive_path)

@@ -62,7 +62,7 @@ const TAB_DEFS = [
   { type: 'prd',            icon: '📝', label: 'PRD',      short: 'PRD' },
   { type: 'ui_spec',        icon: '🎨', label: 'UI 规格',  short: 'UI' },
   { type: 'architecture',   icon: '🏗️', label: '技术方案', short: '架构' },
-  { type: 'code_link',      icon: '💻', label: '代码',     short: '代码' },
+  { type: 'code_link',      icon: '📦', label: '代码',     short: '代码' },
   { type: 'test_report',    icon: '🧪', label: '测试',     short: '测试' },
   { type: 'acceptance',     icon: '✅', label: '验收',     short: '验收' },
   { type: 'ops_runbook',    icon: '🔧', label: '运维',     short: '运维' },
