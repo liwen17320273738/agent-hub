@@ -645,25 +645,31 @@ STAGE_ROLE_PROMPTS = {
 
 你正在审查开发 Agent 的代码实现，对照 CEO Agent 的 PRD 和架构师的技术方案进行全面验证。你的测试报告将决定项目能否进入部署阶段。
 
-输出完整测试验证报告：
+## 核心要求：必须运行真实测试
+
+你有 `test_detect` 和 `test_execute` 两个工具，必须使用它们运行真实测试：
+
+1. **先检测** — 调用 `test_detect(project_dir="<工作目录>")` 探测项目的测试框架
+2. **再执行** — 调用 `test_execute(project_dir="<工作目录>")` 运行真实测试
+3. **写测试代码** — 如果项目没有测试代码，先用 `file_write` 编写测试代码到 worktree 中，然后再次运行测试
+4. **基于真实结果出报告** — 测试报告必须包含真实测试的执行结果数据
+
+## 输出完整测试验证报告（必须包含真实测试结果）：
+
 1. **测试范围** — 覆盖的功能模块、排除项
-2. **测试矩阵** — 按优先级分类（冒烟/回归/边界/异常/安全/性能）
-3. **测试用例** — 编号 + 步骤 + 输入 + 预期输出（至少15条）
-4. **边界分析** — 空值、超长输入、并发、权限越界等
-5. **安全审查** — SQL注入、XSS、CSRF、敏感数据泄露检查
-6. **性能预估** — 响应时间、吞吐量、内存占用预期
-7. **测试代码** — 单元测试 + 集成测试的实际代码
-8. **结论** — **PASS ✅** 或 **NEEDS WORK ❌**
-   - 如 NEEDS WORK，列出具体缺陷和修复建议，指明需要退回到哪个阶段
+2. **真实测试执行结果** — 运行测试的 runner、通过数、失败数、跳过数、通过率
+3. **测试矩阵** — 按优先级分类（冒烟/回归/边界/异常/安全/性能）
+4. **测试用例** — 编号 + 步骤 + 输入 + 预期输出（至少15条）
+5. **边界分析** — 空值、超长输入、并发、权限越界等
+6. **安全审查** — SQL注入、XSS、CSRF、敏感数据泄露检查
+7. **性能预估** — 响应时间、吞吐量、内存占用预期
+8. **测试代码** — 单元测试 + 集成测试的实际代码（用 `file_write` 写入 worktree）
+9. **结论** — **PASS ✅** 或 **NEEDS WORK ❌**
+   - 如 NEEDS WORK，列出具体缺陷和修复建议，指明需要退回到 `development` 阶段
 
-📁 **测试代码输出格式**：
-测试代码用 Markdown 代码块输出，第一行标注语言和文件路径：
+📁 **工作目录**：你的项目代码当前工作目录中。所有文件操作（读取、写入、测试）都基于上方的「工作目录」路径。
 
-```python:tests/test_main.py
-# 测试代码
-```
-
-⚠️ CEO Agent 将根据你的报告做最终验收决定。请严格把关，不放过任何隐患。""",
+⚠️ CEO Agent 将根据你的测试报告做最终验收决定。请严格把关，不放过任何隐患。""",
     },
     "reviewing": {
         "role": "acceptance",
@@ -1592,6 +1598,34 @@ async def execute_stage(
             content = runtime_result.get("content", "")
             prompt_tokens = 0
             completion_tokens = 0
+
+            # --- Testing stage: auto-backtrack on explicit NEEDS WORK ---
+            if stage_id == "testing" and content:
+                _testing_failed = any(kw in content for kw in (
+                    "NEEDS WORK", "NEEDS WORK ❌", "❌ FAIL", "FAILED ❌",
+                ))
+                if _testing_failed:
+                    logger.warning("[pipeline] Testing stage self-reported NEEDS WORK, reverting to development")
+                    await emit_event("stage:testing-failed", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "reason": "Testing stage reported NEEDS WORK",
+                    })
+                    # Mark testing stage as failed in the in-memory dict
+                    if stage_id in db_stages:
+                        db_stages[stage_id].status = "failed"
+                        db_stages[stage_id].last_error = "Testing failed: NEEDS WORK"
+                    # Reset development + testing to re-run
+                    target = "development"
+                    for sid in list(db_stages.keys()):
+                        idx = list(db_stages.keys()).index(sid)
+                        target_idx = list(db_stages.keys()).index(target)
+                        if idx >= target_idx and sid != target:
+                            if db_stages[sid].status not in ("pending", "skipped"):
+                                db_stages[sid].status = "pending"
+                                db_stages[sid].last_error = None
+                    await db.commit()
+                    return {"ok": False, "error": f"Testing failed, reverted to {target}"}
         else:
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -1796,6 +1830,21 @@ async def execute_stage(
                 stage_id=stage_id,
                 content=content,
                 agent_name=agent_name,
+            )
+
+        # For testing stage, additionally write a structured test_report artifact
+        if stage_id == "testing" and content:
+            test_verdict = "PASS" if "✅ PASS" in content else "FAIL" if "❌ FAIL" in content else "UNKNOWN"
+            test_report_json = json.dumps({
+                "stage": "testing",
+                "verdict": test_verdict,
+                "agent": agent_name,
+                "content": content[:8000],
+                "generated_at": datetime.utcnow().isoformat(),
+            }, ensure_ascii=False, indent=2)
+            await _write_one_artifact(
+                db, task_id, stage_id, "test_report", test_report_json,
+                "test-report.md", agent_name,
             )
         await emit_event("stage:artifact-written", {
             "taskId": task_id,
