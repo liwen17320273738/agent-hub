@@ -215,6 +215,30 @@ def _detect_build_command(worktree: Path) -> Optional[str]:
         return None
 
 
+def _extract_code_blocks_from_content(content: str) -> Dict[str, str]:
+    """Extract code files from markdown content with `` ` ``language:path blocks.
+
+    Supports format:
+    ```dockerfile:deploy/Dockerfile
+    FROM node:20-alpine
+    ```
+    Also supports plain ```language:path and ```:path without language.
+    """
+    blocks: Dict[str, str] = {}
+    for m in re.finditer(r'```\w*:([^\s`\n]+)\n([\s\S]*?)```', content):
+        filepath = m.group(1).strip()
+        file_content = m.group(2).strip()
+        if filepath and file_content:
+            blocks[filepath] = file_content
+    # Also try CodeGenAgent's format: ```language\n// path\ncontent```
+    for m in re.finditer(r'```(\w+)\s*\n//\s*([^\s`\n]+)\n([\s\S]*?)```', content):
+        filepath = m.group(2).strip()
+        file_content = m.group(3).strip()
+        if filepath and file_content and filepath not in blocks:
+            blocks[filepath] = file_content
+    return blocks
+
+
 async def _top_up_stage_output(
     *,
     stage_id: str,
@@ -1677,6 +1701,25 @@ async def execute_stage(
             # accounting and the trace span credit the actual provider used.
             if llm_result.get("fell_back") and llm_result.get("model"):
                 model = llm_result["model"]
+
+        # --- Layer 4.7: Deployment stage — extract Docker/deploy files to worktree ---
+        if stage_id == "deployment" and task_worktree and content:
+            _deploy_files = _extract_code_blocks_from_content(content)
+            if _deploy_files:
+                _deploy_dir = task_worktree / "deploy"
+                _deploy_dir.mkdir(parents=True, exist_ok=True)
+                for _fpath, _fcontent in _deploy_files.items():
+                    _target = (_deploy_dir / _fpath).resolve()
+                    if str(_target).startswith(str(_deploy_dir)):
+                        _target.parent.mkdir(parents=True, exist_ok=True)
+                        _target.write_text(_fcontent, encoding="utf-8")
+                        logger.info("[pipeline] Deployed config: deploy/%s", _fpath)
+                if _deploy_files:
+                    await emit_event("stage:deploy-files-written", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "files": list(_deploy_files.keys()),
+                    })
 
     except Exception as e:
         logger.error(f"[pipeline] Stage {stage_id} LLM call failed: {e}")
