@@ -19,11 +19,12 @@ echo ""
 
 mkdir -p logs
 
-# Load repo env files and export them so local .env wins over any inherited
-# shell variables from the parent terminal/IDE session.
+# Load env: backend/.env first (defaults / placeholders), then repo-root .env.
+# Root must load last so real secrets (e.g. JWT_SECRET) are not overwritten by
+# empty keys from backend/.env copied from .env.example.
 set -a
-[ -f "$REPO_ROOT/.env" ] && . "$REPO_ROOT/.env"
 [ -f "$REPO_ROOT/backend/.env" ] && . "$REPO_ROOT/backend/.env"
+[ -f "$REPO_ROOT/.env" ] && . "$REPO_ROOT/.env"
 set +a
 
 cleanup() {
