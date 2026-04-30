@@ -685,11 +685,35 @@ async def _try_handle_plan_reply(
 
     if intent["intent"] == "approve":
         await plan_session.clear_plan(source, source_user_id)
-        task = await _create_task_from_gateway(
-            db, title, description, source,
-            options.get("source_message_id") or source_message_id,
-            source_user_id,
-        )
+        task = None
+        pending_task_id = options.get("pending_task_id") or ""
+        if pending_task_id:
+            try:
+                res_pt = await db.execute(
+                    select(PipelineTask)
+                    .options(selectinload(PipelineTask.stages))
+                    .where(PipelineTask.id == uuid.UUID(pending_task_id))
+                )
+                task = res_pt.scalar_one_or_none()
+            except Exception:
+                task = None
+        if task:
+            task.status = "active"
+            task.current_stage_id = "planning"
+            for stage in sorted(task.stages, key=lambda s: s.sort_order):
+                if stage.stage_id == "planning":
+                    stage.status = "active"
+                    stage.started_at = datetime.utcnow()
+                elif stage.status != "done":
+                    stage.status = "pending"
+                    stage.started_at = None
+            await db.flush()
+        else:
+            task = await _create_task_from_gateway(
+                db, title, description, source,
+                options.get("source_message_id") or source_message_id,
+                source_user_id,
+            )
         if options["auto_final_accept"]:
             task.auto_final_accept = True
             await db.flush()
@@ -717,7 +741,19 @@ async def _try_handle_plan_reply(
         }
 
     if intent["intent"] == "cancel":
+        pending_task_id = options.get("pending_task_id") or ""
         await plan_session.clear_plan(source, source_user_id)
+        if pending_task_id:
+            try:
+                res_can = await db.execute(
+                    select(PipelineTask).where(PipelineTask.id == uuid.UUID(pending_task_id))
+                )
+                t_cancel = res_can.scalar_one_or_none()
+                if t_cancel:
+                    t_cancel.status = "cancelled"
+                    await db.flush()
+            except Exception as e:
+                logger.debug(f"[plan] IM cancel pending_task_id failed: {e}")
         try:
             await notify_user_text(
                 source=source, user_id=source_user_id,
@@ -731,7 +767,19 @@ async def _try_handle_plan_reply(
     if intent["intent"] == "revise":
         rotation = int(pending.get("rotation_count") or 0)
         if rotation >= plan_session.MAX_ROTATIONS:
+            pending_task_id = options.get("pending_task_id") or ""
             await plan_session.clear_plan(source, source_user_id)
+            if pending_task_id:
+                try:
+                    res_mx = await db.execute(
+                        select(PipelineTask).where(PipelineTask.id == uuid.UUID(pending_task_id))
+                    )
+                    t_mx = res_mx.scalar_one_or_none()
+                    if t_mx:
+                        t_mx.status = "cancelled"
+                        await db.flush()
+                except Exception:
+                    pass
             try:
                 await notify_user_text(
                     source=source, user_id=source_user_id,
@@ -743,12 +791,14 @@ async def _try_handle_plan_reply(
             return {"ok": True, "action": "plan_rejected", "reason": "max_rotations"}
 
         feedback = intent.get("feedback") or text
+        meta_rev = pending.get("metadata") if isinstance(pending.get("metadata"), dict) else None
         result = await _present_plan_and_wait(
             source=source,
             source_user_id=source_user_id,
             title=title,
             description=description,
             feedback_addendum=feedback,
+            metadata=dict(meta_rev) if meta_rev else None,
         )
         new_pending = await plan_session.load_plan(source, source_user_id)
         if new_pending:

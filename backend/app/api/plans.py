@@ -269,6 +269,16 @@ async def revise_plan(
     title = str(payload.get("title") or "")
     description = str(payload.get("description") or "")
     options = _runtime_options(payload)
+    raw_meta = payload.get("metadata")
+    meta_for_revise = (
+        dict(raw_meta)
+        if isinstance(raw_meta, dict)
+        else {
+            "auto_final_accept": options["auto_final_accept"],
+            "source_message_id": options["source_message_id"],
+            "pending_task_id": options["pending_task_id"],
+        }
+    )
 
     result = await gateway._present_plan_and_wait(
         source=source,
@@ -276,10 +286,7 @@ async def revise_plan(
         title=title,
         description=description,
         feedback_addendum=body.feedback,
-        metadata={
-            "auto_final_accept": options["auto_final_accept"],
-            "source_message_id": options["source_message_id"],
-        },
+        metadata=meta_for_revise,
     )
 
     new_pending = await plan_session.load_plan(source, user_id)
