@@ -1,13 +1,49 @@
-"""ORM models for the memory system — long-term memories and learned patterns."""
+"""ORM models for the memory system — long-term memories, learned patterns, and data collections."""
 from __future__ import annotations
 
 import uuid
 from typing import Optional, List
 
-from sqlalchemy import Column, DateTime, String, Text, Integer, Float
+from sqlalchemy import Column, DateTime, String, Text, Integer, Float, Boolean, ForeignKey
 
 from ..database import Base
 from ..compat import GUID, JsonDict, VectorType, utcnow_default
+
+
+class KnowledgeCollection(Base):
+    """A named, source-tracked group of ingested data items (web pages, documents, etc.).
+
+    Every collection belongs to a workspace and has a source type so the
+    ingester layer knows how to refresh it. ``access_scope`` controls which
+    ``TaskMemory`` searches can find entries from this collection.
+    """
+    __tablename__ = "knowledge_collections"
+
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=False, index=True)
+    description = Column(Text, default="")
+    workspace_id = Column(GUID(), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=True, index=True)
+    org_id = Column(GUID(), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    # Source tracking — what created this collection
+    source_type = Column(String(20), nullable=False, default="manual")  # manual / web_scrape / upload / api
+    source_uri = Column(String(1000), default="")         # e.g. the root URL for a web scrape
+    source_config = Column(JsonDict(), default=dict)       # e.g. firecrawl crawl params
+
+    # Access control for memory searches:
+    #   "workspace" — any task in the workspace can search
+    #   "task"      — only the owning task can search
+    #   "public"    — any workspace can see (built-in knowledge)
+    access_scope = Column(String(20), nullable=False, default="workspace")
+
+    item_count = Column(Integer, default=0)               # how many memory entries belong
+    is_active = Column(Boolean, default=True)
+    created_by = Column(String(200), default="system")
+    created_at = Column(DateTime, server_default=utcnow_default())
+    updated_at = Column(DateTime, server_default=utcnow_default())
+
+    # Convenience back-reference — not loaded by default
+    # memories = relationship("TaskMemory", ...)
 
 
 class TaskMemory(Base):
@@ -28,6 +64,7 @@ class TaskMemory(Base):
     embedding = Column(VectorType(1536), nullable=True)
     embedding_model = Column(String(100), default="")
     metadata_extra = Column(JsonDict(), default=dict)
+    collection_id = Column(GUID(), ForeignKey("knowledge_collections.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=utcnow_default())
 
 

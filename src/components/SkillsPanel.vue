@@ -935,7 +935,7 @@ onMounted(load)
 /* ── Market-only card accents ── */
 .market-card.is-outdated {
   border-color: rgba(245, 158, 11, 0.45);
-  background: linear-gradient(180deg, rgba(245, 158, 11, 0.05), var(--card-bg));
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08), var(--card-bg));
 }
 .status-badge {
   flex-shrink: 0;
@@ -1075,13 +1075,32 @@ onMounted(load)
 /* Market card tweaks: anchor the absolute chip cleanly and visually
    distinguish already-installed cards with a subtle green border. */
 .skill-card.market-card { position: relative; }
+/* Installed/outdated accents: dark theme stays on a dark surface so `--fg`
+   stays readable; light theme keeps the airy white tint. */
 .skill-card.market-card.is-installed {
-  border-color: rgba(16, 185, 129, 0.35);
-  background: linear-gradient(135deg, #fff 0%, rgba(16, 185, 129, 0.04) 100%);
+  border-color: rgba(16, 185, 129, 0.4);
+  background: linear-gradient(
+    145deg,
+    rgba(16, 185, 129, 0.16) 0%,
+    rgba(16, 185, 129, 0.05) 55%,
+    var(--card-bg) 100%
+  );
 }
 .skill-card.market-card.is-outdated {
-  border-color: rgba(245, 158, 11, 0.35);
-  background: linear-gradient(135deg, #fff 0%, rgba(245, 158, 11, 0.04) 100%);
+  border-color: rgba(245, 158, 11, 0.4);
+  background: linear-gradient(
+    145deg,
+    rgba(245, 158, 11, 0.14) 0%,
+    rgba(245, 158, 11, 0.045) 55%,
+    var(--card-bg) 100%
+  );
+}
+
+:global(:root:not(.dark)) .skills-panel .skill-card.market-card.is-installed {
+  background: linear-gradient(135deg, #ffffff 0%, rgba(16, 185, 129, 0.07) 100%);
+}
+:global(:root:not(.dark)) .skills-panel .skill-card.market-card.is-outdated {
+  background: linear-gradient(135deg, #fffef8 0%, rgba(245, 158, 11, 0.07) 100%);
 }
 
 .stat-item.stat-muted {

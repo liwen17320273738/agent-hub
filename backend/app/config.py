@@ -158,10 +158,12 @@ class Settings(BaseSettings):
     cloudflare_api_token: str = ""
     cloudflare_account_id: str = ""
 
-    # WeChat Mini Program
+    # WeChat Mini Program + Official Account
     wechat_mp_appid: str = ""
     wechat_mp_secret: str = ""
     wechat_mp_private_key_path: str = ""
+    wechat_mp_token: str = ""       # 公众号服务器配置 Token（用于签名验证）
+    wechat_mp_aes_key: str = ""     # 公众号消息加解密密钥（EncodingAESKey，可选）
 
     # Apple App Store Connect
     appstore_issuer_id: str = ""

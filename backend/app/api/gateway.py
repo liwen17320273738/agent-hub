@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1611,3 +1612,305 @@ async def slack_webhook(
         text=text, source="slack",
         source_user_id=user_id, source_message_id=message_id,
     )
+
+
+# ── GitHub Webhook — drive stage transitions from PR/CI events ──────────
+
+
+@router.post("/webhooks/github")
+async def github_webhook(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Receive GitHub webhook events and drive pipeline stage transitions.
+
+    Supported events:
+      - ``pull_request`` (opened, closed, merged) → match task by repo+pr
+      - ``check_run`` / ``check_suite`` (completed) → update ci_status
+      - ``push`` (branch update) → detect branch for pending tasks
+
+    Only processes events that match a task's ``repo_refs``.
+    """
+    import json as _json
+
+    body = await request.body()
+    event = request.headers.get("x-github-event", "")
+    signature = request.headers.get("x-hub-signature-256", "")
+    payload: dict = {}
+
+    try:
+        payload = _json.loads(body) if isinstance(body, bytes) else _json.loads(body.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        logger.warning("[github-webhook] Invalid JSON payload")
+        return {"ok": False, "error": "Invalid JSON"}
+
+    logger.info(f"[github-webhook] event={event} repo={payload.get('repository', {}).get('full_name', 'unknown')}")
+
+    repo_full_name = (payload.get("repository") or {}).get("full_name", "")
+    if not repo_full_name:
+        return {"ok": False, "error": "No repository info"}
+
+    action = payload.get("action", "")
+
+    # ── Build repo ref from event ──────────────────────────────────────
+    ref: dict = {"repo": repo_full_name, "branch": "", "pr": 0, "pr_url": "", "ci_status": ""}
+
+    if event == "pull_request":
+        pr = payload.get("pull_request") or {}
+        pr_number = pr.get("number", 0)
+        ref["pr"] = pr_number
+        ref["pr_url"] = pr.get("html_url", "")
+        ref["branch"] = (pr.get("head") or {}).get("ref", "")
+        if action == "closed" and pr.get("merged"):
+            ref["ci_status"] = "merged"
+        elif action == "opened":
+            ref["ci_status"] = "opened"
+        else:
+            ref["ci_status"] = action
+
+    elif event in ("push",):
+        ref["branch"] = (payload.get("ref") or "").replace("refs/heads/", "")
+        ref["ci_status"] = "pushed"
+        ref["commit_sha"] = (payload.get("head_commit") or {}).get("id", "")[:12] or ""
+
+    elif event in ("check_run",):
+        cr = payload.get("check_run") or {}
+        ref["branch"] = (cr.get("check_suite") or {}).get("head_branch", "")
+        conclusion = cr.get("conclusion", "")
+        if conclusion in ("success", "neutral"):
+            ref["ci_status"] = "passing"
+        elif conclusion in ("failure", "cancelled", "timed_out"):
+            ref["ci_status"] = "failing"
+        else:
+            ref["ci_status"] = conclusion or "pending"
+
+    elif event in ("check_suite",):
+        cs = payload.get("check_suite") or {}
+        ref["branch"] = cs.get("head_branch", "")
+        conclusion = cs.get("conclusion", "")
+        if conclusion in ("success", "neutral"):
+            ref["ci_status"] = "passing"
+        elif conclusion in ("failure", "cancelled", "timed_out"):
+            ref["ci_status"] = "failing"
+        else:
+            ref["ci_status"] = conclusion or "pending"
+
+    # ── Find matching tasks ────────────────────────────────────────────
+    from sqlalchemy import select as _select, desc
+
+    result = await db.execute(
+        _select(PipelineTask).where(
+            PipelineTask.repo_refs.isnot(None),
+            PipelineTask.status.in_(["active", "awaiting_final_acceptance"]),
+        ).order_by(desc(PipelineTask.created_at)).limit(20)
+    )
+    tasks = result.scalars().all()
+
+    matched_tasks = []
+    for task in tasks:
+        refs = task.repo_refs or []
+        if not isinstance(refs, list):
+            continue
+        for existing_ref in refs:
+            if not isinstance(existing_ref, dict):
+                continue
+            if existing_ref.get("repo") != repo_full_name:
+                continue
+            # Match by PR number or branch
+            pr_match = ref.get("pr") and existing_ref.get("pr") == ref["pr"]
+            branch_match = ref.get("branch") and existing_ref.get("branch") == ref["branch"]
+            if not (pr_match or branch_match):
+                continue
+            # Update
+            existing_ref.update({k: v for k, v in ref.items() if v})
+            if ref.get("ci_status"):
+                existing_ref["ci_status"] = ref["ci_status"]
+            matched_tasks.append(str(task.id))
+            break
+
+    if matched_tasks:
+        for t in tasks:
+            if str(t.id) in matched_tasks:
+                db.add(t)
+        await db.flush()
+        await db.commit()
+        logger.info(f"[github-webhook] Updated {len(matched_tasks)} task(s): {matched_tasks}")
+
+    # ── Auto-progress on PR merge ──────────────────────────────────────
+    if event == "pull_request" and action == "closed" and ref.get("ci_status") == "merged":
+        for t_id in matched_tasks:
+            t = await db.get(PipelineTask, t_id)
+            if t and t.current_stage_id == "reviewing":
+                logger.info(f"[github-webhook] PR merged — auto-advancing task {t_id}")
+                # Advance to done if in reviewing
+                from datetime import datetime as _dt
+                t.status = "done"
+                for stage in t.stages:
+                    if stage.stage_id == "reviewing":
+                        stage.status = "done"
+                        stage.completed_at = _dt.utcnow()
+                await db.flush()
+                await db.commit()
+
+    return {
+        "ok": True,
+        "event": event,
+        "matched_tasks": len(matched_tasks),
+        "task_ids": matched_tasks,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────
+# WeChat Official Account Webhook
+# ─────────────────────────────────────────────────────────────────
+#
+# Receives messages from WeChat Official Account (公众号).
+# 
+# GET: 微信服务器配置回调地址时的签名验证
+# POST: 用户消息事件（XML格式）
+# 
+# 微信消息 XML 格式:
+#   <xml>
+#     <ToUserName><![CDATA[gh_xxx]]></ToUserName>
+#     <FromUserName><![CDATA[o_xxx]]></FromUserName>
+#     <CreateTime>1234567890</CreateTime>
+#     <MsgType><![CDATA[text]]></MsgType>
+#     <Content><![CDATA[消息内容]]></Content>
+#     <MsgId>1234567890</MsgId>
+#   </xml>
+
+import hashlib as _hashlib
+
+_WX_TEXT_REPLY_TMPL = (
+    "<xml>"
+    "<ToUserName><![CDATA[{to_user}]]></ToUserName>"
+    "<FromUserName><![CDATA[{from_user}]]></FromUserName>"
+    "<CreateTime>{create_time}</CreateTime>"
+    "<MsgType><![CDATA[text]]></MsgType>"
+    "<Content><![CDATA[{content}]]></Content>"
+    "</xml>"
+)
+
+_EMPTY_REPLY = "success"
+
+
+def _wx_check_signature(signature: str, timestamp: str, nonce: str) -> bool:
+    token = settings.wechat_mp_token
+    if not token or not signature or not timestamp or not nonce:
+        return False
+    tmp = "".join(sorted([token, timestamp, nonce]))
+    return _hashlib.sha1(tmp.encode()).hexdigest() == signature
+
+
+def _wx_parse_xml(xml: str) -> Dict[str, str]:
+    """Simple XML→dict parser for WeChat messages (no extra deps)."""
+    import re as _re
+    result: Dict[str, str] = {}
+    for m in _re.finditer(r'<(\w+)><!\[CDATA\[(.*?)\]\]></\1>', xml, _re.DOTALL):
+        result[m.group(1)] = m.group(2)
+    if not result:
+        for m in _re.finditer(r'<(\w+)>(.*?)</\1>', xml, _re.DOTALL):
+            if m.group(1) not in result:
+                result[m.group(1)] = m.group(2)
+    return result
+
+
+@router.get("/wechat/webhook")
+async def wechat_webhook_verify(
+    signature: str = "",
+    timestamp: str = "",
+    nonce: str = "",
+    echostr: str = "",
+):
+    """微信服务器配置验证（GET 请求）。"""
+    if _wx_check_signature(signature, timestamp, nonce):
+        return Response(content=echostr or "", media_type="text/plain")
+    raise HTTPException(status_code=403, detail="signature check failed")
+
+
+@router.post("/wechat/webhook")
+async def wechat_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    signature: str = "",
+    timestamp: str = "",
+    nonce: str = "",
+):
+    """微信公众号消息回调（POST 请求）。"""
+    if not _wx_check_signature(signature, timestamp, nonce):
+        raise HTTPException(status_code=403, detail="signature check failed")
+
+    try:
+        xml_body = await request.body()
+        xml_text = xml_body.decode("utf-8")
+    except Exception:
+        return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+    msg = _wx_parse_xml(xml_text)
+    if not msg:
+        return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+    from_user = msg.get("FromUserName", "")
+    to_user = msg.get("ToUserName", "")
+    msg_type = msg.get("MsgType", "")
+
+    if msg_type == "text":
+        text = (msg.get("Content", "") or "").strip()
+        if not text:
+            return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+        feedback_result = await _try_parse_feedback(text, "wechat", from_user)
+        if feedback_result:
+            return feedback_result
+
+        plan_reply = await _try_handle_plan_reply(
+            db, background_tasks,
+            text=text, source="wechat", source_user_id=from_user,
+            source_message_id=msg.get("MsgId", ""),
+        )
+        if plan_reply:
+            from ..services.notify.wechat_mp import send_text as wx_send
+            _ = await wx_send(
+                user_id=from_user,
+                title="Agent Hub",
+                lines=[plan_reply.get("reply", "已收到")],
+                task_id="",
+            )
+            return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+        result = await _clarify_or_create_task(
+            db, background_tasks,
+            text=text, source="wechat",
+            source_user_id=from_user,
+            source_message_id=msg.get("MsgId", ""),
+        )
+
+        if result.get("action") in ("task_created", "clarify_sent"):
+            return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+        reply_text = "✅ 需求已接入，AI 军团开始处理"
+        reply_xml = _WX_TEXT_REPLY_TMPL.format(
+            to_user=from_user,
+            from_user=to_user,
+            create_time=int(datetime.utcnow().timestamp()),
+            content=reply_text,
+        )
+        return Response(content=reply_xml, media_type="application/xml")
+
+    if msg_type == "event":
+        event = msg.get("Event", "")
+        if event == "subscribe":
+            reply_xml = _WX_TEXT_REPLY_TMPL.format(
+                to_user=from_user,
+                from_user=to_user,
+                create_time=int(datetime.utcnow().timestamp()),
+                content=(
+                    "👋 欢迎使用 Agent Hub！\n"
+                    "直接发送需求，AI 军团将自动处理。\n"
+                    "例如：「开发一个 todo 应用」"
+                ),
+            )
+            return Response(content=reply_xml, media_type="application/xml")
+
+    return Response(content=_EMPTY_REPLY, media_type="text/plain")

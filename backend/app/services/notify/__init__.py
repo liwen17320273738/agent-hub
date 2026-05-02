@@ -12,5 +12,6 @@ from __future__ import annotations
 
 from .dispatcher import notify_task_event, notify_user_text, broadcast_task_event, NotifyResult
 from . import slack  # noqa: F401  — registered for direct imports
+from . import wechat_mp  # noqa: F401  — registered for direct imports
 
-__all__ = ["notify_task_event", "notify_user_text", "broadcast_task_event", "NotifyResult", "slack"]
+__all__ = ["notify_task_event", "notify_user_text", "broadcast_task_event", "NotifyResult", "slack", "wechat_mp"]

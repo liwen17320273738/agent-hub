@@ -1,11 +1,19 @@
 """Agent collaboration framework: enables multi-agent workflows.
 
-5 Core Expert Agents — 30年资深专家团队:
+13 Expert Agents — 30年资深专家团队:
   👔 CEO Agent (总指挥) — 需求规划 + 评审验收
+  📝 产品 Agent — PRD撰写 + 需求拆解
+  🎨 设计 Agent — UI/UX 设计
   🏗️ 架构师 Agent — 系统架构设计
   💻 开发 Agent — 全栈代码实现
   🧪 测试 Agent — 质量保障与验证
+  🛂 验收官 Agent — 最终验收 + Go/No-Go
   🚀 运维 Agent — 部署上线与运维
+  🔒 安全 Agent — 安全审计 + 漏洞评估
+  📊 数据 Agent — 数据建模 + 指标设计
+  📣 市场 Agent — 文案 + 获客
+  💰 财务 Agent — 成本分析 + ROI
+  ⚖️ 法务 Agent — 合规审查 + 隐私条款
 
 Session state is persisted to Redis for multi-worker consistency.
 """
@@ -101,6 +109,51 @@ AGENT_TEAM = {
         "stages": ["deployment"],
         "tier": "execution",
     },
+    "security-agent": {
+        "id": "security-agent",
+        "name": "安全 Agent",
+        "icon": "🔒",
+        "expertise": "30年安全审计与渗透测试",
+        "responsibilities": ["安全审计", "漏洞评估", "合规检查", "纵深防御", "密钥管理"],
+        "stages": ["security-review"],
+        "tier": "planning",
+    },
+    "data-agent": {
+        "id": "data-agent",
+        "name": "数据 Agent",
+        "icon": "📊",
+        "expertise": "30年数据工程与分析",
+        "responsibilities": ["数据建模", "指标设计", "SQL优化", "ETL管道", "报表设计"],
+        "stages": ["data-modeling"],
+        "tier": "execution",
+    },
+    "marketing-agent": {
+        "id": "marketing-agent",
+        "name": "市场 Agent",
+        "icon": "📣",
+        "expertise": "30年品牌营销与增长",
+        "responsibilities": ["品牌文案", "产品定位", "渠道策略", "获客方案", "A/B测试"],
+        "stages": ["marketing-launch"],
+        "tier": "routine",
+    },
+    "finance-agent": {
+        "id": "finance-agent",
+        "name": "财务 Agent",
+        "icon": "💰",
+        "expertise": "30年财务分析与成本管控",
+        "responsibilities": ["成本分析", "ROI评估", "定价策略", "预算规划", "商业可持续性"],
+        "stages": ["finance-review"],
+        "tier": "execution",
+    },
+    "legal-agent": {
+        "id": "legal-agent",
+        "name": "法务 Agent",
+        "icon": "⚖️",
+        "expertise": "30年科技法律与合规",
+        "responsibilities": ["合规审查", "隐私条款", "知识产权", "服务条款", "数据合规"],
+        "stages": ["legal-review"],
+        "tier": "planning",
+    },
 }
 
 
@@ -152,6 +205,11 @@ PIPELINE_STAGES = [
     {"id": "architecture", "label": "架构设计", "role": "architect", "agent": "architect-agent"},
     {"id": "development", "label": "开发实现", "role": "developer", "agent": "developer-agent"},
     {"id": "testing", "label": "测试验证", "role": "qa-lead", "agent": "qa-agent"},
+    {"id": "security-review", "label": "安全审查", "role": "security", "agent": "security-agent"},
+    {"id": "data-modeling", "label": "数据建模", "role": "data-analyst", "agent": "data-agent"},
+    {"id": "marketing-launch", "label": "上线运营", "role": "marketing", "agent": "marketing-agent"},
+    {"id": "finance-review", "label": "财务评估", "role": "finance", "agent": "finance-agent"},
+    {"id": "legal-review", "label": "法务审查", "role": "legal", "agent": "legal-agent"},
     {"id": "reviewing", "label": "审查验收", "role": "acceptance", "agent": "acceptance-agent"},
     {"id": "deployment", "label": "部署上线", "role": "devops", "agent": "devops-agent"},
 ]

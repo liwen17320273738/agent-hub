@@ -22,7 +22,7 @@ import httpx
 from sqlalchemy import select, func, text, String as SAString
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.memory import TaskMemory, LearnedPattern
+from ..models.memory import TaskMemory, LearnedPattern, KnowledgeCollection
 from ..models.pipeline import PipelineTask
 from ..redis_client import get_redis, cache_get, cache_set
 
@@ -240,6 +240,7 @@ async def search_similar_memories(
     limit: int = 5,
     min_quality: float = 0.0,
     org_id: Optional[Any] = None,
+    collection_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Search for similar historical task outputs.
@@ -249,7 +250,7 @@ async def search_similar_memories(
     2. In-process: fetch keyword candidates, re-rank by cosine similarity against DB/cached embeddings
     3. Keyword-only: quality + recency ordering when no embeddings available
     """
-    cache_key = f"memory:search:{hashlib.md5(query.encode()).hexdigest()[:12]}:{role}:{stage_id}:{org_id}"
+    cache_key = f"memory:search:{hashlib.md5(query.encode()).hexdigest()[:12]}:{role}:{stage_id}:{org_id}:{collection_id}"
     cached = await cache_get(cache_key)
     if cached is not None:
         return cached
@@ -263,6 +264,7 @@ async def search_similar_memories(
             db, query_embedding,
             role=role, stage_id=stage_id, limit=limit,
             min_quality=min_quality, org_id=org_id,
+            collection_id=collection_id,
         )
         if memories:
             output = _format_memory_results(memories)
@@ -283,6 +285,8 @@ async def search_similar_memories(
         stmt = stmt.where(TaskMemory.role == role)
     if stage_id:
         stmt = stmt.where(TaskMemory.stage_id == stage_id)
+    if collection_id:
+        stmt = stmt.where(TaskMemory.collection_id == collection_id)
 
     keywords = _extract_keywords(query)
     if keywords:
@@ -334,6 +338,7 @@ async def _pgvector_search(
     limit: int = 5,
     min_quality: float = 0.0,
     org_id: Optional[Any] = None,
+    collection_id: Optional[str] = None,
 ) -> List[TaskMemory]:
     """Native pgvector cosine distance search."""
     try:
@@ -347,6 +352,8 @@ async def _pgvector_search(
             where_clauses.append("role = :role")
         if stage_id:
             where_clauses.append("stage_id = :stage_id")
+        if collection_id:
+            where_clauses.append("collection_id = :collection_id::uuid")
         if org_id:
             where_clauses.append(
                 "task_id IN (SELECT CAST(id AS VARCHAR) FROM pipeline_tasks WHERE org_id = :org_id)"
@@ -366,6 +373,8 @@ async def _pgvector_search(
             params["role"] = role
         if stage_id:
             params["stage_id"] = stage_id
+        if collection_id:
+            params["collection_id"] = collection_id
         if org_id:
             params["org_id"] = str(org_id)
 

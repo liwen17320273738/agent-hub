@@ -180,6 +180,19 @@ async def sync_skills_to_db(db) -> int:
                 existing.prompt_template = fs_skill.get("prompt_template", existing.prompt_template)
             if existing.category in ("public", "custom"):
                 existing.category = fs_skill.get("category", existing.category)
+            # Sync frontmatter fields so filesystem changes propagate to DB
+            fs_trigger = fs_skill.get("trigger_stages")
+            if fs_trigger:
+                existing.trigger_stages = fs_trigger
+            fs_criteria = fs_skill.get("completion_criteria")
+            if fs_criteria:
+                existing.completion_criteria = fs_criteria
+            fs_tools = fs_skill.get("allowed_tools")
+            if fs_tools:
+                existing.allowed_tools = fs_tools
+            fs_mode = fs_skill.get("execution_mode")
+            if fs_mode:
+                existing.execution_mode = fs_mode
             continue
 
         skill = Skill(
@@ -193,6 +206,10 @@ async def sync_skills_to_db(db) -> int:
             input_schema=fs_skill.get("input_schema", {}),
             output_schema=fs_skill.get("output_schema", {}),
             tags=fs_skill.get("tags", []),
+            trigger_stages=fs_skill.get("trigger_stages", []),
+            completion_criteria=fs_skill.get("completion_criteria", []),
+            allowed_tools=fs_skill.get("allowed_tools", []),
+            execution_mode=fs_skill.get("execution_mode", "inline"),
             is_builtin=True,
             enabled=True,
         )

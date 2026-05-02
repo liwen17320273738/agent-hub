@@ -548,6 +548,9 @@ class UpdateTaskRequest(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     status: Optional[str] = None
+    repo_refs: Optional[List[Dict[str, Any]]] = None
+    repo_url: Optional[str] = None
+    project_path: Optional[str] = None
 
 
 @router.patch("/tasks/{task_id}")
@@ -559,9 +562,11 @@ async def update_task(
 ):
     task = await _get_task_or_404(db, task_id, user)
     updates = body.model_dump(exclude_unset=True)
-    for field in ("title", "description", "status"):
+    for field in ("title", "description", "status", "repo_url", "project_path"):
         if field in updates:
             setattr(task, field, updates[field])
+    if "repo_refs" in updates:
+        task.repo_refs = updates["repo_refs"]
     await db.flush()
     result = await db.execute(
         select(PipelineTask)
@@ -2667,3 +2672,197 @@ async def raise_budget_endpoint(
     snapshot = await get_task_budget(task_id)
     snapshot["new_budget_usd"] = new_budget
     return snapshot
+
+
+# ── IDE/CLI Context Bundle ──────────────────────────────────────────────
+
+
+@router.get("/tasks/{task_id}/context-bundle")
+async def export_task_context_bundle(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Export task context as a JSON bundle for IDE/CLI consumption.
+
+    Returns a JSON object that includes CLAUDE.md-equivalent context,
+    artifact summaries, and stage status — all the information a local
+    AI coding agent needs to pick up where the pipeline left off.
+    """
+    task = await _get_task_or_404(db, task_id, user)
+    stages = task.stages or []
+    artifacts = task.artifacts or []
+
+    # Build CLAUDE.md content
+    stage_summary = "\n".join(
+        f"- {s.label} ({s.stage_id}): {s.status}{' ✓' if s.status == 'done' else ''}"
+        for s in sorted(stages, key=lambda x: x.sort_order)
+    )
+
+    claude_md = f"""# Agent Hub Task Context: {task.title}
+
+## Task Info
+- **ID:** `{task_id}`
+- **Status:** {task.status}
+- **Template:** {task.template or 'default'}
+- **Source:** {task.source}
+- **Created:** {task.created_at.isoformat() if task.created_at else 'unknown'}
+
+## Pipeline Progress
+{stage_summary}
+
+## Description
+{task.description}
+
+## Current Stage
+{task.current_stage_id}
+
+## Repository
+{(f'URL: {task.repo_url}' if task.repo_url else '') + (chr(10) + f'Path: {task.project_path}' if task.project_path else '')}
+
+## Artifacts
+"""
+    for art in (artifacts or [])[:20]:
+        claude_md += f"\n- {art.name} ({art.artifact_type})"
+        if art.content:
+            claude_md += f" — {art.content[:100].strip()}..."
+
+    return {
+        "task_id": task_id,
+        "title": task.title,
+        "status": task.status,
+        "current_stage": task.current_stage_id,
+        "template": task.template,
+        "claude_md": claude_md,
+        "stages": [
+            {
+                "stage_id": s.stage_id,
+                "label": s.label,
+                "status": s.status,
+                "quality_score": s.quality_score,
+            }
+            for s in sorted(stages, key=lambda x: x.sort_order)
+        ],
+        "artifacts": [
+            {
+                "name": art.name,
+                "type": art.artifact_type,
+                "stage_id": art.stage_id,
+                "summary": (art.content or "")[:200],
+            }
+            for art in (artifacts or [])
+        ],
+        "repo_url": task.repo_url,
+        "repo_refs": task.repo_refs or [],
+    }
+
+
+# ── Stage Run Logs (node observability) ────────────────────────────────
+
+
+@router.get("/tasks/{task_id}/stage-run-logs")
+async def list_stage_run_logs(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    stage_id: Optional[str] = None,
+    limit: int = 50,
+):
+    """Get execution history for a task's stages.
+
+    Each attempt (including retries) is one log entry. Optionally filter
+    by ``stage_id`` to see a specific node's history.
+    """
+    from ..models.stage_run_log import StageRunLog
+
+    stmt = (
+        select(StageRunLog)
+        .where(StageRunLog.task_id == task_id)
+        .order_by(StageRunLog.created_at.desc())
+        .limit(limit)
+    )
+    if stage_id:
+        stmt = stmt.where(StageRunLog.stage_id == stage_id)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {
+        "logs": [
+            {
+                "id": str(r.id),
+                "stage_id": r.stage_id,
+                "label": r.label,
+                "role": r.role,
+                "model": r.model,
+                "success": bool(r.success),
+                "error_message": r.error_message[:500] if r.error_message else "",
+                "duration_ms": r.duration_ms,
+                "quality_score": r.quality_score,
+                "gate_status": r.gate_status,
+                "verify_status": r.verify_status,
+                "input_snapshot": (r.input_snapshot or "")[:1000],
+                "output_preview": (r.output or "")[:500],
+                "created_at": r.created_at.isoformat() if r.created_at else "",
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/tasks/{task_id}/retry-stage/{stage_id}")
+async def retry_stage(
+    task_id: str,
+    stage_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    background_tasks: BackgroundTasks,
+):
+    """Retry a failed stage in-place.
+
+    Resets the stage status to ``active`` and clears its output so the
+    next DAG resume picks it up. Does NOT reset downstream stages —
+    use the existing ``/rollback`` endpoint for that.
+    """
+    task = await _get_task_or_404(db, task_id, user)
+
+    if task.status not in ("active", "error", "failed"):
+        raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot retry")
+
+    result = await db.execute(
+        select(PipelineStage).where(
+            PipelineStage.task_id == _parse_task_id(task_id),
+            PipelineStage.stage_id == stage_id,
+        )
+    )
+    stage = result.scalar_one_or_none()
+    if not stage:
+        raise HTTPException(status_code=404, detail=f"Stage {stage_id} not found")
+
+    stage.status = "active"
+    stage.output = None
+    stage.last_error = None
+    stage.retry_count = 0
+    stage.started_at = None
+    stage.completed_at = None
+
+    # If this was the current stage, reset task to active
+    task.status = "active"
+
+    await db.flush()
+    await db.commit()
+
+    # Trigger background pipeline resume
+    from .gateway import _run_pipeline_background
+
+    background_tasks.add_task(
+        _run_pipeline_background,
+        task_id=str(task.id),
+        title=task.title,
+        description=task.description,
+        pause_for_acceptance=True,
+    )
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "stage_id": stage_id,
+        "status": "retry_scheduled",
+    }

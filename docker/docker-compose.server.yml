@@ -1,0 +1,65 @@
+# Agent Hub — Server Deployment (reuses external PostgreSQL + Redis)
+# The existing sc-postgres (port 5432) and sc-redis (port 6379) on the host
+# are used instead of starting dedicated containers.
+#
+# Usage:
+#   docker compose -f docker/docker-compose.server.yml up -d
+
+services:
+  # ── Backend: FastAPI ─────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ../
+      dockerfile: backend/Dockerfile
+    container_name: agent-hub-backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://agenthub:agenthub@host.docker.internal:5432/agenthub
+      REDIS_URL: redis://host.docker.internal:6379/0
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost","http://47.95.254.24","http://47.95.254.24:80"]'}
+    env_file:
+      - ../.env
+    volumes:
+      - ../config.yaml:/app/config.yaml:ro
+      - agenthub_data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Frontend: Vue 3 ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE: /api
+    container_name: agent-hub-frontend
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+  # ── Reverse Proxy ───────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: agent-hub-nginx
+    ports:
+      - "${PORT:-8081}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
+volumes:
+  agenthub_data:
+
+networks:
+  agent-hub:
+    driver: bridge

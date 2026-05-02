@@ -1,6 +1,7 @@
 ---
 name: code-review
 description: 代码审查专家 — 检查代码质量、安全性、性能和最佳实践
+trigger_stages: reviewing, development
 enabled: true
 license: MIT
 ---

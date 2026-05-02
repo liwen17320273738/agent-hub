@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from ...models.pipeline import PipelineTask
-from . import feishu_im, qq_onebot, slack as slack_im
+from . import feishu_im, qq_onebot, slack as slack_im, wechat_mp
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,21 @@ async def notify_task_event(
             skipped=bool(result.get("skipped")),
         )
 
+    if source == "wechat":
+        result = await wechat_mp.send_text(
+            user_id=task.source_user_id or "",
+            title=title,
+            lines=lines,
+            task_id=task_id,
+        )
+        return NotifyResult(
+            ok=bool(result.get("ok")),
+            channel="wechat",
+            mode="wechat_custom",
+            error=str(result.get("error", "")),
+            skipped=bool(result.get("skipped")),
+        )
+
     return NotifyResult(ok=False, channel=source or "web", skipped=True, error="no_outbound_channel")
 
 
@@ -220,6 +235,21 @@ async def notify_user_text(
             skipped=bool(result.get("skipped")),
         )
 
+    if src == "wechat":
+        result = await wechat_mp.send_text(
+            user_id=user_id,
+            title=title,
+            lines=lines,
+            task_id="",
+        )
+        return NotifyResult(
+            ok=bool(result.get("ok")),
+            channel="wechat",
+            mode="wechat_custom",
+            error=str(result.get("error", "")),
+            skipped=bool(result.get("skipped")),
+        )
+
     return NotifyResult(ok=False, channel=src or "web", skipped=True, error="no_outbound_channel")
 
 
@@ -237,6 +267,8 @@ async def _is_channel_configured(channel: str) -> bool:
             return bool(getattr(settings, "qq_bot_endpoint", ""))
         if channel == "slack":
             return bool(getattr(settings, "slack_bot_token", ""))
+        if channel == "wechat":
+            return bool(getattr(settings, "wechat_mp_appid", "")) and bool(getattr(settings, "wechat_mp_secret", ""))
     except Exception:
         pass
     return False
@@ -265,7 +297,7 @@ async def broadcast_task_event(
     primary = await notify_task_event(task, event=event, message=message, url=url, extras=extras)
     results.append(primary)
 
-    all_channels = ["feishu", "qq", "slack"]
+    all_channels = ["feishu", "qq", "slack", "wechat"]
     secondary_channels = [ch for ch in all_channels if ch != source]
 
     for ch in secondary_channels:
@@ -303,6 +335,16 @@ async def broadcast_task_event(
                 )
                 results.append(NotifyResult(
                     ok=bool(r.get("ok")), channel="slack",
+                    mode="broadcast",
+                    error=str(r.get("error", "")),
+                    skipped=bool(r.get("skipped")),
+                ))
+            elif ch == "wechat":
+                r = await wechat_mp.send_text(
+                    user_id="", title=title, lines=lines, task_id=task_id,
+                )
+                results.append(NotifyResult(
+                    ok=bool(r.get("ok")), channel="wechat",
                     mode="broadcast",
                     error=str(r.get("error", "")),
                     skipped=bool(r.get("skipped")),

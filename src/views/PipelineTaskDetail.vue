@@ -22,6 +22,22 @@
         <el-tag v-if="task.repoUrl" size="small" type="success">{{ t('pipelineTaskDetail.tagGit') }}: {{ task.repoUrl }}</el-tag>
         <el-tag v-if="task.projectPath" size="small" type="warning">{{ t('pipelineTaskDetail.tagLocal') }}: {{ task.projectPath }}</el-tag>
       </div>
+      <!-- Git repo refs (PR, branch, CI status) -->
+      <div v-if="task.repoRefs?.length" class="task-git-refs">
+        <div v-for="(ref, i) in task.repoRefs" :key="i" class="git-ref-item">
+          <el-tag size="small" effect="plain" class="git-ref-tag">{{ ref.repo }}</el-tag>
+          <el-tag v-if="ref.branch" size="small" effect="plain">{{ ref.branch }}</el-tag>
+          <el-tag v-if="ref.pr" size="small" type="primary">
+            <a v-if="ref.prUrl" :href="ref.prUrl" target="_blank" rel="noopener">#{{ ref.pr }}</a>
+            <span v-else>#{{ ref.pr }}</span>
+          </el-tag>
+          <el-tag
+            v-if="ref.ciStatus"
+            size="small"
+            :type="ref.ciStatus === 'passing' ? 'success' : ref.ciStatus === 'failing' ? 'danger' : 'warning'"
+          >{{ ref.ciStatus }}</el-tag>
+        </div>
+      </div>
       <div class="header-share">
         <el-button size="small" @click="downloadDeliverables">
           <el-icon><Download /></el-icon> {{ $t('task.download') }}
@@ -2708,7 +2724,10 @@ watch(() => route.params.id, () => {
 .quality-pill.fail { background: #fecaca; color: #991b1b; }
 .quality-avg { font-size: 13px; color: var(--text-muted, #909399); margin-left: auto; }
 
-.task-meta-row { margin-top: 6px; }
+.task-meta-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.task-git-refs { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.git-ref-item { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.git-ref-tag { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .header-share { margin-top: 8px; }
 
 /* Quality Gate badges */

@@ -1,6 +1,7 @@
 ---
 name: data-analysis
 description: 数据分析专家 — 数据探索、统计分析、可视化建议和洞察输出
+trigger_stages: development, testing
 enabled: true
 license: MIT
 ---

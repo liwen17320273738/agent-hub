@@ -20,7 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-changeme}
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env} --appendonly yes --appendfsync everysec
     # ports:  # Uncomment for local dev: - '6379:6379'
     volumes:
       - agenthub_redis:/data
@@ -51,7 +51,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
       PIPELINE_API_KEY: ${PIPELINE_API_KEY:-}
-      CORS_ORIGINS: '["http://localhost:5200","http://localhost:3000"]'
+      CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost:5200","http://localhost:3000"]'}
     depends_on:
       db:
         condition: service_healthy

@@ -12,7 +12,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -55,6 +55,7 @@ from .api import (
     task_artifacts as task_artifacts_api,
     worktree as worktree_api,
     translate as translate_api,
+    specs as specs_api,
 )
 
 logging.basicConfig(
@@ -355,6 +356,27 @@ AI Agent Hub — 全栈智能体协作平台
     # Rate limiting
     application.add_middleware(RateLimitMiddleware)
 
+    # ── Global Exception Handlers ────────────────────────────────────────
+    from fastapi.responses import JSONResponse
+    from fastapi import Request as _Request
+
+    @application.exception_handler(Exception)
+    async def global_exception_handler(_request: _Request, exc: Exception):
+        logger.error("[unhandled] %s: %s", type(exc).__name__, str(exc)[:500], exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "服务器内部错误", "error_type": type(exc).__name__},
+        )
+
+    @application.exception_handler(HTTPException)
+    async def http_exception_handler(_request: _Request, exc: HTTPException):
+        logger.warning("[http-error] %s %s: %s", exc.status_code, exc.detail, _request.url.path)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": str(exc.detail)},
+            headers=getattr(exc, "headers", None),
+        )
+
     # ── Routers ──────────────────────────────────────────────────────────
     application.include_router(auth.router, prefix="/api")
     application.include_router(agents.router, prefix="/api")
@@ -387,6 +409,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(deliverables_api.router)
     application.include_router(task_artifacts_api.router, prefix="/api")
     application.include_router(worktree_api.router, prefix="/api")
+    application.include_router(specs_api.router, prefix="/api")
     application.include_router(translate_api.router)
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)

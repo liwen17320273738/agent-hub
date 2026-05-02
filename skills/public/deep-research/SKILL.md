@@ -1,6 +1,7 @@
 ---
 name: deep-research
 description: 深度研究专家 — 多源信息搜集、交叉验证、输出结构化研究报告
+trigger_stages: planning
 enabled: true
 license: MIT
 ---

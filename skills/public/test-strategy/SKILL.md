@@ -1,6 +1,7 @@
 ---
 name: test-strategy
 description: 测试策略专家 — 设计测试方案、用例矩阵和质量验证计划
+trigger_stages: testing
 enabled: true
 license: MIT
 ---

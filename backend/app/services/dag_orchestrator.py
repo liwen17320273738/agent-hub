@@ -98,6 +98,21 @@ class DAGStage:
         self.reject_count: int = 0
 
 
+# Spec-Driven template: maps spec-kit format onto existing stage_ids
+#   constitution.md + spec.md  → planning  (enhanced prompt)
+#   plan.md                    → architecture
+#   tasks.md + implement       → development  (task-driven)
+#   verify                     → testing
+#   accept                     → reviewing
+_SPEC_KIT_STAGES: List[DAGStage] = [
+    DAGStage("planning", "规格撰写 (constitution + spec)", "product-manager"),
+    DAGStage("architecture", "技术计划 (plan)", "architect", depends_on=["planning"]),
+    DAGStage("development", "任务驱动开发", "developer", depends_on=["architecture"]),
+    DAGStage("testing", "规格验证", "qa-lead", depends_on=["development"]),
+    DAGStage("reviewing", "验收审查", "acceptance", depends_on=["testing"]),
+]
+
+
 PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
     "full": [
         DAGStage("planning", "需求规划", "product-manager"),
@@ -236,6 +251,7 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
                  depends_on=["testing", "security-review", "legal-review"]),
         DAGStage("deployment", "灰度部署", "devops", depends_on=["reviewing"]),
     ],
+    "spec_driven": _SPEC_KIT_STAGES,
 }
 
 TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
@@ -254,6 +270,7 @@ TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
     "enterprise": {"label": "企业级 / 严格合规", "description": "to-B 全角色阵容：design + 安全审计 + 法务合规 + 验收 + 部署", "icon": "🏛️"},
     "growth_product": {"label": "增长型产品", "description": "在常规链路上追加数据指标设计与上线营销包", "icon": "📈"},
     "fintech": {"label": "金融 / 支付", "description": "金融级合规：财务评估 + 安全审计 + 法务审查 + 灰度部署", "icon": "💳"},
+    "spec_driven": {"label": "规范驱动（Spec-Driven）", "description": "Spec-Kit 格式：原则→规格→技术计划→任务分解→实现，适合需求先行团队", "icon": "📋"},
 }
 
 
@@ -609,6 +626,59 @@ def resolve_execution_plan(stages: List[DAGStage], outputs: Dict[str, str] = Non
         remaining = [s for s in remaining if s.stage_id not in completed and s.stage_id not in skipped]
 
     return batches
+
+
+# ── Stage Run Logging ─────────────────────────────────────────────────────
+
+
+async def _record_stage_run(
+    db_session: Any,
+    *,
+    task_id: str,
+    stage_id: str,
+    label: str = "",
+    role: str = "",
+    model: str = "",
+    model_tier: str = "",
+    input_snapshot: str = "",
+    input_token_count: int = 0,
+    output: str = "",
+    output_token_count: int = 0,
+    success: bool = False,
+    error_message: str = "",
+    duration_ms: int = 0,
+    quality_score: Optional[float] = None,
+    gate_status: str = "",
+    verify_status: str = "",
+    trace_id: str = "",
+) -> None:
+    """Write a single stage execution attempt to stage_run_logs."""
+    try:
+        from ..models.stage_run_log import StageRunLog
+
+        log = StageRunLog(
+            task_id=task_id,
+            stage_id=stage_id,
+            label=label[:100],
+            role=role[:100],
+            model=model[:100],
+            model_tier=model_tier[:20],
+            input_snapshot=input_snapshot[:5000],
+            input_token_count=input_token_count,
+            output=output[:5000],
+            output_token_count=output_token_count,
+            success=1 if success else 0,
+            error_message=str(error_message or "")[:2000],
+            duration_ms=duration_ms,
+            quality_score=quality_score,
+            gate_status=gate_status[:20],
+            verify_status=verify_status[:10],
+            trace_id=trace_id[:100],
+        )
+        db_session.add(log)
+        await db_session.flush()
+    except Exception as e:
+        logger.warning(f"[dag] Failed to record stage run log: {e}")
 
 
 async def execute_dag_pipeline(
@@ -1008,6 +1078,21 @@ async def execute_dag_pipeline(
                         "reason": "on_failure=skip after retries exhausted",
                     })
                 # else: halt — outer loop sees ok=False and breaks (current behavior)
+
+            # ── Record this execution attempt ─────────────────────────
+            await _record_stage_run(
+                stage_db,
+                task_id=task_id,
+                stage_id=stage.stage_id,
+                label=stage.label,
+                role=stage.role,
+                success=bool(stage_result.get("ok")),
+                error_message=stage_result.get("error") or stage.error or "",
+                output=stage.output or stage_result.get("content", ""),
+                duration_ms=int((time.monotonic() - t0) * 1000) if "t0" in dir() else 0,
+                quality_score=stage_result.get("quality_score"),
+                verify_status=stage_result.get("verification", {}).get("status", ""),
+            )
 
             return {"stageId": stage.stage_id, **stage_result}
 

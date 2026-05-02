@@ -4,7 +4,7 @@ from .agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugi
 from .skill import Skill, SkillRating
 from .model_provider import ModelProvider, TokenUsage
 from .pipeline import PipelineTask, PipelineStage, PipelineArtifact
-from .memory import TaskMemory, LearnedPattern
+from .memory import TaskMemory, LearnedPattern, KnowledgeCollection
 from .observability import TraceRecord, SpanRecord, AuditLog, ApprovalRecord, FeedbackRecord
 from .eval import EvalDataset, EvalCase, EvalRun, EvalResult
 from .code_chunk import CodeChunk
@@ -14,6 +14,7 @@ from .workflow import Workflow
 from .workspace import Workspace, WorkspaceMember
 from .credential import Credential
 from .task_artifact import TaskArtifact, ArtifactTypeRegistry
+from .stage_run_log import StageRunLog
 
 __all__ = [
     "AgentMessage",

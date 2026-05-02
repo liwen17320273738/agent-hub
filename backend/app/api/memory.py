@@ -23,6 +23,7 @@ from ..security import get_current_user
 from ..services.memory import (
     TaskMemory,
     LearnedPattern,
+    KnowledgeCollection,
     search_similar_memories,
     get_working_context,
     set_working_context,
@@ -51,13 +52,14 @@ async def search_memory(
     stage_id: Optional[str] = None,
     limit: int = Query(5, ge=1, le=20),
     min_quality: float = Query(0.0, ge=0, le=1),
+    collection_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
     results = await search_similar_memories(
         db, query=q, role=role, stage_id=stage_id,
         limit=limit, min_quality=min_quality,
-        org_id=_user.org_id,
+        org_id=_user.org_id, collection_id=collection_id,
     )
     return {"results": results, "count": len(results)}
 
@@ -194,3 +196,157 @@ async def memory_stats(
         "totalPatterns": pattern_count.scalar() or 0,
         "avgQualityScore": round(avg_quality.scalar() or 0, 3),
     }
+
+
+# ── KnowledgeCollection CRUD ─────────────────────────────────────────────
+
+
+class CollectionCreate(BaseModel):
+    name: str
+    description: str = ""
+    source_type: str = "manual"
+    source_uri: str = ""
+    source_config: dict = {}
+    access_scope: str = "workspace"
+
+
+class CollectionUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    source_type: Optional[str] = None
+    source_uri: Optional[str] = None
+    source_config: Optional[dict] = None
+    access_scope: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+def _collection_dict(c: KnowledgeCollection) -> dict:
+    return {
+        "id": str(c.id),
+        "name": c.name,
+        "description": c.description,
+        "source_type": c.source_type,
+        "source_uri": c.source_uri,
+        "source_config": c.source_config,
+        "access_scope": c.access_scope,
+        "item_count": c.item_count,
+        "is_active": c.is_active,
+        "created_by": c.created_by,
+        "created_at": c.created_at.isoformat() if c.created_at else "",
+    }
+
+
+@router.get("/collections")
+async def list_collections(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    stmt = select(KnowledgeCollection).order_by(KnowledgeCollection.created_at.desc())
+    if _user.org_id:
+        stmt = stmt.where(
+            (KnowledgeCollection.org_id == _user.org_id) |
+            (KnowledgeCollection.access_scope == "public")
+        )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_collection_dict(r) for r in rows]
+
+
+@router.get("/collections/{collection_id}")
+async def get_collection(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    c = await db.get(KnowledgeCollection, collection_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return _collection_dict(c)
+
+
+@router.post("/collections", status_code=201)
+async def create_collection(
+    body: CollectionCreate,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    c = KnowledgeCollection(
+        name=body.name,
+        description=body.description,
+        source_type=body.source_type,
+        source_uri=body.source_uri,
+        source_config=body.source_config,
+        access_scope=body.access_scope,
+        org_id=_user.org_id,
+        created_by=_user.email or "user",
+    )
+    db.add(c)
+    await db.flush()
+    return _collection_dict(c)
+
+
+@router.patch("/collections/{collection_id}")
+async def update_collection(
+    collection_id: str,
+    body: CollectionUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    c = await db.get(KnowledgeCollection, collection_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(c, field, value)
+    await db.flush()
+    return _collection_dict(c)
+
+
+@router.delete("/collections/{collection_id}")
+async def delete_collection(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    c = await db.get(KnowledgeCollection, collection_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    # Detach any TaskMemory entries pointing to this collection
+    await db.execute(
+        TaskMemory.__table__.update()
+        .where(TaskMemory.collection_id == collection_id)
+        .values(collection_id=None)
+    )
+    await db.delete(c)
+    await db.flush()
+    return {"ok": True}
+
+
+# ── Web Ingest (firecrawl → KnowledgeCollection) ────────────────────────
+
+
+class IngestRequest(BaseModel):
+    url: str
+    api_key: str
+    collection_name: Optional[str] = None
+
+
+@router.post("/ingest-url", status_code=202)
+async def ingest_scrape_url(
+    body: IngestRequest,
+    _user: User = Depends(get_current_user),
+):
+    """Scrape a URL and index the content into a KnowledgeCollection.
+
+    Requires a Firecrawl API key (get one at https://firecrawl.dev).
+    The content is chunked and stored as TaskMemory entries scoped to a
+    new or existing KnowledgeCollection.
+    """
+    from ..services.ingester import ingest_url
+
+    result = await ingest_url(
+        url=body.url,
+        api_key=body.api_key,
+        collection_name=body.collection_name,
+        org_id=_user.org_id,
+        created_by=_user.email or "ingester",
+    )
+    return result

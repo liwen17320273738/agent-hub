@@ -22,6 +22,7 @@ import { initTaskStore } from './pipeline/taskStore.mjs'
 import openclawRouter from './gateway/openclawRouter.mjs'
 import feishuWebhook from './gateway/feishuWebhook.mjs'
 import qqWebhook from './gateway/qqWebhook.mjs'
+import wechatWebhook from './gateway/wechatWebhook.mjs'
 import executorRouter from './executor/executorRouter.mjs'
 import { addSSEClient, getSSEClientCount } from './events.mjs'
 
@@ -793,6 +794,7 @@ app.use('/pipeline', requirePipelineAuth, pipelineRouter)
 app.use('/gateway/openclaw', openclawRouter)
 app.use('/gateway/feishu/webhook', feishuWebhook)
 app.use('/gateway/qq/webhook', qqWebhook)
+app.use('/gateway/wechat/webhook', express.text({ type: 'text/xml' }), wechatWebhook)
 app.use('/executor', requireAuth, executorRouter)
 
 // --- 错误处理 ---

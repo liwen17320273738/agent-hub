@@ -65,6 +65,7 @@ router.get('/status', (_req, res) => {
     channels: {
       feishu: { enabled: !!(process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET) },
       qq: { enabled: !!process.env.QQ_BOT_ENDPOINT },
+      wechat: { enabled: !!process.env.WECHAT_MP_TOKEN },
       web: { enabled: true },
       api: { enabled: true },
     },

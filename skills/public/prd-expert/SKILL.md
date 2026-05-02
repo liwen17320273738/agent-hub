@@ -1,6 +1,7 @@
 ---
 name: prd-expert
 description: 产品需求文档专家 — 输出结构化 PRD，包含用户故事、验收标准、里程碑
+trigger_stages: planning
 enabled: true
 license: MIT
 ---

@@ -71,6 +71,12 @@ class PipelineTask(Base):
     # here so reviewers can follow the AI in their own queue.
     external_links: Mapped[list] = mapped_column(JsonDict(), default=list, nullable=False)
 
+    # Git repo references — PRs, branches, CI status linked to this task.
+    # JSON list:
+    #   [{"repo": "org/repo", "branch": "feature/x", "pr": 42,
+    #     "pr_url": "https://...", "ci_status": "passing", "commit_sha": "abc123"}]
+    repo_refs: Mapped[list] = mapped_column(JsonDict(), default=list, nullable=False)
+
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
 

@@ -1,6 +1,7 @@
 ---
 name: architecture-design
 description: 架构设计专家 — 系统架构方案设计、技术选型、风险评估
+trigger_stages: architecture, planning
 enabled: true
 license: MIT
 ---
