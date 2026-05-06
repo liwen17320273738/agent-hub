@@ -27,8 +27,9 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
-        working-directory: backend
-        run: pip install -r requirements.txt
+        run: |
+          pip install -e packages/agent-hub-pipeline
+          pip install -r backend/requirements.txt
 
       - name: Lint
         working-directory: backend

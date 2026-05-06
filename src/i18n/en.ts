@@ -1060,6 +1060,7 @@ export default {
     tabArtifacts: "Artifacts",
     tabOverview: "Overview",
     tabDeliverables: "Deliverables",
+    tabExecutionLog: "Execution Log",
     tabSwimlane: "Swimlane",
     qualityLabel: "Quality gate",
     avgScore: "Average score",

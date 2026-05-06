@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
+COPY packages/agent-hub-pipeline /packages/agent-hub-pipeline
+RUN pip install --no-cache-dir /packages/agent-hub-pipeline
+
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

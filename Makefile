@@ -45,7 +45,7 @@ config:
 
 install:
 	@echo "Installing backend dependencies..."
-	@cd backend && pip install -r requirements.txt
+	@cd backend && pip install -e ../packages/agent-hub-pipeline && pip install -r requirements.txt
 	@echo "Installing frontend dependencies..."
 	@pnpm install
 	@echo "✓ All dependencies installed"

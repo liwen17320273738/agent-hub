@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-hub-pipeline"
+version = "0.1.0"
+description = "Pure-Python helpers extracted from Agent Hub pipeline maturation (worktree/codegen/output hints)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+authors = [{ name = "Agent Hub" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent_hub_pipeline*"]

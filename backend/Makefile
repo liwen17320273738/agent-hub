@@ -5,7 +5,7 @@
 PYTHON ?= python3
 
 install:
-	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -e ../packages/agent-hub-pipeline && $(PYTHON) -m pip install -r requirements.txt
 
 dev:
 	$(PYTHON) -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload

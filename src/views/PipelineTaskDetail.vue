@@ -648,6 +648,10 @@
         <DeliverableCards :task-id="task.id" />
       </el-tab-pane>
 
+      <el-tab-pane :label="t('pipelineTaskDetail.tabExecutionLog')" name="execution-log" lazy>
+        <ExecutionLogTab :task-id="task.id" />
+      </el-tab-pane>
+
       <el-tab-pane :label="t('pipelineTaskDetail.tabSwimlane')" name="swimlane">
         <RoleSwimlane :stages="task.stages" />
       </el-tab-pane>
@@ -778,6 +782,7 @@ import TaskArtifactTabs from '@/components/task/TaskArtifactTabs.vue'
 import FailureCard from '@/components/task/FailureCard.vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
+import ExecutionLogTab from '@/components/executor/ExecutionLogTab.vue'
 import PipelineDagCanvas from '@/components/pipeline/PipelineDagCanvas.vue'
 import QualityGateConfigDrawer from '@/components/pipeline/QualityGateConfigDrawer.vue'
 import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'

@@ -21,6 +21,8 @@ Agent Hub is an **AI Delivery Platform** — enterprise clients send a one-sente
 **Project Structure**:
 ```
 agent-hub/
+├── packages/
+│   └── agent-hub-pipeline/       # Editable pip pkg: stdlib-only maturation helpers — NOT the full async pipeline_engine (see packages/agent-hub-pipeline/README.md)
 ├── Makefile                      # Root commands (check, install, dev, stop, test)
 ├── config.example.yaml           # Application config template
 ├── config.yaml                   # Local config (gitignored)

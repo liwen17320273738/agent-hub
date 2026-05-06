@@ -17,226 +17,36 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional, Dict, Any, List
 
+from agent_hub_pipeline import (
+    STAGE_MIN_OUTPUT_HINTS,
+    detect_build_command,
+    extract_code_blocks_from_content,
+    needs_output_top_up,
+    verify_worktree_code_quality,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .planner_worker import resolve_model, ModelTier
+from .planner_worker import resolve_model
 from .memory import store_memory, get_context_from_history, update_quality_score, set_working_context
-from .self_verify import verify_stage_output, VerifyStatus
+from .self_verify import (
+    VerifyResult,
+    VerifyStatus,
+    StageVerification,
+    verify_stage_output,
+)
 from .guardrails import evaluate_guardrail, GuardrailLevel
 from .observability import (
     start_trace, start_span, complete_span, complete_trace, PipelineTrace,
 )
-from .llm_router import chat_completion as llm_chat
-from .llm_router import chat_completion_with_retry as llm_chat_with_retry
 from .llm_router import chat_completion_with_fallback as llm_chat_with_fallback
 from .token_tracker import estimate_cost
 from .sse import emit_event
 
 logger = logging.getLogger(__name__)
-
-_STAGE_MIN_OUTPUT_HINTS: Dict[str, int] = {
-    "planning": 1200,
-    "design": 1800,
-    "architecture": 1600,
-    "development": 2500,
-    "testing": 1200,
-    "reviewing": 600,
-}
-
-
-def _needs_output_top_up(stage_id: str, content: str) -> bool:
-    text = (content or "").strip()
-    min_len = _STAGE_MIN_OUTPUT_HINTS.get(stage_id)
-    if not min_len:
-        return False
-    if len(text) >= min_len:
-        return False
-    # Short responses that end mid-word / mid-table are common with some
-    # OpenAI-compatible reasoning gateways; give them one continuation shot.
-    tail = text[-120:]
-    return bool(text) and (
-        text[-1:].isalnum()
-        or tail.endswith("|")
-        or "## " not in text
-        or len(text) < int(min_len * 0.7)
-    )
-
-
-def _verify_worktree_code_quality(worktree: Path) -> Optional[Any]:
-    """Heuristic code-quality verification based on actual files in worktree.
-
-    Returns a StageVerification-like object when enough files are present.
-    Scoring (0.0–1.0):
-      • File count (≥3 code files)          : 0.30 + 0.05 per extra, max 0.50
-      • Config file present                 : 0.15
-      • No placeholder tokens (TODO/TBD…)   : 0.15
-      • Test files present                  : 0.10
-      • All files non-empty                 : 0.10
-    """
-    try:
-        skip_dirs = {"node_modules", ".git", "__pycache__", ".next", "dist", "build", ".venv", "venv"}
-        code_exts = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".vue", ".go", ".rs", ".java",
-            ".kt", ".swift", ".cpp", ".c", ".h", ".cs", ".rb", ".php", ".sh",
-            ".html", ".css", ".scss", ".sql", ".dart", ".scala",
-        }
-        config_names = {
-            "requirements.txt", "package.json", "Dockerfile", "Makefile",
-            "Cargo.toml", "go.mod", "pyproject.toml", "setup.py", "pom.xml",
-            "build.gradle", "composer.json", "Gemfile", "CMakeLists.txt",
-        }
-        placeholder_re = re.compile(r"\b(TODO|FIXME|HACK|XXX|TBD|PLACEHOLDER)\b", re.IGNORECASE)
-
-        all_files: List[Path] = []
-        code_files: List[Path] = []
-        test_files: List[Path] = []
-        config_found = False
-        empty_files = 0
-        placeholder_count = 0
-
-        for root, dirs, filenames in os.walk(worktree):
-            dirs[:] = [d for d in dirs if d not in skip_dirs]
-            for fname in filenames:
-                fpath = Path(root) / fname
-                rel = fpath.relative_to(worktree)
-                all_files.append(rel)
-                if fpath.suffix.lower() in code_exts:
-                    code_files.append(rel)
-                if fname.lower() in config_names:
-                    config_found = True
-                # Detect test files
-                lower_name = fname.lower()
-                if "test" in lower_name or "spec" in lower_name:
-                    test_files.append(rel)
-                # Check empty
-                try:
-                    size = fpath.stat().st_size
-                    if size == 0:
-                        empty_files += 1
-                except OSError:
-                    pass
-                # Check placeholders in code files (first 50KB only)
-                if fpath.suffix.lower() in code_exts:
-                    try:
-                        text = fpath.read_text(encoding="utf-8", errors="ignore")[:50000]
-                        placeholder_count += len(placeholder_re.findall(text))
-                    except Exception:
-                        pass
-
-        checks: List[Any] = []
-        total_score = 0.0
-
-        # 1. File count
-        file_score = min(0.50, 0.30 + max(0, len(code_files) - 3) * 0.05)
-        total_score += file_score
-        checks.append({"check_name": "code_file_count", "status": "pass" if len(code_files) >= 3 else "warn", "message": f"{len(code_files)} code files"})
-
-        # 2. Config file
-        if config_found:
-            total_score += 0.15
-            checks.append({"check_name": "config_file", "status": "pass", "message": "Config file found"})
-        else:
-            checks.append({"check_name": "config_file", "status": "warn", "message": "No config file found"})
-
-        # 3. Placeholders
-        if placeholder_count == 0:
-            total_score += 0.15
-            checks.append({"check_name": "placeholders", "status": "pass", "message": "No placeholders"})
-        else:
-            checks.append({"check_name": "placeholders", "status": "warn", "message": f"{placeholder_count} placeholders found"})
-
-        # 4. Test files
-        if test_files:
-            total_score += 0.10
-            checks.append({"check_name": "test_files", "status": "pass", "message": f"{len(test_files)} test files"})
-        else:
-            checks.append({"check_name": "test_files", "status": "warn", "message": "No test files"})
-
-        # 5. Non-empty files
-        if empty_files == 0:
-            total_score += 0.10
-            checks.append({"check_name": "non_empty", "status": "pass", "message": "All files non-empty"})
-        else:
-            checks.append({"check_name": "non_empty", "status": "warn", "message": f"{empty_files} empty files"})
-
-        overall = VerifyStatus.PASS if total_score >= 0.7 else VerifyStatus.WARN if total_score >= 0.4 else VerifyStatus.FAIL
-
-        # Build a lightweight StageVerification-like object using dicts for checks
-        # so we don't need to import VerifyResult here.
-        class _LazyVerification:
-            def __init__(self, overall, checks_list, score):
-                self.overall_status = overall
-                self.checks = checks_list
-                self.score = score
-                self.auto_proceed = overall != VerifyStatus.FAIL
-                self.suggestions = []
-
-        return _LazyVerification(overall, checks, round(total_score, 2))
-    except Exception as e:
-        logger.warning("[pipeline] Worktree code quality check failed: %s", e)
-        return None
-
-
-def _detect_build_command(worktree: Path) -> Optional[str]:
-    """Detect project type and return an appropriate build/test command."""
-    try:
-        root_files = {f.name for f in worktree.iterdir() if f.is_file()}
-        # Root-level detection
-        if "package.json" in root_files:
-            return "npm install && npm run build"
-        if "requirements.txt" in root_files or "setup.py" in root_files or "pyproject.toml" in root_files:
-            return "pip install -r requirements.txt && python -m pytest"
-        if "Cargo.toml" in root_files:
-            return "cargo build"
-        if "go.mod" in root_files:
-            return "go build ./..."
-        if "pom.xml" in root_files:
-            return "mvn compile"
-        if "build.gradle" in root_files:
-            return "./gradlew build"
-        if "Makefile" in root_files:
-            return "make"
-        if "Dockerfile" in root_files:
-            return "docker build -t test ."
-        # Check one level deep for package.json (common for frontend-in-subdir)
-        for sub in worktree.iterdir():
-            if sub.is_dir():
-                sub_files = {f.name for f in sub.iterdir() if f.is_file()}
-                if "package.json" in sub_files:
-                    return f"cd {sub.name} && npm install && npm run build"
-        return None
-    except Exception as e:
-        logger.warning("[pipeline] Build command detection failed: %s", e)
-        return None
-
-
-def _extract_code_blocks_from_content(content: str) -> Dict[str, str]:
-    """Extract code files from markdown content with `` ` ``language:path blocks.
-
-    Supports format:
-    ```dockerfile:deploy/Dockerfile
-    FROM node:20-alpine
-    ```
-    Also supports plain ```language:path and ```:path without language.
-    """
-    blocks: Dict[str, str] = {}
-    for m in re.finditer(r'```\w*:([^\s`\n]+)\n([\s\S]*?)```', content):
-        filepath = m.group(1).strip()
-        file_content = m.group(2).strip()
-        if filepath and file_content:
-            blocks[filepath] = file_content
-    # Also try CodeGenAgent's format: ```language\n// path\ncontent```
-    for m in re.finditer(r'```(\w+)\s*\n//\s*([^\s`\n]+)\n([\s\S]*?)```', content):
-        filepath = m.group(2).strip()
-        file_content = m.group(3).strip()
-        if filepath and file_content and filepath not in blocks:
-            blocks[filepath] = file_content
-    return blocks
 
 
 async def _top_up_stage_output(
@@ -1462,7 +1272,6 @@ async def execute_stage(
         # Call Claude Code FIRST for development stage to write real code to worktree.
         # If Claude Code succeeds and writes files, we SKIP the LLM/AgentRuntime
         # content generation to prevent markdown from overwriting real code output.
-        claude_code_result: Optional[Dict[str, Any]] = None
         cc_written_files: List[str] = []
         cc_job_id: str = ""
         _skip_llm_for_dev = False
@@ -1549,7 +1358,7 @@ async def execute_stage(
             try:
                 from .codegen.codegen_agent import CodeGenAgent
                 codegen = CodeGenAgent()
-                build_cmd = _detect_build_command(task_worktree)
+                build_cmd = detect_build_command(task_worktree)
                 if build_cmd:
                     logger.info("[pipeline] Testing stage build attempt: %s in %s", build_cmd, task_worktree)
                     build_result = await codegen.run_build(str(task_worktree), build_cmd)
@@ -1635,21 +1444,11 @@ async def execute_stage(
                         "stageId": stage_id,
                         "reason": "Testing stage reported NEEDS WORK",
                     })
-                    # Mark testing stage as failed in the in-memory dict
-                    if stage_id in db_stages:
-                        db_stages[stage_id].status = "failed"
-                        db_stages[stage_id].last_error = "Testing failed: NEEDS WORK"
-                    # Reset development + testing to re-run
-                    target = "development"
-                    for sid in list(db_stages.keys()):
-                        idx = list(db_stages.keys()).index(sid)
-                        target_idx = list(db_stages.keys()).index(target)
-                        if idx >= target_idx and sid != target:
-                            if db_stages[sid].status not in ("pending", "skipped"):
-                                db_stages[sid].status = "pending"
-                                db_stages[sid].last_error = None
-                    await db.commit()
-                    return {"ok": False, "error": f"Testing failed, reverted to {target}"}
+                    return {
+                        "ok": False,
+                        "error": "Testing failed: NEEDS WORK",
+                        "revert_to": "development",
+                    }
         else:
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -1704,7 +1503,7 @@ async def execute_stage(
 
         # --- Layer 4.7: Deployment stage — extract Docker/deploy files to worktree ---
         if stage_id == "deployment" and task_worktree and content:
-            _deploy_files = _extract_code_blocks_from_content(content)
+            _deploy_files = extract_code_blocks_from_content(content)
             if _deploy_files:
                 _deploy_dir = task_worktree / "deploy"
                 _deploy_dir.mkdir(parents=True, exist_ok=True)
@@ -1735,7 +1534,7 @@ async def execute_stage(
     # (Layer 4.5 code moved to before Layer 4 - see above)
     if tier == "local" or resolved_provider == "local":
         api_url = app_settings.llm_api_url or ""
-        if api_url and _needs_output_top_up(stage_id, content):
+        if api_url and needs_output_top_up(stage_id, content):
             try:
                 content = await _top_up_stage_output(
                     stage_id=stage_id,
@@ -1761,15 +1560,32 @@ async def execute_stage(
     # For development stage with Claude Code output, override verification
     # with heuristic scoring based on actual files in the worktree.
     if stage_id == "development" and _skip_llm_for_dev and task_worktree:
-        code_verification = _verify_worktree_code_quality(task_worktree)
-        if code_verification:
-            verification = code_verification
-            logger.info("[pipeline] development stage quality override: %s (score inferred from %d files)",
-                verification.overall_status.value, len(cc_written_files))
+        wt_report = verify_worktree_code_quality(task_worktree)
+        if wt_report:
+            verification = StageVerification(
+                stage_id=stage_id,
+                role=role,
+                overall_status=VerifyStatus(wt_report.overall_status),
+                checks=[
+                    VerifyResult(
+                        check_name=c.check_name,
+                        status=VerifyStatus(c.status),
+                        message=c.message,
+                    )
+                    for c in wt_report.checks
+                ],
+                auto_proceed=wt_report.auto_proceed,
+                suggestions=wt_report.suggestions,
+            )
+            logger.info(
+                "[pipeline] development stage quality override: %s (score inferred from %d files)",
+                verification.overall_status.value,
+                len(cc_written_files),
+            )
 
     if (tier == "local" or resolved_provider == "local") and verification.overall_status == VerifyStatus.FAIL:
         api_url = app_settings.llm_api_url or ""
-        if api_url and stage_id in _STAGE_MIN_OUTPUT_HINTS:
+        if api_url and stage_id in STAGE_MIN_OUTPUT_HINTS:
             repair_feedback = "; ".join(
                 c.message for c in verification.checks
                 if getattr(c, "status", None) == VerifyStatus.FAIL
@@ -2196,7 +2012,7 @@ async def execute_full_pipeline(
         # --- Quality Gate Evaluation ---
         gate_result = None
         try:
-            from .quality_gates import evaluate_quality_gate, GateStatus
+            from .quality_gates import evaluate_quality_gate
             from .self_verify import StageVerification, VerifyStatus, VerifyResult
 
             heuristic = StageVerification(
@@ -2311,6 +2127,11 @@ async def execute_full_pipeline(
 
         # --- Peer Review: downstream agent reviews this stage's output ---
         review_conf = STAGE_REVIEW_CONFIG.get(stage_id, {})
+        from .learning_loop import get_active_addendum as _get_active_addendum
+        _task_tpl = db_task.template if db_task else None
+        active_addendum = await _get_active_addendum(
+            db, stage_id=stage_id, template=_task_tpl, complexity=complexity,
+        )
         if review_conf.get("reviewer_agent") and not force_continue:
             retries = 0
             while retries < MAX_REVIEW_RETRIES:
@@ -2472,6 +2293,39 @@ async def execute_full_pipeline(
                 "results": results,
                 "trace_id": trace.trace_id,
             }
+
+        # --- Hermes Oversight: unified supervision before stage finalization ---
+        try:
+            from .hermes_oversight import run_hermes_oversight
+            content_to_check = content or ""
+            hermes_report = await run_hermes_oversight(
+                db,
+                task_id=task_id,
+                stage_id=stage_id,
+                role=STAGE_ROLE_PROMPTS.get(stage_id, {}).get("role", ""),
+                content=content_to_check,
+                previous_outputs=outputs,
+                force_continue=force_continue,
+            )
+            if hermes_report.overall_score < 7.0:
+                logger.info(
+                    "[hermes] Stage %s score=%.1f — %s",
+                    stage_id, hermes_report.overall_score, hermes_report.verdict.value,
+                )
+
+            await emit_event("stage:hermes-oversight", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "verdict": hermes_report.verdict.value,
+                "overallScore": hermes_report.overall_score,
+                "summary": hermes_report.summary,
+            })
+
+            if stage_id in db_stages:
+                db_stages[stage_id].hermes_score = hermes_report.overall_score
+                db_stages[stage_id].hermes_verdict = hermes_report.verdict.value
+        except Exception as hermes_err:
+            logger.warning("[hermes] Oversight failed for %s: %s", stage_id, hermes_err)
 
         # Mark stage as finalized
         if stage_id in db_stages:

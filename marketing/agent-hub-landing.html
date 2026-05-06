@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Hub — 一句话需求 · AI 团队交付</title>
+  <meta name="description" content="企业级 AI 交付平台：多通道接入、多角色流水线、质量闸门、可分享验收。定价与部署可商谈。" />
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #12161d;
+      --text: #eef2f7;
+      --muted: #8b96a8;
+      --accent: #38bdf8;
+      --accent2: #a78bfa;
+      --ok: #34d399;
+      --radius: 16px;
+      --max: 920px;
+      font-family: "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(900px 480px at 80% -15%, #312e8166, transparent), var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    header { margin-bottom: 2.25rem; }
+    .logo {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+    h1 {
+      font-size: clamp(1.85rem, 5vw, 2.6rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+      margin-bottom: 0.75rem;
+    }
+    .lead { color: var(--muted); font-size: 1.08rem; max-width: 38rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid #1f2937;
+      border-radius: var(--radius);
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent2);
+      margin-bottom: 0.9rem;
+    }
+    ul { list-style: none; }
+    li {
+      padding: 0.4rem 0 0.4rem 1.15rem;
+      position: relative;
+    }
+    li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.95rem;
+      width: 6px;
+      height: 6px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+    @media (min-width: 720px) {
+      .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    }
+    .card {
+      border: 1px solid #273549;
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      background: #0f1419;
+      display: flex;
+      flex-direction: column;
+    }
+    .card h3 { font-size: 1.05rem; margin-bottom: 0.35rem; }
+    .price {
+      font-size: 1.65rem;
+      font-weight: 700;
+      color: var(--ok);
+      margin: 0.5rem 0 0.25rem;
+    }
+    .note { font-size: 0.82rem; color: var(--muted); margin-top: auto; padding-top: 0.75rem; }
+    .cta {
+      margin-top: 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    a.btn {
+      display: inline-block;
+      padding: 0.65rem 1.15rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: #0a0c10;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    a.btn.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid #38bdf888;
+    }
+    footer { margin-top: 2rem; font-size: 0.8rem; color: var(--muted); text-align: center; }
+    .fine { font-size: 0.78rem; color: var(--muted); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">Agent Hub</div>
+      <h1>一句话需求 → 可验收的上线交付</h1>
+      <p class="lead">
+        多通道接入（飞书 / QQ / OpenClaw 等）、结构化流水线与质量闸门、DB 版本化交付物与分享验收。
+        适合要把「对话式 AI」升级成「可运营交付平台」的团队。
+      </p>
+      <div class="cta">
+        <a class="btn" href="mailto:17695633572@163.com">预约演示</a>
+        <a class="btn secondary" href="https://github.com/liwen17320273738/agent-hub">源码 / 文档</a>
+      </div>
+    </header>
+
+    <section>
+      <h2>产品能力（摘要）</h2>
+      <ul>
+        <li><strong>Hero Path</strong> — 收件箱方案 → 团队执行 → 验收闸门 → 分享链接</li>
+        <li><strong>多模型路由</strong> — 成本治理、降级与预算护栏</li>
+        <li><strong>实时可见</strong> — SSE + Redis，适合多 worker 部署</li>
+        <li><strong>交付可信</strong> — Artifact 多类型、版本与 manifest，便于审计与对外展示</li>
+      </ul>
+      <p class="fine">具体部署形态（SaaS / 私有化 / 单次交付）可在商务阶段对齐。</p>
+    </section>
+
+    <section>
+      <h2>定价意向（占位 · 可替换为正式价目）</h2>
+      <div class="grid grid-3">
+        <div class="card">
+          <h3>Starter</h3>
+          <p class="price">¥ — / 月</p>
+          <p class="muted" style="color:var(--muted);font-size:0.9rem;">单团队、限定席位，标准流水线模板。</p>
+          <p class="note">适合验证 PMF / 内部试点。</p>
+        </div>
+        <div class="card">
+          <h3>Team</h3>
+          <p class="price">¥ — / 月</p>
+          <p class="muted" style="color:var(--muted);font-size:0.9rem;">多工作区 RBAC、更高并发与定制通道。</p>
+          <p class="note">适合事业部级持续交付。</p>
+        </div>
+        <div class="card">
+          <h3>Enterprise</h3>
+          <p class="price">议付</p>
+          <p class="muted" style="color:var(--muted);font-size:0.9rem;">私有化、合规与集成（SSO、审计、定制编排）。</p>
+          <p class="note">按人天 / 年维一起谈。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>可复用组件</h2>
+      <ul>
+        <li><strong>agent-hub-pipeline</strong>（PyPI 就绪路径）— 标准库可用的管线辅助：输出续写判断、worktree 质量启发式、代码块抽取等；完整异步编排仍在主后端。</li>
+      </ul>
+    </section>
+
+    <footer>
+      静态单页 · 可同 <code>portfolio/index.html</code> 一并托管到 GitHub Pages / Cloudflare Pages。<br />
+      © AI-agent · <a href="mailto:17695633572@163.com">17695633572@163.com</a>
+    </footer>
+  </div>
+</body>
+</html>

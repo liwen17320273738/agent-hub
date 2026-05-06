@@ -24,6 +24,8 @@ agent-hub/
 ├── Makefile                      # Root commands (check, install, dev, stop, test)
 ├── config.example.yaml           # Application config template
 ├── config.yaml                   # Local config (gitignored)
+├── packages/
+│   └── agent-hub-pipeline/       # Stdlib-only maturation helpers (editable install); full async engine stays in backend (see package README)
 ├── backend/                      # FastAPI backend
 │   ├── Makefile                  # Backend-only commands
 │   ├── requirements.txt          # Python dependencies

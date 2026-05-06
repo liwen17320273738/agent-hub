@@ -375,6 +375,27 @@ export async function executeTask(taskId: string): Promise<{ jobId: string }> {
   })
 }
 
+export interface ExecutorJobLog {
+  type: 'stdout' | 'stderr' | 'error'
+  text: string
+  timestamp: number
+}
+
+export interface FetchJobLogsResult {
+  ok: boolean
+  jobId: string
+  logs: ExecutorJobLog[]
+  logCount: number
+}
+
+export async function fetchJobLogs(jobId: string): Promise<FetchJobLogsResult> {
+  return apiFetch(`/executor/jobs/${jobId}/logs`)
+}
+
+export async function fetchJobsByTask(taskId: string): Promise<{ jobs: any[] }> {
+  return apiFetch(`/executor/jobs/task/${taskId}`)
+}
+
 export async function runStage(
   taskId: string,
   stageId?: string,

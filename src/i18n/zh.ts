@@ -1058,6 +1058,7 @@ export default {
     tabArtifacts: "交付物",
     tabOverview: "概览",
     tabDeliverables: "交付包",
+    tabExecutionLog: "执行日志",
     tabSwimlane: "角色泳道",
     qualityLabel: "质量门禁",
     avgScore: "平均评分",

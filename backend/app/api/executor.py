@@ -10,17 +10,15 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
 from ..models.user import User
 from ..security import get_current_user
 from ..services.executor_bridge import (
     execute_claude_code,
     get_job,
+    get_job_logs,
     get_jobs_by_task,
     kill_job,
-    build_execution_prompt,
 )
 
 router = APIRouter(prefix="/executor", tags=["executor"])
@@ -69,6 +67,21 @@ async def get_job_endpoint(
     if job.get("createdBy") and job["createdBy"] != str(user.id) and user.role != "admin":
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job": _safe_job(job)}
+
+
+@router.get("/jobs/{job_id}/logs")
+async def get_job_logs_endpoint(
+    job_id: str,
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Fetch all log entries for a Claude Code execution job."""
+    job = await get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.get("createdBy") and job["createdBy"] != str(user.id) and user.role != "admin":
+        raise HTTPException(status_code=404, detail="Job not found")
+    logs = await get_job_logs(job_id)
+    return {"ok": True, "jobId": job_id, "logs": logs, "logCount": len(logs)}
 
 
 @router.get("/jobs/task/{task_id}")

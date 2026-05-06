@@ -114,6 +114,10 @@ class PipelineStage(Base):
     gate_score: Mapped[Optional[float]] = mapped_column(nullable=True)
     gate_details: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
 
+    # ── Hermes oversight ────────────────────────────────────
+    hermes_score: Mapped[Optional[float]] = mapped_column(nullable=True)
+    hermes_verdict: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
     started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
