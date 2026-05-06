@@ -269,6 +269,22 @@ def _resolve_seed_id(role_or_id: str) -> Optional[str]:
     return ROLE_TO_SEED_ID.get(role_or_id.lower())
 
 
+async def _resolve_runtime_agent_id(db: AsyncSession, role_or_id: str) -> Optional[str]:
+    """Resolve an id for `/agents/{id}/run` and `/run/stream`.
+
+    Order:
+    1. Built-in seed id or role alias (same as ``_resolve_seed_id``).
+    2. Active row in ``agents`` table (custom / forked profiles), e.g. ``wayne-ceo``.
+    """
+    resolved = _resolve_seed_id(role_or_id)
+    if resolved:
+        return resolved
+    agent = await db.get(AgentDefinition, role_or_id)
+    if agent is not None and agent.is_active:
+        return role_or_id
+    return None
+
+
 def _agent_system_prompt(agent: Optional[AgentDefinition], seed_id: str) -> str:
     """Pick the best system prompt: DB definition → built-in fallback."""
     if agent and agent.system_prompt:
@@ -372,10 +388,11 @@ async def run_agent(
 ):
     """Run a single agent end-to-end (synchronous, returns final answer).
 
-    `agent_id` accepts either a seed id (e.g. `Agent-developer`) or a role
-    alias (e.g. `developer`, `security`, `architect`).
+    `agent_id` accepts either a seed id (e.g. `Agent-developer`), a role
+    alias (e.g. `developer`, `security`, `architect`), or an active custom
+    agent id stored in the database (e.g. a forked profile).
     """
-    seed_id = _resolve_seed_id(agent_id)
+    seed_id = await _resolve_runtime_agent_id(db, agent_id)
     if not seed_id:
         raise HTTPException(status_code=404, detail=f"unknown agent or role: {agent_id}")
 
@@ -483,7 +500,7 @@ async def run_agent_stream(
       - {"event": "completed", "ok": bool, "content": "...", "steps": N, ...}
       - {"event": "error",     "error": "..."}
     """
-    seed_id = _resolve_seed_id(agent_id)
+    seed_id = await _resolve_runtime_agent_id(db, agent_id)
     if not seed_id:
         raise HTTPException(status_code=404, detail=f"unknown agent or role: {agent_id}")
     if not body.task or not body.task.strip():

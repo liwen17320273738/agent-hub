@@ -48,8 +48,8 @@
         <el-button type="primary" @click="$router.push(`/agent/${agent.id}`)">
           <el-icon><ChatDotRound /></el-icon> 开始对话
         </el-button>
-        <el-button @click="$router.push('/')">
-          <el-icon><Back /></el-icon> 返回
+        <el-button @click="goBackFromProfile">
+          <el-icon><Back /></el-icon> {{ t('agentProfile.back') }}
         </el-button>
       </div>
     </header>
@@ -203,7 +203,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAgentStore } from '@/stores/agents'
 import type { AgentProfile as AgentProfileType } from '@/stores/agents'
 import { resolveAgentIcon } from '@/utils/agentIcon'
@@ -212,7 +212,26 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const route = useRoute()
+const router = useRouter()
 const agentStore = useAgentStore()
+
+function goBackFromProfile() {
+  let from = typeof route.query.from === 'string' ? route.query.from.trim() : ''
+  try {
+    from = decodeURIComponent(from)
+  } catch {
+    /* use raw */
+  }
+  if (from.startsWith('/') && !from.startsWith('//') && !from.includes('://')) {
+    router.push(from)
+    return
+  }
+  if (typeof window !== 'undefined' && window.history.length > 1) {
+    router.back()
+    return
+  }
+  router.push({ name: 'team' })
+}
 
 onMounted(() => {
   if (!agentStore.loaded) agentStore.fetchAgents()

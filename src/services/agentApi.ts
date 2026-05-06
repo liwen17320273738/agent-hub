@@ -129,6 +129,32 @@ export async function rollbackPromptRevision(
 }
 
 /**
+ * Normalize SSE framing: sse-starlette defaults to `\r\n` between lines
+ * (`EventSourceResponse.DEFAULT_SEPARATOR`), so events end with `\r\n\r\n`.
+ * Browsers may surface either CRLF or LF; normalize before splitting on `\n\n`.
+ */
+function normalizeSseBuffer(buf: string): string {
+  return buf.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+}
+
+function parseSseDataBlock(block: string): AgentStreamEvent | null {
+  const trimmed = block.trim()
+  if (!trimmed) return null
+  const dataLine = trimmed
+    .split('\n')
+    .filter((l) => l.startsWith('data:'))
+    .map((l) => l.slice(5).trimStart())
+    .join('\n')
+  if (!dataLine) return null
+  try {
+    return JSON.parse(dataLine) as AgentStreamEvent
+  } catch (e) {
+    console.warn('[agentApi] failed to parse SSE chunk', dataLine, e)
+    return null
+  }
+}
+
+/**
  * Stream an agent run. Yields parsed JSON events from the SSE response.
  * Use AbortController to cancel a long-running stream.
  */
@@ -173,22 +199,17 @@ export async function* runAgentStream(
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
+    buffer = normalizeSseBuffer(buffer)
     let nlIdx: number
     while ((nlIdx = buffer.indexOf('\n\n')) !== -1) {
-      const chunk = buffer.slice(0, nlIdx).trim()
+      const block = buffer.slice(0, nlIdx)
       buffer = buffer.slice(nlIdx + 2)
-      if (!chunk) continue
-      const dataLine = chunk
-        .split('\n')
-        .filter((l) => l.startsWith('data:'))
-        .map((l) => l.slice(5).trimStart())
-        .join('\n')
-      if (!dataLine) continue
-      try {
-        yield JSON.parse(dataLine) as AgentStreamEvent
-      } catch (e) {
-        console.warn('[agentApi] failed to parse SSE chunk', dataLine, e)
-      }
+      const evt = parseSseDataBlock(block)
+      if (evt) yield evt
     }
   }
+
+  buffer = normalizeSseBuffer(buffer)
+  const tailEvt = parseSseDataBlock(buffer)
+  if (tailEvt) yield tailEvt
 }

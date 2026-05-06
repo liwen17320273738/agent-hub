@@ -289,8 +289,9 @@ function goAgent(id: string) {
 
 <style scoped>
 .team-view {
-  padding: 24px 32px;
-  max-width: 1200px;
+  box-sizing: border-box;
+  width: 100%;
+  padding: clamp(16px, 2.5vw, 28px) clamp(16px, 3vw, 36px);
 }
 
 .team-header {
@@ -359,11 +360,11 @@ function goAgent(id: string) {
 .ps-label { font-size: 12px; font-weight: 600; }
 .ps-agent { font-size: 10px; color: var(--el-text-color-secondary); }
 
-/* Agent Grid */
+/* Agent Grid — fill main width; column count follows viewport */
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: clamp(10px, 1.8vw, 16px);
   margin-bottom: 24px;
 }
 

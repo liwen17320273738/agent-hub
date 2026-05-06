@@ -68,6 +68,14 @@ export const PROVIDER_LABEL: Record<ModelProvider, string> = {
   zhipu: '智谱',
 }
 
+/** Labels for `/models/live` response keys not in MODEL_CATALOG providers. */
+export function liveModelProviderLabel(providerKey: string): string {
+  if (providerKey === 'gateway') return '当前网关'
+  if (providerKey === 'local') return '兼容网关'
+  if (providerKey in PROVIDER_LABEL) return PROVIDER_LABEL[providerKey as ModelProvider]
+  return providerKey
+}
+
 /** 与当前项目默认集成的常见模型（按厂商） */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
   {

@@ -62,6 +62,15 @@ _RETRIABLE_ERROR_SUBSTRINGS = (
 )
 
 
+def _completion_ok(result: Dict[str, Any]) -> bool:
+    """True when the provider returned a usable assistant turn (text and/or tool calls)."""
+    if result.get("error"):
+        return False
+    if result.get("tool_calls"):
+        return True
+    return bool((result.get("content") or "").strip())
+
+
 def _is_retriable_failure(result: Dict[str, Any]) -> bool:
     """Return True if the LLM result looks like a transient/quota error.
 
@@ -202,17 +211,35 @@ def _validate_api_url(url: str) -> str:
 
 def infer_provider(model: str, api_url: str = "") -> str:
     url = api_url.lower()
+    m = (model or "").lower()
+    # Custom HTTP endpoint: prefer URL shape over model-id heuristics so a
+    # generic OpenAI-compatible gateway (LAN / v1/chat/completions) is not
+    # misclassified as DeepSeek just because the model id contains "deepseek".
+    if url and ("/chat/completions" in url or "/v1/chat" in url):
+        if "anthropic.com" in url:
+            return "anthropic"
+        if "generativelanguage.googleapis.com" in url or "/gemini" in url:
+            return "google"
+        if "bigmodel.cn" in url:
+            return "zhipu"
+        if "dashscope" in url:
+            return "qwen"
+        if "deepseek.com" in url:
+            return "deepseek"
+        return "openai"
     if "anthropic" in url or model.startswith("claude"):
         return "anthropic"
     if "gemini" in url or "googleapis" in url or model.startswith("gemini"):
         return "google"
-    if "deepseek" in url or model.startswith("deepseek"):
+    if "deepseek" in url or m.startswith("deepseek"):
         return "deepseek"
     if "bigmodel.cn" in url or model.startswith("glm"):
         return "zhipu"
     if "dashscope" in url or model.startswith("qwen"):
         return "qwen"
     if "openai" in url or model.startswith(("gpt", "o1", "o3", "o4")):
+        return "openai"
+    if "gemma" in m or m.startswith("google/"):
         return "openai"
     return "openai"  # default to OpenAI-compatible
 
@@ -480,6 +507,11 @@ def _extract_openai_message_text(message: Dict[str, Any]) -> str:
     Some third-party compatible gateways return an empty `content` but include
     text inside non-standard fields like `reasoning` / `reasoning_content`.
     """
+    # Reasoning models (gemma, o1, deepseek-r1) put output in reasoning_content
+    reasoning_content = message.get("reasoning_content") or message.get("reasoning")
+    if isinstance(reasoning_content, str) and reasoning_content.strip():
+        return reasoning_content
+
     content = message.get("content", "")
     if isinstance(content, str) and content.strip():
         return content
@@ -492,23 +524,6 @@ def _extract_openai_message_text(message: Dict[str, Any]) -> str:
         if merged:
             return merged
 
-    reasoning = message.get("reasoning")
-    if isinstance(reasoning, str) and reasoning.strip():
-        return reasoning
-    if isinstance(reasoning, list):
-        parts = []
-        for item in reasoning:
-            if isinstance(item, dict):
-                parts.append(str(item.get("text", "")))
-            else:
-                parts.append(str(item))
-        merged = "\n".join(p for p in parts if p).strip()
-        if merged:
-            return merged
-
-    reasoning_content = message.get("reasoning_content")
-    if isinstance(reasoning_content, str) and reasoning_content.strip():
-        return reasoning_content
     return ""
 
 
@@ -739,7 +754,7 @@ async def probe_provider(provider: str, model: str) -> bool:
             ),
             timeout=60.0,
         )
-        healthy = bool(result.get("content")) and not result.get("error")
+        healthy = _completion_ok(result)
         _provider_health[provider] = healthy
         return healthy
     except (asyncio.TimeoutError, Exception):
@@ -792,7 +807,7 @@ async def probe_all_providers() -> Dict[str, bool]:
                 ),
                 timeout=60.0,
             )
-            ok = bool(result.get("content")) and not result.get("error")
+            ok = _completion_ok(result)
             logger.info("[llm-probe] local-strong (%s): %s", strong_model[:40], "✅ healthy" if ok else "❌ unhealthy")
         except (asyncio.TimeoutError, Exception) as e:
             logger.warning("[llm-probe] local-strong probe failed: %s", e)
@@ -1134,7 +1149,7 @@ async def chat_completion_with_fallback(
             tool_choice=tool_choice,
             image_attachments=image_attachments,
         )
-        ok = bool(last_result.get("content")) and not last_result.get("error")
+        ok = _completion_ok(last_result)
         excerpt = (last_result.get("error") or "")[:200] if not ok else ""
         tried.append({
             "provider": attempt["provider"],
@@ -1154,6 +1169,22 @@ async def chat_completion_with_fallback(
 
         # Decide whether to advance or bail.
         if not _is_retriable_failure(last_result) or wi == len(work_health) - 1:
+            if not (last_result.get("error") or "").strip():
+                ex_parts = [
+                    (t.get("error_excerpt") or "").strip()
+                    for t in tried
+                    if (t.get("error_excerpt") or "").strip()
+                ]
+                if ex_parts:
+                    last_result["error"] = ex_parts[-1]
+                else:
+                    st = last_result.get("status")
+                    if isinstance(st, int) and st not in (200,):
+                        last_result["error"] = f"HTTP { st }"
+                    else:
+                        last_result["error"] = (
+                            "upstream returned no usable text or tool calls"
+                        )
             last_result.setdefault("error", "all providers failed")
             last_result["tried_providers"] = tried
             last_result["fell_back"] = False

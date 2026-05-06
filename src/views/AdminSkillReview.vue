@@ -25,6 +25,14 @@ import {
   type PendingMarketplaceEntry,
 } from '@/services/pipelineApi'
 
+const props = withDefaults(
+  defineProps<{
+    /** When nested under 资产中心, hide duplicated page chrome */
+    embedded?: boolean
+  }>(),
+  { embedded: false },
+)
+
 const { t } = useI18n()
 const authStore = useAuthStore()
 const skillCrawl = useSkillCrawlStore()
@@ -131,8 +139,8 @@ watch(
 </script>
 
 <template>
-  <div class="admin-review-page">
-    <header class="page-header">
+  <div class="admin-review-page" :class="{ 'admin-review-page--embedded': props.embedded }">
+    <header v-if="!props.embedded" class="page-header">
       <div>
         <h1>{{ t('adminReview.title') }}</h1>
         <p class="subtitle">{{ t('adminReview.subtitle') }}</p>
@@ -308,6 +316,12 @@ watch(
   max-width: 1100px;
   margin: 0 auto;
   padding: 24px 28px 48px;
+}
+
+.admin-review-page--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 
 .page-header h1 {

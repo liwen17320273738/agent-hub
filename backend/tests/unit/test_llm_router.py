@@ -24,6 +24,17 @@ def test_infer_provider_from_url():
     assert infer_provider("custom", "https://api.deepseek.com/v1") == "deepseek"
 
 
+def test_infer_provider_openai_compat_url_overrides_model_name():
+    """LAN gateways often use ids like deepseek-chat while speaking OpenAI JSON."""
+    url = "http://192.168.130.230:1234/v1/chat/completions"
+    assert infer_provider("deepseek-chat", url) == "openai"
+    assert infer_provider("google/gemma-4-26b-a4b", url) == "openai"
+
+
+def test_infer_provider_gemma_model_id():
+    assert infer_provider("google/gemma-4-26b-a4b") == "openai"
+
+
 def test_extract_system_and_messages():
     msgs = [
         {"role": "system", "content": "You are helpful."},

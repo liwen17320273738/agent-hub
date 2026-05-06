@@ -15,7 +15,7 @@
           <component :is="resolveAgentIcon(agent.icon)" />
         </el-icon>
         <span class="conv-agent-name">{{ agent.name }}</span>
-        <router-link :to="`/agent/${agent.id}/profile`" class="profile-link" :title="t('agentChat.title_1')">
+        <router-link :to="agentProfileLink" class="profile-link" :title="t('agentChat.title_1')">
           <el-icon :size="16"><User /></el-icon>
         </router-link>
       </div>
@@ -126,7 +126,7 @@
         </div>
         <h2>{{ agent.name }} · {{ agent.title }}</h2>
         <p class="welcome-desc">{{ agent.description }}</p>
-        <router-link :to="`/agent/${agent.id}/profile`" class="view-profile-btn">
+        <router-link :to="agentProfileLink" class="view-profile-btn">
           <el-icon :size="14"><User /></el-icon> {{ t('agentChat.title_1') }}
         </router-link>
 
@@ -231,32 +231,128 @@
           closable
           @close="clearRequestError"
         />
-        <div class="input-wrapper">
+        <div v-if="agent" class="composer-card">
           <el-input
             v-model="inputText"
+            class="composer-textarea"
             type="textarea"
-            :autosize="{ minRows: 1, maxRows: 6 }"
+            :autosize="{ minRows: 2, maxRows: 8 }"
             :placeholder="t('agentChat.placeholder_4')"
             @keydown="handleKeydown"
             :disabled="isThisConvGenerating"
           />
-          <el-button
-            v-if="isThisConvGenerating"
-            class="stop-btn"
-            type="danger"
-            plain
-            @click="stopGeneration"
-          >
-            {{ t('agentChat.stop') }}
-          </el-button>
-          <el-button
-            class="send-btn"
-            type="primary"
-            :icon="isThisConvGenerating ? Loading : Promotion"
-            circle
-            :disabled="!inputText.trim() || isThisConvGenerating"
-            @click="sendMessage"
-          />
+          <div class="composer-toolbar">
+            <router-link
+              :to="agentProfileLink"
+              class="toolbar-pill composer-role-pill"
+              :title="t('agentChat.title_1')"
+            >
+              <span class="composer-role-avatar" :style="{ background: agent.color + '30', color: agent.color }">
+                <el-icon :size="14"><component :is="resolveAgentIcon(agent.icon)" /></el-icon>
+              </span>
+              <span class="composer-role-text">{{ agent.title || agent.name }}</span>
+              <el-icon class="composer-role-chevron" :size="12"><ArrowDown /></el-icon>
+            </router-link>
+
+            <div class="toolbar-pill composer-model-pill" :title="resolvedChatModelDisplay">
+              <span class="composer-model-brand" aria-hidden="true">{{ modelBrandMark(resolvedChatModelIdForAgent) }}</span>
+              <el-select
+                v-model="perAgentModelSelect"
+                filterable
+                clearable
+                size="small"
+                class="composer-model-select"
+                :placeholder="chatModelShortLabel"
+              >
+                <el-option key="__auto__" :value="''" :label="t('agentChat.modelAuto')" />
+                <el-option-group v-for="g in modelPickerGroups" :key="g.provider" :label="g.providerLabel">
+                  <el-option v-for="m in g.models" :key="g.provider + m.id" :label="m.label" :value="m.id" />
+                </el-option-group>
+              </el-select>
+            </div>
+
+            <el-popover
+              placement="top-start"
+              :width="360"
+              trigger="click"
+              popper-class="agent-chat-skills-popover"
+              @show="onComposerSkillsPopoverOpen"
+            >
+              <template #reference>
+                <button type="button" class="toolbar-pill composer-skills-pill">
+                  <span class="composer-skills-icon" aria-hidden="true">⛏</span>
+                  Skills
+                </button>
+              </template>
+              <div class="skills-popover-body">
+                <div v-if="boundSkillIds.length" class="skills-bound-row">
+                  <span class="skills-bound-label">{{ t('agentChat.skillsBoundLabel') }}</span>
+                  <div class="skills-bound-tags">
+                    <el-tag v-for="sid in boundSkillIds" :key="sid" size="small" effect="plain" type="info">
+                      {{ sid }}
+                    </el-tag>
+                  </div>
+                </div>
+                <el-input
+                  v-model="skillSearchQuery"
+                  size="small"
+                  clearable
+                  :placeholder="t('agentChat.skillsSearchPlaceholder')"
+                >
+                  <template #suffix>
+                    <el-icon><Search /></el-icon>
+                  </template>
+                </el-input>
+                <p v-if="skillsPopoverError" class="skills-pop-msg skills-pop-error">{{ skillsPopoverError }}</p>
+                <p v-else-if="skillsPopoverLoading" class="skills-pop-msg">{{ t('agentChat.skillsLoading') }}</p>
+                <p v-else-if="!filteredComposerSkills.length" class="skills-pop-msg">{{ t('agentChat.skillsEmpty') }}</p>
+                <ul v-else class="skills-pop-list">
+                  <li
+                    v-for="s in filteredComposerSkills"
+                    :key="s.id"
+                    class="skills-pop-item"
+                    :class="{ 'is-disabled': !s.enabled }"
+                    @click="insertSkillIntoInput(s)"
+                  >
+                    <span class="skills-pop-letter" :style="{ background: skillPickerColor(s.id) }">{{
+                      skillPickerLetter(s)
+                    }}</span>
+                    <div class="skills-pop-item-text">
+                      <div class="skills-pop-name">{{ s.name || s.id }}</div>
+                      <div class="skills-pop-desc">{{ (s.description && s.description.trim()) || '—' }}</div>
+                    </div>
+                  </li>
+                </ul>
+                <router-link to="/skills" class="skills-pop-footer-link" @click.stop>
+                  {{ t('agentChat.skillsImportOrManage') }}
+                </router-link>
+              </div>
+            </el-popover>
+
+            <div class="composer-toolbar-spacer" />
+
+            <VoiceInput compact class="composer-voice" @fill-input="onVoiceFill" />
+
+            <el-button
+              v-if="isThisConvGenerating"
+              class="composer-action-stop"
+              type="danger"
+              :icon="VideoPause"
+              plain
+              @click="stopGeneration"
+            >
+              {{ t('agentChat.stop') }}
+            </el-button>
+            <el-button
+              v-else
+              class="composer-send-btn"
+              type="primary"
+              :icon="Promotion"
+              circle
+              :disabled="!inputText.trim()"
+              @click="sendMessage"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -276,7 +372,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Promotion, Loading } from '@element-plus/icons-vue'
+import { Connection, Promotion, ArrowDown, VideoPause, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
@@ -286,12 +382,12 @@ import { chatCompletion } from '@/services/llm'
 import { completionWithToolLoop } from '@/services/chatWithTools'
 import { buildLLMMessages } from '@/services/messageContext'
 import { runAgentStream, type AgentRunRequest, type AgentStreamEvent } from '@/services/agentApi'
-import { getAuthTokenOrPipelineKey } from '@/services/api'
+import { getAuthTokenOrPipelineKey, fetchLiveModels } from '@/services/api'
 import { resolveStreamAgentKey } from '@/services/agentRuntimeRouting'
-import { isEnterpriseBuild } from '@/services/enterpriseApi'
-import { fetchTask } from '@/services/pipelineApi'
+import { fetchTask, fetchSkills, type Skill } from '@/services/pipelineApi'
 import type { AgentConfig, ChatMessage as ChatMessageType, Conversation, PipelineTask } from '@/agents/types'
 import ChatMessage from '@/components/ChatMessage.vue'
+import VoiceInput from '@/components/voice/VoiceInput.vue'
 import { listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc, type DeliveryDocMeta } from '@/services/deliveryDocs'
 import {
   buildAgentSeed,
@@ -303,6 +399,7 @@ import {
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import { useI18n } from 'vue-i18n'
 import { appLocaleToBcp47 } from '@/i18n'
+import { MODEL_CATALOG, liveModelProviderLabel, type ModelProvider, type ModelCatalogEntry } from '@/services/modelCatalog'
 
 const { t, locale } = useI18n()
 
@@ -334,6 +431,55 @@ const deliveryDocOptions = ref<DeliveryDocMeta[]>([])
 const deliveryTargetDoc = ref('01-prd.md')
 const pipelineTask = ref<PipelineTask | null>(null)
 
+interface ModelPickGroup {
+  provider: string
+  providerLabel: string
+  models: { id: string; label: string }[]
+}
+
+const modelPickerGroups = ref<ModelPickGroup[]>([])
+
+async function loadModelPickerGroups() {
+  try {
+    const live = await fetchLiveModels()
+    const prov = live.providers as Record<string, { id: string; label?: string }[]>
+    const groups: ModelPickGroup[] = []
+    for (const [key, list] of Object.entries(prov)) {
+      if (!Array.isArray(list) || !list.length) continue
+      const models = list
+        .map((m) => ({
+          id: m.id,
+          label: m.label && m.label !== m.id ? `${m.label} · ${m.id}` : m.id,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id))
+      groups.push({
+        provider: key,
+        providerLabel: liveModelProviderLabel(key),
+        models,
+      })
+    }
+    groups.sort((a, b) => a.providerLabel.localeCompare(b.providerLabel))
+    if (groups.length) {
+      modelPickerGroups.value = groups
+      return
+    }
+  } catch {
+    /* catalog fallback */
+  }
+  const byProv = new Map<ModelProvider, ModelCatalogEntry[]>()
+  for (const e of MODEL_CATALOG) {
+    if (!byProv.has(e.provider)) byProv.set(e.provider, [])
+    byProv.get(e.provider)!.push(e)
+  }
+  modelPickerGroups.value = [...byProv.entries()]
+    .map(([p, entries]) => ({
+      provider: p,
+      providerLabel: liveModelProviderLabel(p),
+      models: entries.map((e) => ({ id: e.id, label: `${e.label} (${e.id})` })),
+    }))
+    .sort((a, b) => a.providerLabel.localeCompare(b.providerLabel))
+}
+
 function canSendChatWithoutLocalLlm(ag: AgentConfig): boolean {
   const s = settingsStore.settings
   if (s.agentChatUseBackendRuntime === false) return false
@@ -348,6 +494,130 @@ function canUseChatCompletion(ag: AgentConfig | undefined): boolean {
 
 const agentProfile = computed(() => agentStore.getAgent(route.params.id as string))
 const agent = computed(() => agentProfile.value ? agentStore.agentAsConfig(agentProfile.value) : undefined)
+
+const agentProfileLink = computed(() => {
+  const ag = agent.value
+  if (!ag) return '/'
+  return { path: `/agent/${ag.id}/profile`, query: { from: route.fullPath } }
+})
+
+const composerSkillsCatalog = ref<Skill[]>([])
+const skillsPopoverLoading = ref(false)
+const skillsPopoverError = ref('')
+const skillSearchQuery = ref('')
+
+const boundSkillIds = computed(() => {
+  const rows = agentProfile.value?.skills
+  if (!rows?.length) return []
+  return rows.filter((x) => x.enabled !== false).map((x) => x.skill_id)
+})
+
+const filteredComposerSkills = computed(() => {
+  const q = skillSearchQuery.value.trim().toLowerCase()
+  const list = composerSkillsCatalog.value
+  if (!q) return list
+  return list.filter(
+    (s) =>
+      s.id.toLowerCase().includes(q) ||
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.description || '').toLowerCase().includes(q) ||
+      (s.category || '').toLowerCase().includes(q),
+  )
+})
+
+async function onComposerSkillsPopoverOpen() {
+  skillsPopoverError.value = ''
+  skillsPopoverLoading.value = true
+  try {
+    composerSkillsCatalog.value = await fetchSkills({ includeDisabled: true })
+  } catch (e) {
+    skillsPopoverError.value = e instanceof Error ? e.message : String(e)
+    composerSkillsCatalog.value = []
+  } finally {
+    skillsPopoverLoading.value = false
+  }
+}
+
+function skillPickerLetter(s: Skill) {
+  const base = (s.name && s.name.trim()) || s.id
+  return base.charAt(0).toUpperCase()
+}
+
+function skillPickerColor(id: string) {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return `hsl(${h % 360} 42% 42%)`
+}
+
+function insertSkillIntoInput(s: Skill) {
+  if (!s.enabled) {
+    ElMessage.warning(t('agentChat.skillDisabledHint'))
+    return
+  }
+  const tag = `[skill:${s.id}]`
+  const cur = inputText.value
+  if (cur.trim() && !cur.endsWith('\n')) {
+    inputText.value = `${cur}\n${tag}\n`
+  } else {
+    inputText.value = `${cur}${tag}\n`
+  }
+}
+
+const perAgentModelSelect = computed({
+  get: () => {
+    const id = agent.value?.id
+    if (!id) return ''
+    return settingsStore.getPerAgentChatModel(id) ?? ''
+  },
+  set: (v: string) => {
+    const id = agent.value?.id
+    if (!id) return
+    settingsStore.setPerAgentChatModel(id, v || null)
+  },
+})
+
+const resolvedChatModelIdForAgent = computed(() =>
+  agent.value
+    ? settingsStore.resolveChatModelId(agent.value.id, agentProfile.value?.preferredModel)
+    : '',
+)
+
+const resolvedChatModelDisplay = computed(() => {
+  const id = resolvedChatModelIdForAgent.value
+  if (!id) return '—'
+  for (const g of modelPickerGroups.value) {
+    const hit = g.models.find((m) => m.id === id)
+    if (hit) return hit.label
+  }
+  return id
+})
+
+const chatModelShortLabel = computed(() => {
+  const id = resolvedChatModelIdForAgent.value
+  if (!id) return t('agentChat.modelAuto')
+  const tail = id.split('/').pop() ?? id
+  return tail.length > 28 ? `${tail.slice(0, 25)}…` : tail
+})
+
+function modelBrandMark(modelId: string): string {
+  const s = modelId.toLowerCase()
+  if (!s) return '◇'
+  if (s.includes('deepseek')) return '🐋'
+  if (s.includes('glm') || s.includes('zhipu') || s.includes('chatglm')) return 'G'
+  if (s.includes('gpt') || s.includes('openai') || s.includes('o4') || s.includes('o3')) return '●'
+  if (s.includes('claude') || s.includes('anthropic')) return 'A'
+  if (s.includes('gemini') || s.includes('gemma') || s.includes('google')) return 'G'
+  if (s.includes('qwen') || s.includes('dashscope')) return 'Q'
+  if (s.includes('mistral')) return 'M'
+  return '◇'
+}
+
+function onVoiceFill(text: string) {
+  const snippet = text.trim()
+  if (!snippet) return
+  const cur = inputText.value.trim()
+  inputText.value = cur ? `${cur}\n${snippet}` : snippet
+}
 
 const conversations = computed(() =>
   agent.value ? chatStore.getConversationsByAgent(agent.value.id) : [],
@@ -481,6 +751,14 @@ watch(
     } catch {
       pipelineTask.value = null
     }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.params.id,
+  () => {
+    void loadModelPickerGroups()
   },
   { immediate: true },
 )
@@ -732,12 +1010,18 @@ async function generateConversationSummary() {
       .join('\n\n')
     const max = 120_000
     if (body.length > max) body = body.slice(-max)
+    const agId = agent.value.id
+    const pref = agentStore.getAgent(agId)?.preferredModel
+    const llmSettings = {
+      ...settingsStore.settings,
+      model: settingsStore.resolveChatModelId(agId, pref),
+    }
     const summary = await chatCompletion(
       [
         { role: 'system', content: t('agentChat.summarizeSystemPrompt') },
         { role: 'user', content: `${t('agentChat.summarizeUserPrefix')}\n\n${body}` },
       ],
-      settingsStore.settings,
+      llmSettings,
     )
     chatStore.setConversationSummary(conv.id, summary)
     ElMessage.success(t('agentChat.elMessage_7'))
@@ -779,9 +1063,8 @@ async function invokeBackendRuntimeCompletion(
   }
 
   const s = settingsStore.settings
-  const modelOverride = isEnterpriseBuild
-    ? settingsStore.effectiveModel()
-    : (s.model?.trim() || '')
+  const pref = agentStore.getAgent(currentAgent.id)?.preferredModel
+  const modelOverride = settingsStore.resolveChatModelId(currentAgent.id, pref)
 
   chatStore.setStreamChunk(convId, t('agentChat.streamBackendPrep'))
 
@@ -821,7 +1104,13 @@ async function invokeBackendRuntimeCompletion(
         out += `\n\n*MCP: ${evt.mcp_tools_loaded.join(', ')}*`
       }
       if (!evt.ok && evt.error) {
-        out = `${out}\n\n[${evt.error}]`
+        const errStr = String(evt.error).trim()
+        const bodyTrim = out.trim()
+        if (bodyTrim && bodyTrim !== errStr) {
+          out = `${out}\n\n[${evt.error}]`
+        } else if (!bodyTrim) {
+          out = String(evt.error)
+        }
       }
       chatStore.setStreamChunk(convId, out.trim())
       chatStore.addMessage(convId, 'assistant', out.trim(), currentAgent.id)
@@ -891,17 +1180,23 @@ async function invokeModelCompletion(convId: string) {
       pipelineTask: pipelineTask.value ?? undefined,
     })
 
+    const agentPref = agentStore.getAgent(currentAgent.id)?.preferredModel
+    const llmSettings = {
+      ...settingsStore.settings,
+      model: settingsStore.resolveChatModelId(currentAgent.id, agentPref),
+    }
+
     let finalContent: string
     if (s.enableTools) {
       chatStore.setStreamChunk(convId, t('agentChat.streamPrepTools'))
-      finalContent = await completionWithToolLoop(llmMessages, s, {
+      finalContent = await completionWithToolLoop(llmMessages, llmSettings, {
         signal: ac.signal,
         onStatus: (t) => chatStore.setStreamChunk(convId, t),
       })
     } else {
       finalContent = await chatCompletion(
         llmMessages,
-        s,
+        llmSettings,
         (text) => {
           chatStore.setStreamChunk(convId, text)
         },
@@ -1323,40 +1618,244 @@ async function sendMessage() {
 }
 
 .chat-error-alert {
-  max-width: 800px;
+  max-width: 920px;
   margin: 0 auto 12px;
 }
 
-.input-wrapper {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  max-width: 800px;
+.composer-card {
+  max-width: 920px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.input-wrapper :deep(.el-textarea__inner) {
+.composer-textarea :deep(.el-textarea__inner) {
   background: var(--bg-tertiary);
   border-color: var(--border-color);
   color: var(--text-primary);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 12px 16px;
   font-size: 14px;
   resize: none;
 }
 
-.input-wrapper :deep(.el-textarea__inner:focus) {
+.composer-textarea :deep(.el-textarea__inner:focus) {
   border-color: var(--accent);
 }
 
-.stop-btn {
-  flex-shrink: 0;
-  height: 40px;
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.send-btn {
+.composer-toolbar-spacer {
+  flex: 1;
+  min-width: 16px;
+}
+
+.toolbar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+  max-width: min(260px, 42vw);
+}
+
+.toolbar-pill:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.composer-role-pill {
   flex-shrink: 0;
-  width: 40px;
+}
+
+.composer-role-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.composer-role-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-role-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.composer-model-pill {
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.composer-model-brand {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.composer-model-select {
+  flex: 1;
+  min-width: 96px;
+  max-width: 200px;
+}
+
+.composer-model-select :deep(.el-select__wrapper) {
+  padding: 0 6px;
+  min-height: 30px;
+  box-shadow: none;
+  background: transparent;
+  border: none;
+}
+
+.composer-model-select :deep(.el-select__caret) {
+  color: var(--text-muted);
+}
+
+.composer-skills-pill .composer-skills-icon {
+  font-size: 14px;
+}
+
+button.composer-skills-pill {
+  font: inherit;
+  cursor: pointer;
+}
+
+.composer-voice {
+  flex-shrink: 0;
+}
+
+.composer-action-stop {
+  flex-shrink: 0;
   height: 40px;
+  border-radius: 12px !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+
+.composer-send-btn {
+  flex-shrink: 0;
+  width: 40px !important;
+  height: 40px !important;
+}
+</style>
+
+<style>
+/* Skills popover content is teleported — not under scoped root */
+.agent-chat-skills-popover.el-popover.el-popper {
+  padding: 0 !important;
+}
+.agent-chat-skills-popover .skills-popover-body {
+  padding: 12px;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+}
+.agent-chat-skills-popover .skills-bound-row {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+}
+.agent-chat-skills-popover .skills-bound-label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.agent-chat-skills-popover .skills-bound-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.agent-chat-skills-popover .skills-pop-msg {
+  margin: 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.agent-chat-skills-popover .skills-pop-error {
+  color: var(--el-color-danger);
+}
+.agent-chat-skills-popover .skills-pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  max-height: 220px;
+  border-top: 1px solid var(--el-border-color-lighter);
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.agent-chat-skills-popover .skills-pop-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 4px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.agent-chat-skills-popover .skills-pop-item:hover {
+  background: var(--el-fill-color-light);
+}
+.agent-chat-skills-popover .skills-pop-item.is-disabled {
+  opacity: 0.55;
+}
+.agent-chat-skills-popover .skills-pop-item.is-disabled:hover {
+  background: transparent;
+}
+.agent-chat-skills-popover .skills-pop-letter {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+.agent-chat-skills-popover .skills-pop-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  line-height: 1.3;
+}
+.agent-chat-skills-popover .skills-pop-desc {
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.agent-chat-skills-popover .skills-pop-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+.agent-chat-skills-popover .skills-pop-footer-link:hover {
+  text-decoration: underline;
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="voice-input">
+  <div class="voice-input" :class="{ 'voice-input--compact': compact }">
     <div class="voice-btn-group">
       <!-- 主按钮：录音 -->
       <div
@@ -40,7 +40,7 @@
       </div>
     </div>
 
-    <span class="voice-label">{{ statusText }}</span>
+    <span v-if="!compact" class="voice-label">{{ statusText }}</span>
 
     <!-- 隐藏的文件选择器 -->
     <input
@@ -86,6 +86,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { apiFetch } from '@/services/api'
+
+withDefaults(
+  defineProps<{
+    /** Hide status label + tighten layout for embedding in compact toolbars */
+    compact?: boolean
+  }>(),
+  { compact: false },
+)
 
 /* ── State ── */
 const isRecording = ref(false)
@@ -338,6 +346,25 @@ function copyText() {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.voice-input--compact .voice-trigger {
+  width: 34px;
+  height: 34px;
+}
+
+.voice-input--compact .voice-btn-group {
+  border-radius: 12px;
+}
+
+.voice-input--compact .mic-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.voice-input--compact .voice-divider,
+.voice-input--compact .upload-trigger {
+  display: none;
+}
 
 .voice-label {
   font-size: 13px;

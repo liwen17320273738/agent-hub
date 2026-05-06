@@ -22,7 +22,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..models.pipeline import PipelineTask, PipelineStage, PipelineArtifact
 from ..models.user import User
-from ..security import get_current_user, get_pipeline_auth
+from ..security import get_current_user, get_pipeline_auth, get_pipeline_auth_optional
 from ..services.collaboration import PIPELINE_STAGES
 
 logger = logging.getLogger(__name__)
@@ -894,7 +894,7 @@ async def auto_run_pipeline(
 
 @router.get("/skills")
 async def list_pipeline_skills(
-    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
     db: Annotated[AsyncSession, Depends(get_db)],
     include_disabled: bool = False,
 ):

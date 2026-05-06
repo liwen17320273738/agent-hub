@@ -37,7 +37,7 @@
           {{ skillCount }} 技能
         </span>
         <router-link
-          :to="`/agent/${agent.id}/profile`"
+          :to="profileLink"
           class="card-profile-link"
           @click.stop
         >{{ t('agentCard.text_1') }}</router-link>
@@ -57,8 +57,10 @@ import { computed } from 'vue'
 import type { AgentProfile } from '@/stores/agents'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 
 const { t } = useI18n()
+const route = useRoute()
 
 const props = defineProps<{
   agent: AgentProfile
@@ -72,6 +74,11 @@ const seniority = computed(() => capabilities.value.seniority as string || '')
 const domainTags = computed(() => (capabilities.value.domain as string[]) || [])
 const toolCount = computed(() => props.agent.tools?.length || 0)
 const skillCount = computed(() => props.agent.skills?.length || 0)
+
+const profileLink = computed(() => ({
+  path: `/agent/${props.agent.id}/profile`,
+  query: { from: route.fullPath },
+}))
 </script>
 
 <style scoped>

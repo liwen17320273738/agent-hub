@@ -65,6 +65,28 @@ function mapBackendAgent(raw: Record<string, unknown>): AgentProfile {
   }
 }
 
+/**
+ * Collapse workspace clones (e.g. wayne-ceo) that mirror seed agents (Agent-ceo) on the same
+ * pipeline slot so Team / counts show one card per role. Full `agents` stays complete for getAgent().
+ */
+function dedupeProfilesBySlot(list: AgentProfile[]): AgentProfile[] {
+  const sorted = [...list].sort((a, b) => {
+    const seedA = a.id.startsWith('Agent-') ? 0 : 1
+    const seedB = b.id.startsWith('Agent-') ? 0 : 1
+    if (seedA !== seedB) return seedA - seedB
+    return a.id.localeCompare(b.id)
+  })
+  const seen = new Set<string>()
+  const out: AgentProfile[] = []
+  for (const a of sorted) {
+    const slot = `${a.category}:${a.pipelineRole ?? a.name}`
+    if (seen.has(slot)) continue
+    seen.add(slot)
+    out.push(a)
+  }
+  return out
+}
+
 function staticToProfile(a: AgentConfig): AgentProfile {
   return {
     id: a.id,
@@ -93,9 +115,13 @@ export const useAgentStore = defineStore('agents', () => {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  const coreAgents = computed(() => agents.value.filter((a) => a.category === 'core'))
+  const coreAgents = computed(() =>
+    dedupeProfilesBySlot(agents.value.filter((a) => a.category === 'core')),
+  )
   const pipelineAgents = computed(() => agents.value.filter((a) => a.category === 'pipeline'))
-  const supportAgents = computed(() => agents.value.filter((a) => a.category === 'support'))
+  const supportAgents = computed(() =>
+    dedupeProfilesBySlot(agents.value.filter((a) => a.category === 'support')),
+  )
 
   function getAgent(id: string): AgentProfile | undefined {
     return agents.value.find((a) => a.id === id)

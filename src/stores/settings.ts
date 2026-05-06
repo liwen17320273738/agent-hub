@@ -19,6 +19,7 @@ interface StoredSettingsState {
   profiles: ModelProfile[]
   activeProfileId: string
   roleBindings: Record<string, string>
+  perAgentChatModels: Record<string, string>
 }
 
 function stripApiKeyForEnterprise(s: LLMSettings): LLMSettings {
@@ -64,6 +65,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const profiles = ref<ModelProfile[]>([])
   const activeProfileId = ref<string>('')
   const roleBindings = ref<Record<string, string>>({})
+  const perAgentChatModels = ref<Record<string, string>>({})
 
   function loadSettings(): StoredSettingsState {
     try {
@@ -82,6 +84,10 @@ export const useSettingsStore = defineStore('settings', () => {
             profiles: normalizedProfiles,
             activeProfileId: activeExists ? parsed.activeProfileId : normalizedProfiles[0]?.id ?? '',
             roleBindings: typeof parsed?.roleBindings === 'object' && parsed.roleBindings ? parsed.roleBindings : {},
+            perAgentChatModels:
+              typeof parsed?.perAgentChatModels === 'object' && parsed.perAgentChatModels
+                ? parsed.perAgentChatModels
+                : {},
           }
         }
 
@@ -91,6 +97,7 @@ export const useSettingsStore = defineStore('settings', () => {
           profiles: [profile],
           activeProfileId: profile.id,
           roleBindings: {},
+          perAgentChatModels: {},
         }
       }
     } catch {
@@ -102,6 +109,7 @@ export const useSettingsStore = defineStore('settings', () => {
       profiles: [profile],
       activeProfileId: profile.id,
       roleBindings: {},
+      perAgentChatModels: {},
     }
   }
 
@@ -112,6 +120,7 @@ export const useSettingsStore = defineStore('settings', () => {
         profiles: profiles.value,
         activeProfileId: activeProfileId.value,
         roleBindings: roleBindings.value,
+        perAgentChatModels: perAgentChatModels.value,
       }),
     )
   }
@@ -120,6 +129,7 @@ export const useSettingsStore = defineStore('settings', () => {
   profiles.value = loadedState.profiles
   activeProfileId.value = loadedState.activeProfileId
   roleBindings.value = loadedState.roleBindings
+  perAgentChatModels.value = loadedState.perAgentChatModels
 
   const activeProfile = computed<ModelProfile | null>(
     () => profiles.value.find((item) => item.id === activeProfileId.value) ?? null,
@@ -226,10 +236,36 @@ export const useSettingsStore = defineStore('settings', () => {
     return settings.value.model
   }
 
+  function setPerAgentChatModel(agentId: string, modelId: string | null | undefined) {
+    if (!modelId?.trim()) {
+      delete perAgentChatModels.value[agentId]
+    } else {
+      perAgentChatModels.value[agentId] = modelId.trim()
+    }
+    persist()
+  }
+
+  function getPerAgentChatModel(agentId: string): string | undefined {
+    return perAgentChatModels.value[agentId]
+  }
+
+  /** 当前 Agent 聊天实际使用的模型 id：本页选择 > 角色绑定档案 > 专家 preferred_model > 全局默认 */
+  function resolveChatModelId(agentId: string, agentPreferred?: string | null): string {
+    const explicit = perAgentChatModels.value[agentId]?.trim()
+    if (explicit) return explicit
+    const bound = getRoleBoundProfile(agentId)
+    const bm = bound?.settings.model?.trim()
+    if (bm) return bm
+    const ap = agentPreferred?.trim()
+    if (ap) return ap
+    return effectiveModel()
+  }
+
   return {
     profiles,
     activeProfileId,
     roleBindings,
+    perAgentChatModels,
     activeProfile,
     settings,
     activateProfile,
@@ -244,5 +280,8 @@ export const useSettingsStore = defineStore('settings', () => {
     getRoleBoundProfile,
     isConfigured,
     effectiveModel,
+    setPerAgentChatModel,
+    getPerAgentChatModel,
+    resolveChatModelId,
   }
 })

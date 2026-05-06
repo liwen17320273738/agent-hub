@@ -183,10 +183,12 @@ export default {
   },
   assets: {
     title: "Asset Center",
-    subtitle: "Unified management for models, skills, MCP servers, and evaluations",
+    subtitle:
+      "Models, skills, MCP, evaluations & marketplace moderation — centralized",
     tabs: {
       models: "Models",
       skills: "Skills",
+      skillReview: "Skill review",
       mcp: "MCP Servers",
       eval: "Evaluation",
       codebase: "Codebase Index",
@@ -208,6 +210,8 @@ export default {
       codebase: "Codebase search & analysis",
       observability: "Runtime metrics & tracing",
     },
+    skillReviewLead:
+      "Admins only. Review crawler-discovered SKILL.md entries before publishing to the marketplace (alongside Skill Hub above).",
   },
   team: {
     title: "Team",
@@ -446,6 +450,20 @@ export default {
     stop: "Stop",
     saveAndResend: "Save and regenerate",
     thinking: "Thinking...",
+    runtimeModeHint: "On: backend agent runtime (SSE streaming). Off: browser / local execution path.",
+    runtimeBackend: "Backend",
+    runtimeLocal: "Local",
+    streamBackendPrep: "Running on the backend, preparing a reply…",
+    streamToolCall: "Tool call",
+    chatModelLabel: "Model",
+    modelAuto: "Auto (use resolution below)",
+    modelEffective: "Request uses",
+    skillsBoundLabel: "Bound to this role",
+    skillsSearchPlaceholder: "Search skills by name / description",
+    skillsLoading: "Loading…",
+    skillsEmpty: "No matching skills (or catalog is empty)",
+    skillsImportOrManage: "Import / manage skills",
+    skillDisabledHint: "This skill is disabled. Enable it in the Skills page first.",
     placeholder_1: "Filter this session list…",
     placeholder_2: "Write deliverable document",
     placeholder_3: "For example: I need to do login and permission reconstruction, but I haven't written PRD yet. Let's first help me judge from which stage to start.",
@@ -482,6 +500,7 @@ export default {
   },
   agentProfile: {
     text_1: "Loading...",
+    back: "Back",
     text_2: "Tools",
     text_3: "Skills",
     text_4: "Deliverables",

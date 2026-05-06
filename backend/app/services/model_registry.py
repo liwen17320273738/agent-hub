@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -107,6 +108,92 @@ PROVIDER_CONFIGS: Dict[str, Any] = {
 TTL = settings.model_cache_ttl_seconds
 
 
+def _llm_models_list_url(chat_url: str) -> str:
+    """Derive OpenAI-style ``/v1/models`` URL from a chat/completions base."""
+    u = chat_url.strip().rstrip("/")
+    if "/v1/chat/completions" in u:
+        return u.replace("/v1/chat/completions", "/v1/models")
+    if u.endswith("/chat/completions"):
+        return u[: -len("chat/completions")] + "models"
+    if "/v1/" in u:
+        return u.split("/v1/")[0].rstrip("/") + "/v1/models"
+    return f"{u}/v1/models"
+
+
+def _gateway_models_fallback() -> List[Dict[str, Any]]:
+    mid = (settings.llm_model or "").strip()
+    if not mid:
+        return []
+    return [{"id": mid, "provider": "gateway", "label": mid, "owned_by": "gateway"}]
+
+
+async def fetch_gateway_llm_models() -> List[Dict[str, Any]]:
+    """List models from the configured ``LLM_API_URL`` OpenAI-compatible gateway.
+
+    The chat UI calls ``GET /models/live`` which only queried hard-coded cloud
+    providers; company/LAN gateways keyed as ``local`` had no registry entry.
+    This probes ``/v1/models`` and falls back to ``LLM_MODEL`` as a single choice.
+    """
+    chat_url = (settings.llm_api_url or "").strip()
+    api_key = (settings.llm_api_key or "").strip()
+    if not chat_url or not api_key:
+        return []
+
+    models_url = _llm_models_list_url(chat_url)
+    digest = hashlib.sha256(models_url.encode("utf-8")).hexdigest()[:16]
+    cache_key = f"models:gateway:{digest}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.get(
+                models_url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            if resp.status_code != 200:
+                logger.debug("[model_registry] gateway GET %s -> %s", models_url, resp.status_code)
+                fb = _gateway_models_fallback()
+                if fb:
+                    await cache_set(cache_key, fb, min(TTL, 120))
+                return fb
+
+            data = resp.json()
+            raw = data.get("data") if isinstance(data, dict) else None
+            if not isinstance(raw, list):
+                fb = _gateway_models_fallback()
+                if fb:
+                    await cache_set(cache_key, fb, min(TTL, 120))
+                return fb
+
+            out: List[Dict[str, Any]] = []
+            for m in raw:
+                if not isinstance(m, dict):
+                    continue
+                mid = (m.get("id") or "").strip()
+                if not mid:
+                    continue
+                out.append({
+                    "id": mid,
+                    "provider": "gateway",
+                    "label": mid,
+                    "owned_by": m.get("owned_by") or "gateway",
+                })
+            if not out:
+                out = _gateway_models_fallback()
+            if out:
+                await cache_set(cache_key, out, TTL)
+            return out
+    except Exception as e:
+        logger.debug("[model_registry] gateway models error: %s", e)
+        fb = _gateway_models_fallback()
+        return fb
+
+
 def _google_url(key: str) -> str:
     return f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
 
@@ -153,7 +240,10 @@ async def fetch_all_models(api_keys: Optional[Dict[str, str]] = None) -> Dict[st
         api_keys = settings.get_provider_keys()
 
     sorted_providers = sorted(api_keys.keys())
-    all_cache_key = "models:all:" + ",".join(sorted_providers)
+    gw_fingerprint = hashlib.sha256(
+        ((settings.llm_api_url or "") + "|" + (settings.llm_api_key or "")[:12]).encode("utf-8"),
+    ).hexdigest()[:12]
+    all_cache_key = "models:all:" + ",".join(sorted_providers) + ":gw:" + gw_fingerprint
     cached = await cache_get(all_cache_key)
     if cached is not None:
         return cached
@@ -174,6 +264,10 @@ async def fetch_all_models(api_keys: Optional[Dict[str, str]] = None) -> Dict[st
         else:
             logger.warning(f"[model_registry] {provider} error: {result}")
             provider_results[provider] = []
+
+    gw_models = await fetch_gateway_llm_models()
+    if gw_models:
+        provider_results["gateway"] = gw_models
 
     if provider_results:
         await cache_set(all_cache_key, provider_results, TTL)

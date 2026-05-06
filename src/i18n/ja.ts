@@ -317,10 +317,12 @@ export default {
   },
   assets: {
     title: "資産センター",
-    subtitle: "モデル、スキル、MCP サーバー、評価 — 統合管理",
+    subtitle:
+      "モデル、スキル、MCP、評価、スキル市場の審査 — 統合管理",
     tabs: {
       models: "モデル",
       skills: "スキル",
+      skillReview: "スキル審査",
       mcp: "MCP サーバー",
       eval: "評価",
       codebase: "コードインデックス",
@@ -342,6 +344,8 @@ export default {
       codebase: "コードベースの検索と分析",
       observability: "ランタイムメトリクスとトレース",
     },
+    skillReviewLead:
+      "管理者のみ。クローラが見つけた SKILL.md を審査し、承認後にマーケットへ（上のスキルセンター入口とセット）。",
   },
   task: {
     status: {
@@ -445,6 +449,20 @@ export default {
     stop: "停止",
     saveAndResend: "保存して再生成",
     thinking: "考え中…",
+    runtimeModeHint: "オン: バックエンドの Agent 実行（SSE）。オフ: ブラウザ／ローカル実行。",
+    runtimeBackend: "バックエンド",
+    runtimeLocal: "ローカル",
+    streamBackendPrep: "バックエンドで実行中、返信を準備しています…",
+    streamToolCall: "ツール呼び出し",
+    chatModelLabel: "サブモデル",
+    modelAuto: "自動（下記の適用順）",
+    modelEffective: "送信時",
+    skillsBoundLabel: "このロールに紐付け済み",
+    skillsSearchPlaceholder: "スキル名 / 説明で検索",
+    skillsLoading: "読み込み中…",
+    skillsEmpty: "一致するスキルがありません（またはカタログが空です）",
+    skillsImportOrManage: "インポート / スキル管理",
+    skillDisabledHint: "このスキルは無効です。スキル画面で有効化してください。",
     placeholder_1: "この会話リストをフィルタリング...",
     placeholder_2: "デリバリードキュメントに記入",
     placeholder_3: "例：ログインと権限のリファクタリングをやるけど、まだPRDを書いてない。まず、どのステージから始めるべきか判断してほしい。",
@@ -481,6 +499,7 @@ export default {
   },
   agentProfile: {
     text_1: "読み込み中…",
+    back: "戻る",
     text_2: "ツール",
     text_3: "スキル",
     text_4: "成果物",

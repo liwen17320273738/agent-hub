@@ -30,19 +30,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.agent import AgentDefinition
 from ..models.eval import EvalCase, EvalDataset, EvalResult, EvalRun
 
+from ..api.agents import _resolve_runtime_agent_id
+
 logger = logging.getLogger(__name__)
-
-
-async def _resolve_seed_id(role_or_id: str) -> Optional[str]:
-    """Same logic as /agents/run-by-role resolver, duplicated to avoid
-    importing api code from services."""
-    from ..agents.seed import AGENT_TOOLS
-    from .agent_delegate import ROLE_TO_SEED_ID
-    if not role_or_id:
-        return None
-    if role_or_id in AGENT_TOOLS:
-        return role_or_id
-    return ROLE_TO_SEED_ID.get(role_or_id.lower())
 
 
 async def _build_runtime(
@@ -142,7 +132,7 @@ async def run_dataset(db: AsyncSession, run_id: str) -> Dict[str, Any]:
     for case in cases:
         role = (run.agent_role_override or case.role or
                 (dataset.target_role if dataset else "")).strip()
-        seed_id = await _resolve_seed_id(role) if role else None
+        seed_id = await _resolve_runtime_agent_id(db, role) if role else None
         if not seed_id:
             skipped += 1
             db.add(EvalResult(

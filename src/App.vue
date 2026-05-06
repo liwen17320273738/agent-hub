@@ -60,19 +60,6 @@
           <el-icon><SetUp /></el-icon>
           <span>{{ $t('nav.assets') }}</span>
         </router-link>
-
-        <!-- Admin-only: marketplace review queue. Hiding the link for
-             members keeps the sidebar noise-free; the route itself
-             still 403s if a member URL-hacks their way in. -->
-        <router-link
-          v-if="authStore.user?.role === 'admin'"
-          to="/admin/skills"
-          class="nav-item"
-          active-class="active"
-        >
-          <el-icon><Stamp /></el-icon>
-          <span>{{ $t('nav.adminSkills') }}</span>
-        </router-link>
       </nav>
 
       <div class="sidebar-footer">

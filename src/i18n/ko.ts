@@ -317,14 +317,15 @@ export default {
   },
   assets: {
     title: "자산 센터",
-    subtitle: "모델, 스킬, MCP 서버, 평가 — 중앙 관리",
+    subtitle: "모델·스킬·MCP·평가·스킬 마켓 검수 — 한곳 관리",
     tabs: {
       models: "모델",
       skills: "스킬",
+      skillReview: "스킬 심사",
       mcp: "MCP 서버",
       eval: "평가",
       codebase: "코드 인덱스",
-      observability: " observability",
+      observability: "관측",
     },
     buttons: {
       modelLab: "모델 연구소",
@@ -342,6 +343,8 @@ export default {
       codebase: "코드 라이브러리 검색 및 분석",
       observability: "실행 시간 지표 및 링크 추적",
     },
+    skillReviewLead:
+      "관리자 전용입니다. 크롤러가 수집한 SKILL.md 검수 후 마켓에 게시합니다(위의 스킬 센터와 함께 사용).",
   },
   task: {
     status: {
@@ -445,6 +448,20 @@ export default {
     stop: "중지",
     saveAndResend: "저장 후 다시 생성",
     thinking: "생각 중...",
+    runtimeModeHint: "켜면 백엔드 Agent 런타임(SSE), 끄면 브라우저/로컬 실행입니다.",
+    runtimeBackend: "백엔드",
+    runtimeLocal: "로컬",
+    streamBackendPrep: "백엔드에서 실행 중, 응답 준비 중…",
+    streamToolCall: "도구 호출",
+    chatModelLabel: "하위 모델",
+    modelAuto: "자동(아래 적용 순서)",
+    modelEffective: "요청에 사용",
+    skillsBoundLabel: "이 역할에 연결됨",
+    skillsSearchPlaceholder: "이름 / 설명으로 검색",
+    skillsLoading: "로딩 중…",
+    skillsEmpty: "일치하는 스킬이 없습니다(또는 목록이 비어 있음)",
+    skillsImportOrManage: "가져오기 / 스킬 관리",
+    skillDisabledHint: "비활성 스킬입니다. 스킬 페이지에서 먼저 켜 주세요.",
     placeholder_1: "이 회의 목록 필터링…",
     placeholder_2: "배포 문서 작성",
     placeholder_3: "예를 들어: 로그인 및 권한 재구조화를 하려고 합니다. PRD를 쓰지 않았기 때문에, 어느 단계에서 시작해야 할지判断해 주세요.",
@@ -481,6 +498,7 @@ export default {
   },
   agentProfile: {
     text_1: "로딩 중…",
+    back: "돌아가기",
     text_2: "도구",
     text_3: "스킬",
     text_4: "배포물",

@@ -179,3 +179,35 @@ async def test_fallback_skips_providers_without_keys(monkeypatch, no_same_provid
     assert result["fell_back"] is True
     providers_tried = [t["provider"] for t in result["tried_providers"]]
     assert providers_tried == ["zhipu", "deepseek"]
+
+
+@pytest.mark.asyncio
+async def test_fallback_treats_tool_calls_without_text_as_success(
+    monkeypatch, patch_keys, no_same_provider_retry,
+):
+    """GLM and others often return assistant turns with tool_calls and empty content."""
+    stub = _Stub([
+        {
+            "status": 200,
+            "content": "",
+            "tool_calls": [{
+                "id": "call_1",
+                "function": {"name": "noop", "arguments": "{}"},
+            }],
+            "model": "glm-4.5",
+            "provider": "zhipu",
+        },
+    ])
+    monkeypatch.setattr(llm_router, "chat_completion", stub)
+
+    result = await chat_completion_with_fallback(
+        model="glm-4.5",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[{"name": "noop", "description": "t", "parameters": {"type": "object"}}],
+    )
+
+    assert not result.get("error")
+    assert result.get("tool_calls")
+    assert result["fell_back"] is False
+    assert len(result["tried_providers"]) == 1
+    assert result["tried_providers"][0]["ok"] is True
