@@ -292,7 +292,7 @@ issuse21.phase 加了 Phase 0 是对的。但本该在 issuse03 就建立"决策
 ## 六、issuse20 四周执行成果总结（2026-04-22 → 2026-04-23）
 
 ### W1：品牌统一 + Sidebar 收口
-- 全局替换 "Wayne Stack" → "Agent Hub"
+- 全局替换 "Agent Stack" → "Agent Hub"
 - Sidebar 30 入口收口到 5 个：控制台 / 收件箱 / 团队 / 工作流 / 资产
 
 ### W2：核心工作流闭环

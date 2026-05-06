@@ -865,6 +865,11 @@ export default {
     text_23: "Local Directory",
     placeholder_1: "Concise description of the requirement...",
     placeholder_2: "Detailed description of the requirement...",
+    selectAllPlanning: "Select all",
+    deleteSelectedPlanning: "Delete selected ({n})",
+    titleBulkDeletePlanning: "Delete multiple tasks",
+    confirmBulkDeletePlanningMessage: "Delete {count} selected tasks? This cannot be undone.",
+    elMessageBulkDeletedPlanning: "Deleted {count} tasks",
     title_1: "Delete Task",
     title_2: "Create New Task",
     label_1: "Task Title",
@@ -1328,7 +1333,7 @@ export default {
     text_1: "Loading...",
     text_2: "Go to Login",
   },
-  wayneConsole: {
+  AgentConsole: {
     text_1: "View Blueprint",
     elMessage_1: "Please select an archive first",
     elMessage_2: "Binding failed",
@@ -1343,7 +1348,7 @@ export default {
     elMessage_11: "docs/delivery template has been initialized",
     elMessage_12: "Delivery document has been saved to docs/delivery",
   },
-  wayneStack: {
+  AgentStack: {
     text_1: "Agent Hub Running Blueprint",
     text_2: "Claude Code Hub",
     text_3: "Cursor Cockpit",

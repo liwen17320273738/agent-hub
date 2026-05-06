@@ -31,7 +31,7 @@ MCP Client / Eval Suite / 专家工作台
 🟡 第 6 波 — 检索 / 记忆
 9. PG-side 向量搜索（IVFFlat 真用上）
 10. 跨项目长期记忆（不止 working memory）
-11. Agent 互查记忆（"上次 wayne-cto 怎么处理 X"）
+11. Agent 互查记忆（"上次 Agent-cto 怎么处理 X"）
 12. RAG over docs（不只 codebase）
 3-5 天
 打完这 12 步，才算从"toy demo + 流水线"升级到"3 个 agent 能并行干活、失败能自愈、越用越准"。

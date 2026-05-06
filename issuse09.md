@@ -352,7 +352,7 @@ HN 标题公式（实测有效）
 判断标准：标题里有具体数字 / 名词 > 空洞形容词。
 
 帖子结构（500-700 字最佳）
-Hi HN, I'm Wayne. For the last X months I've been building Agent-Hub, an
+Hi HN, I'm Agent. For the last X months I've been building Agent-Hub, an
 open-source AI agent platform that does one thing well: it takes a Jira
 ticket or GitHub issue, writes the code, opens a PR, responds to reviewer
 comments, and merges when you approve.

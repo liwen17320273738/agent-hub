@@ -1848,7 +1848,7 @@ async function handleReject() {
 
 function goToAgent() {
   if (!task.value) return
-  const agentId = stageToAgent[task.value.currentStageId] || 'wayne-orchestrator'
+  const agentId = stageToAgent[task.value.currentStageId] || 'Agent-orchestrator'
   router.push({
     path: `/agent/${agentId}`,
     query: { pipelineTask: task.value.id },

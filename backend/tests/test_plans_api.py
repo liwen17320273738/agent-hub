@@ -25,7 +25,7 @@ async def test_get_plan_exposes_runtime_options(client, auth_headers):
 
     await plan_session.save_plan(
         "openclaw",
-        "wayne-phone",
+        "Agent-phone",
         plan_session.make_payload(
             "Ship todo app",
             "Need plan first",
@@ -34,7 +34,7 @@ async def test_get_plan_exposes_runtime_options(client, auth_headers):
         ),
     )
 
-    res = await client.get("/api/plans/openclaw/wayne-phone", headers=auth_headers)
+    res = await client.get("/api/plans/openclaw/Agent-phone", headers=auth_headers)
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["auto_final_accept"] is True
@@ -134,7 +134,7 @@ async def test_approve_plan_reuses_gateway_pending_task(client, auth_headers, mo
             "title": "Ship a todo app",
             "description": "Need plan first",
             "source": "openclaw",
-            "userId": "wayne-phone",
+            "userId": "Agent-phone",
             "planMode": True,
         },
     )
@@ -142,7 +142,7 @@ async def test_approve_plan_reuses_gateway_pending_task(client, auth_headers, mo
     pending_tid = intake.json()["taskId"]
 
     res = await client.post(
-        "/api/plans/openclaw/wayne-phone/approve",
+        "/api/plans/openclaw/Agent-phone/approve",
         headers=auth_headers,
     )
     assert res.status_code == 200, res.text
@@ -155,7 +155,7 @@ async def test_approve_plan_reuses_gateway_pending_task(client, auth_headers, mo
     assert detail.status_code == 200, detail.text
     assert detail.json()["task"]["status"] == "active"
 
-    leftover = await plan_session.load_plan("openclaw", "wayne-phone")
+    leftover = await plan_session.load_plan("openclaw", "Agent-phone")
     assert leftover is None
 
 
@@ -183,7 +183,7 @@ async def test_revise_plan_preserves_runtime_options(client, auth_headers, monke
 
     await plan_session.save_plan(
         "openclaw",
-        "wayne-phone",
+        "Agent-phone",
         plan_session.make_payload(
             "Ship todo app",
             "Need plan first",
@@ -193,13 +193,13 @@ async def test_revise_plan_preserves_runtime_options(client, auth_headers, monke
     )
 
     res = await client.post(
-        "/api/plans/openclaw/wayne-phone/revise",
+        "/api/plans/openclaw/Agent-phone/revise",
         headers=auth_headers,
         json={"feedback": "改成 React"},
     )
     assert res.status_code == 200, res.text
 
-    pending = await plan_session.load_plan("openclaw", "wayne-phone")
+    pending = await plan_session.load_plan("openclaw", "Agent-phone")
     assert pending is not None
     assert pending["metadata"]["auto_final_accept"] is True
     assert pending["metadata"]["source_message_id"] == "msg-123"

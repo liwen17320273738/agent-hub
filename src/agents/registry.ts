@@ -297,7 +297,7 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
-    id: 'wayne-orchestrator',
+    id: 'Agent-orchestrator',
     name: 'Agent Hub 总控',
     title: 'Orchestrator',
     icon: 'Connection',
@@ -336,7 +336,7 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
-    id: 'wayne-product-manager',
+    id: 'Agent-product-manager',
     name: '产品经理',
     title: 'Product Manager',
     icon: 'Memo',
@@ -370,7 +370,7 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
-    id: 'wayne-developer',
+    id: 'Agent-developer',
     name: '开发工程师',
     title: 'Developer',
     icon: 'Cpu',
@@ -407,7 +407,7 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
-    id: 'wayne-qa-lead',
+    id: 'Agent-qa-lead',
     name: 'QA 负责人',
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
@@ -445,7 +445,7 @@ export const agents: AgentConfig[] = [
     ],
   },
   {
-    id: 'wayne-china-strategist',
+    id: 'Agent-china-strategist',
     name: '中文策略',
     title: 'China Strategist',
     icon: 'ChatLineSquare',

@@ -2,7 +2,7 @@
  * Agent Runtime Routing — maps frontend AgentConfig to backend stream endpoint keys.
  *
  * The backend `/agents/{agent_id}/run/stream` endpoint accepts either:
- *   - a seed id (e.g. 'wayne-developer')
+ *   - a seed id (e.g. 'Agent-developer')
  *   - a role alias (e.g. 'developer')
  *
  * This module centralises the mapping so AgentChat.vue (and any other UI surface)
@@ -13,19 +13,19 @@ import type { AgentConfig } from '@/agents/types'
 
 /** Role aliases understood by the backend ROLE_TO_SEED_ID table. */
 const ROLE_ALIASES: Record<string, string> = {
-  'wayne-ceo': 'ceo',
-  'wayne-cto': 'cto',
-  'wayne-product': 'product',
-  'wayne-developer': 'developer',
-  'wayne-qa': 'qa',
-  'wayne-designer': 'designer',
-  'wayne-devops': 'devops',
-  'wayne-security': 'security',
-  'wayne-acceptance': 'acceptance',
-  'wayne-data': 'data',
-  'wayne-marketing': 'marketing',
-  'wayne-finance': 'finance',
-  'wayne-legal': 'legal',
+  'Agent-ceo': 'ceo',
+  'Agent-cto': 'cto',
+  'Agent-product': 'product',
+  'Agent-developer': 'developer',
+  'Agent-qa': 'qa',
+  'Agent-designer': 'designer',
+  'Agent-devops': 'devops',
+  'Agent-security': 'security',
+  'Agent-acceptance': 'acceptance',
+  'Agent-data': 'data',
+  'Agent-marketing': 'marketing',
+  'Agent-finance': 'finance',
+  'Agent-legal': 'legal',
 }
 
 /**

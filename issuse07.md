@@ -7,9 +7,9 @@
 只有 notify/slack.py + 微信平台部署。
 缺：Jira issue 双向同步（创建 PRD → Jira story；REJECT → Jira comment）、GitHub Issue/PR 反向闭环（PR comment → 触发 review stage）、Figma 设计稿读写。
 影响：人在公司里习惯用的协作面，AI 军团是"瞎子"。
-⚠️ ⑦ wayne-product / wayne-marketing / wayne-finance 冗余未拆
-seed.py:250+ wayne-product 还是和 pipeline_role: product-manager 100% 重叠；wayne-marketing/finance 仍只在 2 个模板（growth_product/fintech）激活。
-缺：要么并入主角色（删 3 个画像），要么差异化（如 wayne-product 改成"中文电商场景特调"独有 quick-prompt + capabilities）。
+⚠️ ⑦ Agent-product / Agent-marketing / Agent-finance 冗余未拆
+seed.py:250+ Agent-product 还是和 pipeline_role: product-manager 100% 重叠；Agent-marketing/finance 仍只在 2 个模板（growth_product/fintech）激活。
+缺：要么并入主角色（删 3 个画像），要么差异化（如 Agent-product 改成"中文电商场景特调"独有 quick-prompt + capabilities）。
 影响：不致命，但 UI agent 列表里有"重复 NPC"。
 这一波建出来的潜在风险（CR-blocker 级）
 读 git status + 跑测的过程发现几个还没暴露但会咬人的点：

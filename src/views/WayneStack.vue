@@ -1,16 +1,16 @@
 <template>
-  <div class="wayne-stack-page">
+  <div class="Agent-stack-page">
     <header class="page-header">
       <div>
-        <h1>{{ t('wayneStack.text_1') }}</h1>
+        <h1>{{ t('AgentStack.text_1') }}</h1>
         <p class="subtitle">
           以 Claude Code 为执行中枢、Cursor 为驾驶舱、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
         </p>
       </div>
       <div class="header-badges">
-        <el-tag type="success" effect="dark">{{ t('wayneStack.text_2') }}</el-tag>
-        <el-tag type="info">{{ t('wayneStack.text_3') }}</el-tag>
-        <el-tag type="warning">{{ t('wayneStack.text_4') }}</el-tag>
+        <el-tag type="success" effect="dark">{{ t('AgentStack.text_2') }}</el-tag>
+        <el-tag type="info">{{ t('AgentStack.text_3') }}</el-tag>
+        <el-tag type="warning">{{ t('AgentStack.text_4') }}</el-tag>
       </div>
     </header>
 
@@ -108,20 +108,20 @@
         <el-card class="mvp-card">
           <template #header>先启用的角色</template>
           <ul class="plain-list">
-            <li>`wayne-orchestrator`</li>
-            <li>`wayne-product-manager`</li>
-            <li>`wayne-developer`</li>
-            <li>`wayne-qa-lead`</li>
+            <li>`Agent-orchestrator`</li>
+            <li>`Agent-product-manager`</li>
+            <li>`Agent-developer`</li>
+            <li>`Agent-qa-lead`</li>
           </ul>
         </el-card>
 
         <el-card class="mvp-card">
           <template #header>先跑通的命令</template>
           <ul class="plain-list">
-            <li>`/wayne-prd`</li>
-            <li>`/wayne-build`</li>
-            <li>`/wayne-qa`</li>
-            <li>`/wayne-retro`</li>
+            <li>`/Agent-prd`</li>
+            <li>`/Agent-build`</li>
+            <li>`/Agent-qa`</li>
+            <li>`/Agent-retro`</li>
           </ul>
         </el-card>
 
@@ -167,7 +167,7 @@
 
       <div class="agent-entry-grid">
         <div
-          v-for="entry in wayneAgents"
+          v-for="entry in AgentAgents"
           :key="entry.id"
           class="entry-card"
           @click="goAgent(entry.id)"
@@ -294,37 +294,37 @@ const modelRoles: ModelRole[] = [
 
 const commandRoutes = [
   {
-    command: '/wayne-prd',
+    command: '/Agent-prd',
     lead: 'GPT-4.5',
     review: 'Opus 4.6 收缩范围 / GLM-4.5 中文润色',
     output: 'PRD、目标/非目标、验收标准',
   },
   {
-    command: '/wayne-ui',
+    command: '/Agent-ui',
     lead: 'GPT-4.5 / Gemini 4',
     review: 'Opus 4.6 审核方向',
     output: 'UI spec、状态设计、交互说明',
   },
   {
-    command: '/wayne-arch',
+    command: '/Agent-arch',
     lead: 'Opus 4.6',
     review: 'Gemini 4 challenge + GPT-4.5 结构化',
     output: '架构说明、接口契约、风险与 ADR',
   },
   {
-    command: '/wayne-build',
+    command: '/Agent-build',
     lead: 'Sonnet 4.6',
     review: 'GPT-4.5 代码与逻辑审查',
     output: '实现代码、实现说明、验证步骤',
   },
   {
-    command: '/wayne-qa',
+    command: '/Agent-qa',
     lead: 'Gemini 4 / Sonnet 4.6',
     review: 'GPT-4.5 输出结论 / GLM-4.5 中文结论润色',
     output: '测试报告、PASS/NEEDS WORK 结论',
   },
   {
-    command: '/wayne-ship',
+    command: '/Agent-ship',
     lead: 'Opus 4.6',
     review: 'Agent Hub 最终审批',
     output: '验收结论、回滚要点、发布建议',
@@ -400,9 +400,9 @@ const executionModes: ExecutionMode[] = [
   },
 ]
 
-const wayneAgents = [
+const AgentAgents = [
   {
-    id: 'wayne-orchestrator',
+    id: 'Agent-orchestrator',
     name: 'Agent Hub 总控',
     title: 'Orchestrator',
     icon: 'Connection',
@@ -411,7 +411,7 @@ const wayneAgents = [
     recommendedModel: '推荐：Opus 4.6',
   },
   {
-    id: 'wayne-product-manager',
+    id: 'Agent-product-manager',
     name: 'Agent Hub 产品经理',
     title: 'Product Manager',
     icon: 'Memo',
@@ -420,7 +420,7 @@ const wayneAgents = [
     recommendedModel: '推荐：GPT-4.5',
   },
   {
-    id: 'wayne-developer',
+    id: 'Agent-developer',
     name: 'Agent Hub 开发工程师',
     title: 'Developer',
     icon: 'Cpu',
@@ -429,7 +429,7 @@ const wayneAgents = [
     recommendedModel: '推荐：Sonnet 4.6',
   },
   {
-    id: 'wayne-qa-lead',
+    id: 'Agent-qa-lead',
     name: 'Agent Hub QA 负责人',
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
@@ -438,7 +438,7 @@ const wayneAgents = [
     recommendedModel: '推荐：Gemini 4',
   },
   {
-    id: 'wayne-china-strategist',
+    id: 'Agent-china-strategist',
     name: 'Agent Hub 中文策略',
     title: 'China Strategist',
     icon: 'ChatLineSquare',
@@ -454,7 +454,7 @@ function goAgent(id: string) {
 </script>
 
 <style scoped>
-.wayne-stack-page {
+.Agent-stack-page {
   padding: 32px 40px 48px;
   max-width: 1400px;
   margin: 0 auto;
@@ -743,7 +743,7 @@ function goAgent(id: string) {
     justify-content: flex-start;
   }
 
-  .wayne-stack-page {
+  .Agent-stack-page {
     padding: 24px 20px 36px;
   }
 }

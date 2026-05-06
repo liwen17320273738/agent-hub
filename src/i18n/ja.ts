@@ -864,6 +864,11 @@ export default {
     text_23: "ローカルディレクトリ",
     placeholder_1: "簡潔な需求説明...",
     placeholder_2: "詳細な需求説明...",
+    selectAllPlanning: "すべて選択",
+    deleteSelectedPlanning: "選択を削除 ({n})",
+    titleBulkDeletePlanning: "一括削除",
+    confirmBulkDeletePlanningMessage: "選択した {count} 件のタスクを削除しますか？元に戻せません。",
+    elMessageBulkDeletedPlanning: "{count} 件のタスクを削除しました",
     title_1: "タスクの削除",
     title_2: "新しいタスクの作成",
     label_1: "タスクのタイトル",
@@ -1325,7 +1330,7 @@ export default {
     text_1: "読み込み中...",
     text_2: "ログインに移動",
   },
-  wayneConsole: {
+  AgentConsole: {
     text_1: "ブループリントを確認",
     elMessage_1: "まずはアーカイブを選んでください",
     elMessage_2: "バインド失敗",
@@ -1340,7 +1345,7 @@ export default {
     elMessage_11: "docs/deliveryテンプレートが初期化されました",
     elMessage_12: "配布文書がdocs/deliveryに保存されました",
   },
-  wayneStack: {
+  AgentStack: {
     text_1: "Agent Hub ブループリントの実行",
     text_2: "Claude Code 中枢",
     text_3: "Cursor 駅",

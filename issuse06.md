@@ -86,7 +86,7 @@ Prompt Injection sanitizer 接 web_search / browser_*（中英 16 条规则）
 Self-healing 弱 — stage 失败后只会按 max_retries 重跑，没有"根因分析→改 prompt→再跑"的元循环。Acceptance REJECT 时虽然支持 REJECT_TO: <stage_id> 回退，但回退后还是用同一份 prompt。
 Skill 沙箱不严 — tools/registry.py 里所有工具对所有 agent 开放，没有 per-role 白名单强约束（只有软声明）。security-agent 理论上能调 deploy 工具。
 外部集成停在 demo 级 — Slack 通知有，Jira / Figma / GitHub Issue 双向同步没有。openclaw 是 IM 网关但没接进 pipeline 事件流。
-Wayne- 三个 agent 仍冗余* — wayne-product 和 CEO 角色重叠、wayne-marketing/wayne-finance 只在 2 个模板里激活。要么并入主角色，要么给它们差异化的能力（比如 wayne-product = 中文电商场景特调）。
+Agent- 三个 agent 仍冗余* — Agent-product 和 CEO 角色重叠、Agent-marketing/Agent-finance 只在 2 个模板里激活。要么并入主角色，要么给它们差异化的能力（比如 Agent-product = 中文电商场景特调）。
 我的判断
 "0→1 自动开发"算 MVP 完成，可以拉真用户跑了。
 "AI-agent 军团"还差一个 Wave-5：自我学习 + 真并行 + 可观测看板。

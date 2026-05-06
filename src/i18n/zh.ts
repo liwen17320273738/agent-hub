@@ -863,6 +863,11 @@ export default {
     text_23: "本地目录",
     placeholder_1: "简洁描述需求...",
     placeholder_2: "详细需求描述...",
+    selectAllPlanning: "全选",
+    deleteSelectedPlanning: "删除选中 ({n})",
+    titleBulkDeletePlanning: "批量删除任务",
+    confirmBulkDeletePlanningMessage: "确定删除已选中的 {count} 个任务？删除后无法恢复。",
+    elMessageBulkDeletedPlanning: "已删除 {count} 个任务",
     title_1: "删除任务",
     title_2: "创建新任务",
     label_1: "任务标题",
@@ -877,7 +882,7 @@ export default {
     elMessage_6: "任务已删除",
     elMessage_7: "请输入任务标题",
     pathPrepend: "路径",
-    localPathPlaceholder: "绝对路径，如 /Users/wayne/Documents/my-app",
+    localPathPlaceholder: "绝对路径，如 /Users/Agent/Documents/my-app",
     parentPathPlaceholder:
       "选填：常用项目父目录（与所选文件夹名拼接后由后端校验），如 /Users/you/Documents/YJD",
     localPathTip1:
@@ -1325,7 +1330,7 @@ export default {
     text_1: "加载中…",
     text_2: "前往登录",
   },
-  wayneConsole: {
+  AgentConsole: {
     text_1: "查看蓝图",
     elMessage_1: "请先选择一个档案",
     elMessage_2: "绑定失败",
@@ -1340,7 +1345,7 @@ export default {
     elMessage_11: "已初始化 docs/delivery 模板",
     elMessage_12: "交付文档已保存到 docs/delivery",
   },
-  wayneStack: {
+  AgentStack: {
     text_1: "Agent Hub 运行蓝图",
     text_2: "Claude Code 中枢",
     text_3: "Cursor 驾驶舱",

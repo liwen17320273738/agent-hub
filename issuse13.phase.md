@@ -197,15 +197,15 @@ except ImportError:
 **4. 绑定到合适的 agent**
 
 `backend/app/agents/seed.py` 的 `AGENT_TOOLS`：
-- `wayne-product` 增加 `browser_open` / `browser_extract`（竞品调研）
-- `wayne-qa` 增加 `browser_click_flow`（E2E 测试）
+- `Agent-product` 增加 `browser_open` / `browser_extract`（竞品调研）
+- `Agent-qa` 增加 `browser_click_flow`（E2E 测试）
 - 新建 `data-analysis` agent 已绑则忽略
 
 ### 验收
 
 - [ ] `python -m playwright install chromium` 成功
 - [ ] 单测 `backend/tests/test_browser_tool.py`：mock 一个 httpbin.org 抓取 ≥3 cases
-- [ ] 端到端：让 wayne-product agent 用 browser_open 抓 example.com → 成功返回 title
+- [ ] 端到端：让 Agent-product agent 用 browser_open 抓 example.com → 成功返回 title
 - [ ] 域名黑名单单测：访问 169.254.169.254 必拒
 - [ ] 软导入：未装 Playwright 时系统不崩
 

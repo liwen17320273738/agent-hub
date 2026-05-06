@@ -29,7 +29,7 @@ def test_preferred_model_override():
 
 
 def test_high_complexity_overrides_tier():
-    result = resolve_model("wayne-marketing", complexity="high")
+    result = resolve_model("Agent-marketing", complexity="high")
     assert result["tier"] == "planning"
 
 

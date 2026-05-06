@@ -64,30 +64,30 @@ TIER_MODELS: Dict[ModelTier, list] = {
 
 ROLE_TIER_MAP: Dict[str, ModelTier] = {
     # Planner roles — need strong reasoning
-    "wayne-ceo": ModelTier.PLANNING,
-    "wayne-cto": ModelTier.PLANNING,
-    "wayne-acceptance": ModelTier.PLANNING,
+    "Agent-ceo": ModelTier.PLANNING,
+    "Agent-cto": ModelTier.PLANNING,
+    "Agent-acceptance": ModelTier.PLANNING,
     "orchestrator": ModelTier.PLANNING,
     "lead-agent": ModelTier.PLANNING,
     "architect": ModelTier.PLANNING,
 
     # Execution roles — balanced quality/cost
-    "wayne-product": ModelTier.EXECUTION,
-    "wayne-developer": ModelTier.EXECUTION,
-    "wayne-qa": ModelTier.EXECUTION,
-    "wayne-designer": ModelTier.EXECUTION,
-    "wayne-security": ModelTier.EXECUTION,
+    "Agent-product": ModelTier.EXECUTION,
+    "Agent-developer": ModelTier.EXECUTION,
+    "Agent-qa": ModelTier.EXECUTION,
+    "Agent-designer": ModelTier.EXECUTION,
+    "Agent-security": ModelTier.EXECUTION,
     "product-manager": ModelTier.EXECUTION,
     "developer": ModelTier.EXECUTION,
     "qa-lead": ModelTier.EXECUTION,
     "devops": ModelTier.EXECUTION,
 
     # Routine roles — cost-efficient
-    "wayne-marketing": ModelTier.ROUTINE,
-    "wayne-finance": ModelTier.ROUTINE,
-    "wayne-legal": ModelTier.ROUTINE,
-    "wayne-data": ModelTier.ROUTINE,
-    "wayne-devops": ModelTier.ROUTINE,
+    "Agent-marketing": ModelTier.ROUTINE,
+    "Agent-finance": ModelTier.ROUTINE,
+    "Agent-legal": ModelTier.ROUTINE,
+    "Agent-data": ModelTier.ROUTINE,
+    "Agent-devops": ModelTier.ROUTINE,
     "openclaw": ModelTier.ROUTINE,
 }
 

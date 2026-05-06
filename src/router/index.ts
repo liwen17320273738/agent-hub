@@ -74,14 +74,14 @@ const router = createRouter({
       component: () => import('@/views/ModelLab.vue'),
     },
     {
-      path: '/wayne-console',
-      name: 'wayne-console',
+      path: '/Agent-console',
+      name: 'Agent-console',
       meta: { legacy: true },
       component: () => import('@/views/WayneConsole.vue'),
     },
     {
-      path: '/wayne-stack',
-      name: 'wayne-stack',
+      path: '/Agent-stack',
+      name: 'Agent-stack',
       meta: { legacy: true },
       component: () => import('@/views/WayneStack.vue'),
     },

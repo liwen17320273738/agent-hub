@@ -34,7 +34,7 @@ function normalizeSettings(input: LLMSettings): LLMSettings {
   } else if (!isEnterpriseBuild) {
     next.model = coerceModelForProvider('', next.provider)
   }
-  if (!next.wayneCostMode) next.wayneCostMode = defaultSettings.wayneCostMode
+  if (!next.AgentCostMode) next.AgentCostMode = defaultSettings.AgentCostMode
   if (next.maxTokens > 16384) next.maxTokens = 16384
   next.contextMaxMessages = Math.min(128, Math.max(4, Math.round(next.contextMaxMessages)))
   next.contextMaxChars = Math.min(200_000, Math.max(4000, Math.round(next.contextMaxChars)))

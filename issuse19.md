@@ -53,8 +53,8 @@
 
 - 控制台
 - 模型实验室
-- Wayne Stack
-- Wayne Console
+- Agent Stack
+- Agent Console
 - AI 军团流水线
 - Workflow Builder
 - 专家工作台
@@ -73,7 +73,7 @@
 用户会立刻出现 4 个问题：
 
 1. 我应该去哪一页开始？
-2. `Wayne Stack`、`Wayne Console`、`AI 军团流水线` 到底谁是主页面？
+2. `Agent Stack`、`Agent Console`、`AI 军团流水线` 到底谁是主页面？
 3. `Workflow Builder` 和 `Pipeline` 是什么关系？
 4. `Agent`、`Skills`、`MCP`、`Eval`、`Insights` 是用户要用的，还是开发者自己要看的？
 
@@ -368,8 +368,8 @@
 
 然后把下面这些二级化或隐藏：
 
-- `Wayne Stack`
-- `Wayne Console`
+- `Agent Stack`
+- `Agent Console`
 - `Model Lab`
 - `Eval Lab`
 - `Insights`
@@ -442,7 +442,7 @@
 - 重写首页
 - 重构一级导航
 - 删除 teaser 式首页结构
-- 隐藏 Wayne 系列页面到次级入口
+- 隐藏 Agent 系列页面到次级入口
 
 ---
 

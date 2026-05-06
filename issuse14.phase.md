@@ -86,7 +86,7 @@ Wave 6｜Plan/Act 双模态产品化
 {
   "title": "做一个待办应用",
   "description": "先给我方案，再开工",
-  "userId": "wayne-phone",
+  "userId": "Agent-phone",
   "source": "openclaw",
   "planMode": true,
   "autoFinalAccept": false

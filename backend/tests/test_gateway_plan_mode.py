@@ -41,7 +41,7 @@ async def test_openclaw_plan_mode_returns_pending_plan(client, monkeypatch):
             "title": "Ship a todo app",
             "description": "Need plan first",
             "source": "openclaw",
-            "userId": "wayne-phone",
+            "userId": "Agent-phone",
             "planMode": True,
         },
     )
@@ -52,10 +52,10 @@ async def test_openclaw_plan_mode_returns_pending_plan(client, monkeypatch):
     assert body["pipelineTriggered"] is False
     assert body["planMode"] is True
     assert body["planSession"]["source"] == "openclaw"
-    assert body["planSession"]["userId"] == "wayne-phone"
-    assert body["planSession"]["links"]["approve"].endswith("/api/gateway/openclaw/plans/openclaw/wayne-phone/approve")
+    assert body["planSession"]["userId"] == "Agent-phone"
+    assert body["planSession"]["links"]["approve"].endswith("/api/gateway/openclaw/plans/openclaw/Agent-phone/approve")
 
-    pending = await plan_session.load_plan("openclaw", "wayne-phone")
+    pending = await plan_session.load_plan("openclaw", "Agent-phone")
     assert pending is not None
     assert pending["title"] == "Ship a todo app"
 
@@ -80,7 +80,7 @@ async def test_openclaw_plan_approve_preserves_auto_final_accept(
 
     await plan_session.save_plan(
         "openclaw",
-        "wayne-phone",
+        "Agent-phone",
         plan_session.make_payload(
             "Ship a todo app",
             "Need plan first",
@@ -90,7 +90,7 @@ async def test_openclaw_plan_approve_preserves_auto_final_accept(
     )
 
     res = await client.post(
-        "/api/gateway/openclaw/plans/openclaw/wayne-phone/approve",
+        "/api/gateway/openclaw/plans/openclaw/Agent-phone/approve",
         headers={"Authorization": "Bearer test-secret"},
     )
 
@@ -124,7 +124,7 @@ async def test_openclaw_plan_revise_regenerates_plan(client, monkeypatch):
 
     await plan_session.save_plan(
         "openclaw",
-        "wayne-phone",
+        "Agent-phone",
         plan_session.make_payload(
             "Ship a todo app",
             "Need plan first",
@@ -134,7 +134,7 @@ async def test_openclaw_plan_revise_regenerates_plan(client, monkeypatch):
     )
 
     res = await client.post(
-        "/api/gateway/openclaw/plans/openclaw/wayne-phone/revise",
+        "/api/gateway/openclaw/plans/openclaw/Agent-phone/revise",
         headers={"Authorization": "Bearer test-secret"},
         json={"feedback": "改成 React 技术栈"},
     )
@@ -146,6 +146,6 @@ async def test_openclaw_plan_revise_regenerates_plan(client, monkeypatch):
     assert body["rotation_count"] == 1
     assert "React" in body["plan"]["title"]
 
-    pending = await plan_session.load_plan("openclaw", "wayne-phone")
+    pending = await plan_session.load_plan("openclaw", "Agent-phone")
     assert pending is not None
     assert pending["rotation_count"] == 1

@@ -261,7 +261,7 @@ class AgentRunResponse(BaseModel):
 
 
 def _resolve_seed_id(role_or_id: str) -> Optional[str]:
-    """Accept either a `wayne-*` seed id or a role alias from ROLE_TO_SEED_ID."""
+    """Accept either a `Agent-*` seed id or a role alias from ROLE_TO_SEED_ID."""
     from ..agents.seed import AGENT_TOOLS
     from ..services.agent_delegate import ROLE_TO_SEED_ID
     if role_or_id in AGENT_TOOLS:
@@ -372,7 +372,7 @@ async def run_agent(
 ):
     """Run a single agent end-to-end (synchronous, returns final answer).
 
-    `agent_id` accepts either a seed id (e.g. `wayne-developer`) or a role
+    `agent_id` accepts either a seed id (e.g. `Agent-developer`) or a role
     alias (e.g. `developer`, `security`, `architect`).
     """
     seed_id = _resolve_seed_id(agent_id)

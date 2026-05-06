@@ -50,8 +50,8 @@ PIPELINE_TEMPLATES: 15 个模板（之前 12 个）
 AGENT_PROFILES: 13 个角色画像（之前 5 个）
 14 个种子 agent 中：5 个核心（CEO/Architect/Developer/QA/DevOps）+ 5 个新接入（Designer/Acceptance/Security/Legal/Data/Marketing/Finance 共 7 个）已全部进入主管线，剩下：
 
-wayne-product：和 CEO 角色重叠，作为 review 阶段的 reviewer 出场（design / data-modeling 阶段的同行评审）
-wayne-marketing / wayne-finance：仅在 growth_product / fintech 模板里激活
+Agent-product：和 CEO 角色重叠，作为 review 阶段的 reviewer 出场（design / data-modeling 阶段的同行评审）
+Agent-marketing / Agent-finance：仅在 growth_product / fintech 模板里激活
 openclaw：本来就是 IM 网关 agent，不属于 SDLC
 还需要你做的两件下游事
 DB 迁移 / 老 task：现有的 pipeline_stages 表里没有 design / security-review 等新阶段。新建 task 会自动有；老 task 想用新阶段需要手动 POST /pipeline/tasks/{id}/stages 或重建。如果要给老 task 自动补 design 行，告诉我，我加个 alembic migration。

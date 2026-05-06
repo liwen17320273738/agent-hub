@@ -100,7 +100,7 @@ export default defineConfig(({ mode }) => {
   plugins: [
     vue(),
     {
-      name: 'wayne-delivery-docs-dev',
+      name: 'Agent-delivery-docs-dev',
       configureServer(server) {
         server.middlewares.use(
           '/api/hub/delivery-docs',

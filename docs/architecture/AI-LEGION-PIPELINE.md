@@ -40,7 +40,7 @@
 │  └──┬───┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬───────┘          │
 │     │        │        │        │        │                    │
 │     ▼        ▼        ▼        ▼        ▼                    │
-│  Wayne    Wayne    Claude    Wayne    Wayne                   │
+│  Agent    Agent    Claude    Agent    Agent                   │
 │  Orch.    PM       Code     QA       Orch.                   │
 └──────────────────────────┬──────────────────────────────────┘
 
@@ -95,11 +95,11 @@ interface PipelineTask {
 | 阶段 | 负责角色 | 执行方式 | 产物 |
 |------|---------|---------|------|
 | intake | OpenClaw | 自动 | 结构化需求 |
-| planning | Wayne PM | LLM 对话 | PRD + 验收标准 |
-| architecture | Wayne Dev | LLM 对话 | 技术方案 |
+| planning | Agent PM | LLM 对话 | PRD + 验收标准 |
+| architecture | Agent Dev | LLM 对话 | 技术方案 |
 | building | Claude Code | 终端执行 | 代码 + PR |
-| testing | Wayne QA | LLM + 执行 | 测试报告 |
-| reviewing | Wayne 总控 | 人工+AI | 验收结论 |
+| testing | Agent QA | LLM + 执行 | 测试报告 |
+| reviewing | Agent 总控 | 人工+AI | 验收结论 |
 | shipping | 运维自动化 | 脚本执行 | 部署结果 |
 
 ### 3.3 OpenClaw 网关

@@ -15,7 +15,7 @@
         </div>
       </template>
       <div class="core-grid">
-        <div v-for="model in WAYNE_CORE_MODELS" :key="model.id" class="core-model-card">
+        <div v-for="model in Agent_CORE_MODELS" :key="model.id" class="core-model-card">
           <div class="core-model-top">
             <div>
               <div class="core-model-name">{{ model.label }}</div>
@@ -155,7 +155,7 @@ import {
   MODEL_CATALOG,
   SCORE_LABELS,
   PROVIDER_LABEL,
-  WAYNE_CORE_MODELS,
+  Agent_CORE_MODELS,
   catalogMatchingApiUrl,
   inferDefaultApiFromLlmHost,
 } from '@/services/modelCatalog'

@@ -8,10 +8,10 @@ import {
   PROVIDER_LABEL,
 } from './modelCatalog'
 
-export type WayneCostMode = 'economy' | 'balanced' | 'quality' | 'critical'
+export type AgentCostMode = 'economy' | 'balanced' | 'quality' | 'critical'
 
-export const WAYNE_COST_MODE_OPTIONS: Array<{
-  value: WayneCostMode
+export const Agent_COST_MODE_OPTIONS: Array<{
+  value: AgentCostMode
   label: string
   description: string
 }> = [
@@ -37,24 +37,24 @@ export const WAYNE_COST_MODE_OPTIONS: Array<{
   },
 ]
 
-export interface WayneRouteSuggestion {
+export interface AgentRouteSuggestion {
   id: string
   stage: string
   title: string
   targetAgentId: string
   targetAgentName: string
   recommendedModel: string
-  roleKey: WayneRoleKey
+  roleKey: AgentRoleKey
   reason: string
 }
 
-export type WayneRoleKey = 'orchestrator' | 'product' | 'developer' | 'qa' | 'china'
+export type AgentRoleKey = 'orchestrator' | 'product' | 'developer' | 'qa' | 'china'
 
-type RouteRule = WayneRouteSuggestion & {
+type RouteRule = AgentRouteSuggestion & {
   keywords: string[]
 }
 
-const ROLE_MODEL_MATRIX: Record<WayneRoleKey, Record<WayneCostMode, string>> = {
+const ROLE_MODEL_MATRIX: Record<AgentRoleKey, Record<AgentCostMode, string>> = {
   orchestrator: {
     economy: 'deepseek-reasoner',
     balanced: 'deepseek-reasoner',
@@ -92,7 +92,7 @@ const ROUTE_RULES: RouteRule[] = [
     id: 'orchestrator',
     stage: '判断阶段',
     title: '先由总控判断阶段',
-    targetAgentId: 'wayne-orchestrator',
+    targetAgentId: 'Agent-orchestrator',
     targetAgentName: 'Agent Hub 总控',
     roleKey: 'orchestrator',
     recommendedModel: 'Opus 4.6',
@@ -103,7 +103,7 @@ const ROUTE_RULES: RouteRule[] = [
     id: 'product',
     stage: '需求定义',
     title: '路由到产品经理',
-    targetAgentId: 'wayne-product-manager',
+    targetAgentId: 'Agent-product-manager',
     targetAgentName: '产品经理',
     roleKey: 'product',
     recommendedModel: 'GPT-4.5',
@@ -114,7 +114,7 @@ const ROUTE_RULES: RouteRule[] = [
     id: 'developer',
     stage: '进入开发',
     title: '路由到开发工程师',
-    targetAgentId: 'wayne-developer',
+    targetAgentId: 'Agent-developer',
     targetAgentName: '开发工程师',
     roleKey: 'developer',
     recommendedModel: 'Sonnet 4.6',
@@ -125,7 +125,7 @@ const ROUTE_RULES: RouteRule[] = [
     id: 'qa',
     stage: '质量验证',
     title: '路由到 QA 负责人',
-    targetAgentId: 'wayne-qa-lead',
+    targetAgentId: 'Agent-qa-lead',
     targetAgentName: 'QA 负责人',
     roleKey: 'qa',
     recommendedModel: 'Gemini 4',
@@ -136,7 +136,7 @@ const ROUTE_RULES: RouteRule[] = [
     id: 'china',
     stage: '中文本土化',
     title: '路由到中文策略',
-    targetAgentId: 'wayne-china-strategist',
+    targetAgentId: 'Agent-china-strategist',
     targetAgentName: '中文策略',
     roleKey: 'china',
     recommendedModel: '智谱 GLM-4.5',
@@ -149,29 +149,29 @@ function matchScore(text: string, keywords: string[]) {
   return keywords.reduce((score, keyword) => score + (text.includes(keyword.toLowerCase()) ? 1 : 0), 0)
 }
 
-export function getWayneCostMode(): WayneCostMode {
-  return useSettingsStore().settings.wayneCostMode ?? 'balanced'
+export function getAgentCostMode(): AgentCostMode {
+  return useSettingsStore().settings.AgentCostMode ?? 'balanced'
 }
 
-export function getRecommendedModelForRole(roleKey: WayneRoleKey, mode = getWayneCostMode()) {
+export function getRecommendedModelForRole(roleKey: AgentRoleKey, mode = getAgentCostMode()) {
   return ROLE_MODEL_MATRIX[roleKey][mode]
 }
 
-export function getWayneCostModeMeta(mode = getWayneCostMode()) {
-  return WAYNE_COST_MODE_OPTIONS.find((item) => item.value === mode) ?? WAYNE_COST_MODE_OPTIONS[1]
+export function getAgentCostModeMeta(mode = getAgentCostMode()) {
+  return Agent_COST_MODE_OPTIONS.find((item) => item.value === mode) ?? Agent_COST_MODE_OPTIONS[1]
 }
 
-export function getWayneDefaultRoutes(): WayneRouteSuggestion[] {
-  const mode = getWayneCostMode()
+export function getAgentDefaultRoutes(): AgentRouteSuggestion[] {
+  const mode = getAgentCostMode()
   return ROUTE_RULES.map(({ keywords: _keywords, ...rest }) => ({
     ...rest,
     recommendedModel: getRecommendedModelForRole(rest.roleKey, mode),
   }))
 }
 
-export function inferWayneRoute(input: string): WayneRouteSuggestion[] {
+export function inferAgentRoute(input: string): AgentRouteSuggestion[] {
   const text = input.trim().toLowerCase()
-  if (!text) return getWayneDefaultRoutes()
+  if (!text) return getAgentDefaultRoutes()
 
   const ranked = ROUTE_RULES.map((rule) => ({
     rule,
@@ -188,10 +188,10 @@ export function inferWayneRoute(input: string): WayneRouteSuggestion[] {
     })
 
   if (!ranked.length) {
-    return getWayneDefaultRoutes().slice(0, 3)
+    return getAgentDefaultRoutes().slice(0, 3)
   }
 
-  const uniq = new Map<string, WayneRouteSuggestion>()
+  const uniq = new Map<string, AgentRouteSuggestion>()
   for (const item of ranked) {
     if (!uniq.has(item.id)) uniq.set(item.id, item)
   }
@@ -246,11 +246,11 @@ export function tryApplyRecommendedModel(modelId?: string) {
   }
 }
 
-export function buildWayneSeed(route: WayneRouteSuggestion, task: string) {
+export function buildAgentSeed(route: AgentRouteSuggestion, task: string) {
   const normalizedTask = task.trim()
   if (!normalizedTask) return ''
 
-  if (route.targetAgentId === 'wayne-orchestrator') {
+  if (route.targetAgentId === 'Agent-orchestrator') {
     return `请判断这个任务现在处于 Agent Hub 的哪个阶段，并给出下一步最小动作：\n\n${normalizedTask}`
   }
 

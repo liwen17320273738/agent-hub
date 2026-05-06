@@ -312,9 +312,9 @@ async def _try_parse_feedback(
                     "• 回复「重做：原因」 → 打回重做"
                 ),
             )
-            except Exception:
-                logger.debug(f"[gateway] notify failure (final_acceptance_prompt) for {source}:{user_id}", exc_info=True)
-                pass
+        except Exception:
+            logger.debug(f"[gateway] notify failure (final_acceptance_prompt) for {source}:{user_id}", exc_info=True)
+            pass
         return {
             "ok": True, "action": "final_acceptance_prompt", "taskId": task_id,
         }
@@ -1978,8 +1978,13 @@ async def vibevoice_transcribe(
     """Transcribe an audio file to structured text via VibeVoice ASR.
 
     Accepts:
-        1. ``audioUrl`` in JSON body
-        2. ``multipart/form-data`` with an ``audio`` file field
+        1. ``multipart/form-data`` with an ``audio`` file field
+        2. JSON body with ``audioUrl`` field
+
+    Detection: tries multipart form parsing first (more common for file uploads),
+    then falls back to JSON. The Content-Type header is **not** the sole
+    decider because some clients / proxies send malformed headers (e.g.
+    ``boundary=...`` without the full ``multipart/form-data`` prefix).
     """
     if not settings.vibevoice_enabled:
         raise HTTPException(status_code=503, detail="VibeVoice not enabled (set VIBEVOICE_ENABLED=True)")
@@ -1991,12 +1996,19 @@ async def vibevoice_transcribe(
     audio_url = ""
     prompt = ""
 
-    if content_type.startswith("multipart/form-data"):
-        form = await request.form()
+    # ── Try multipart form-data first ──────────────────────────────────
+    if content_type.startswith("multipart/form-data") or "boundary=" in content_type:
+        try:
+            form = await request.form()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid multipart form data")
+
         audio_file = form.get("audio")
         if audio_file is None or not hasattr(audio_file, "read"):
             raise HTTPException(status_code=400, detail="Missing audio file in multipart upload")
         audio_bytes = await audio_file.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Empty audio file")
         prompt = str(form.get("prompt", ""))
         result = await proxy.transcribe_bytes(
             audio_bytes,
@@ -2004,7 +2016,36 @@ async def vibevoice_transcribe(
             prompt=prompt,
         )
     else:
-        body = await request.json()
+        # ── Fallback: try multipart (even without proper header), then JSON ──
+        try:
+            form = await request.form()
+            audio_file = form.get("audio")
+            if audio_file is not None and hasattr(audio_file, "read"):
+                audio_bytes = await audio_file.read()
+                if audio_bytes:
+                    prompt = str(form.get("prompt", ""))
+                    result = await proxy.transcribe_bytes(
+                        audio_bytes,
+                        filename=getattr(audio_file, "filename", "audio.wav"),
+                        prompt=prompt,
+                    )
+                    output = result.to_dict()
+                    _final_result = {"ok": True, "transcription": output, "detectedAs": "multipart"}
+                    # Auto-dispatch ... (handled below)
+                    return await _maybe_dispatch_vibevoice_task(
+                        output, background_tasks,
+                    )
+        except Exception:
+            pass
+
+        # ── JSON body fallback ──
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="Request must be multipart/form-data with 'audio' file or JSON with 'audioUrl'",
+            )
         audio_url = str(body.get("audioUrl", "")).strip()
         if not audio_url:
             raise HTTPException(status_code=400, detail="audioUrl is required for JSON requests")
@@ -2014,38 +2055,48 @@ async def vibevoice_transcribe(
     output = result.to_dict()
 
     # Auto-dispatch as a pipeline task when transcription is meaningful
-    if output.get("fullText") and len(output["fullText"]) > 20:
-        task_title = f"语音任务: {output['fullText'][:50]}..."
-        task_description = (
-            f"## 语音转录任务\n\n"
-            f"来源音频时长: {output.get('durationS', 0)}秒\n"
-            f"说话人数: {output.get('speakerCount', 0)}\n\n"
-            f"### 完整转录文本\n\n"
-            f"{output['fullText']}"
-        )
+    return await _maybe_dispatch_vibevoice_task(output, background_tasks)
 
-        from ..services.e2e_orchestrator import run_full_e2e as _run_e2e
 
-        async def _dispatch_vibevoice_task():
-            async with async_session_factory() as _db:
-                task = await _create_task_from_gateway(
-                    _db, task_title, task_description, "vibevoice",
-                )
-                await _commit_task_before_background(_db, task)
-                await _run_e2e(
-                    _db,
-                    task_id=str(task.id),
-                    task_title=task_title,
-                    task_description=task_description,
-                    auto_deploy=False,
-                    dag_template="full",
-                    pause_for_acceptance=True,
-                )
-                await _db.commit()
+async def _maybe_dispatch_vibevoice_task(
+    output: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+) -> Dict[str, Any]:
+    """If transcription is meaningful (>20 chars), create a pipeline task."""
+    if not output.get("fullText") or len(output["fullText"]) <= 20:
+        return {"ok": True, "transcription": output}
 
-        background_tasks.add_task(_dispatch_vibevoice_task)
-        output["taskCreated"] = True
-        output["taskTitle"] = task_title
+    task_title = f"语音任务: {output['fullText'][:50]}..."
+    task_description = (
+        f"## 语音转录任务\n\n"
+        f"来源音频时长: {output.get('durationS', 0)}秒\n"
+        f"说话人数: {output.get('speakerCount', 0)}\n\n"
+        f"### 完整转录文本\n\n"
+        f"{output['fullText']}"
+    )
+
+    from ..services.e2e_orchestrator import run_full_e2e as _run_e2e
+
+    async def _dispatch_vibevoice_task():
+        async with async_session_factory() as _db:
+            task = await _create_task_from_gateway(
+                _db, task_title, task_description, "vibevoice",
+            )
+            await _commit_task_before_background(_db, task)
+            await _run_e2e(
+                _db,
+                task_id=str(task.id),
+                task_title=task_title,
+                task_description=task_description,
+                auto_deploy=False,
+                dag_template="full",
+                pause_for_acceptance=True,
+            )
+            await _db.commit()
+
+    background_tasks.add_task(_dispatch_vibevoice_task)
+    output["taskCreated"] = True
+    output["taskTitle"] = task_title
 
     return {"ok": True, "transcription": output}
 
@@ -2059,6 +2110,6 @@ async def vibevoice_status():
         "ok": True,
         "enabled": settings.vibevoice_enabled,
         "available": proxy.is_available(),
-        "mode": "local" if settings.vibevoice_force_local else "api",
-        "model": "microsoft/VibeVoice-ASR-HF",
+        "mode": "local",
+        "model": "openai/whisper-medium (local)",
     }

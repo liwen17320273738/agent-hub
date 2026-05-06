@@ -258,9 +258,9 @@
           <div class="form-tip">{{ t('settings.tools_tip') }}</div>
         </el-form-item>
         <el-form-item :label="t('settings.cost')">
-          <el-select v-model="form.wayneCostMode" class="provider-select">
+          <el-select v-model="form.AgentCostMode" class="provider-select">
             <el-option
-              v-for="item in WAYNE_COST_MODE_OPTIONS"
+              v-for="item in Agent_COST_MODE_OPTIONS"
               :key="item.value"
               :label="item.label"
               :value="item.value"
@@ -382,7 +382,7 @@ import {
   inferDefaultApiFromLlmHost,
   type ModelProvider,
 } from '@/services/modelCatalog'
-import { WAYNE_COST_MODE_OPTIONS } from '@/services/wayneRouting'
+import { Agent_COST_MODE_OPTIONS } from '@/services/wayneRouting'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -441,7 +441,7 @@ const catalogSelectValue = computed(() => {
 })
 
 const currentCostModeDescription = computed(() => {
-  return WAYNE_COST_MODE_OPTIONS.find((item) => item.value === form.wayneCostMode)?.description ?? ''
+  return Agent_COST_MODE_OPTIONS.find((item) => item.value === form.AgentCostMode)?.description ?? ''
 })
 
 const profileSummaries = computed(() =>

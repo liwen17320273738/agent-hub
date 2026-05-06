@@ -4,8 +4,8 @@ import re
 import sys
 from pathlib import Path
 
-AGENCY_ROOT = Path("/Users/wayne/Documents/agency-agents")
-SKILLS_CUSTOM = Path("/Users/wayne/Documents/agent-hub/skills/custom")
+AGENCY_ROOT = Path("/Users/Agent/Documents/agency-agents")
+SKILLS_CUSTOM = Path("/Users/Agent/Documents/agent-hub/skills/custom")
 
 STAGE_CATEGORY_MAP = {
     "engineering": "development",

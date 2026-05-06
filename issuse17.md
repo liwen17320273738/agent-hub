@@ -45,7 +45,7 @@ https://puerto-ide-wilderness-leads.trycloudflare.com
   "title": "<魔法变量：任务标题>",
   "description": "<魔法变量：任务描述>",
   "source": "openclaw",
-  "userId": "wayne-ios",
+  "userId": "Agent-ios",
   "messageId": "ios-shortcut",
   "planMode": true,
   "autoFinalAccept": false

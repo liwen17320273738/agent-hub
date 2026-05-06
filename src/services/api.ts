@@ -53,9 +53,16 @@ export async function apiFetch<T = unknown>(
   options?: RequestInit,
 ): Promise<T> {
   const url = `${API_BASE}${path}`
+  // When body is FormData, browser auto-sets multipart/form-data with boundary;
+  // we must NOT override Content-Type or the boundary info gets lost.
+  const isFormData = options?.body instanceof FormData
+  const defaultHeaders: Record<string, string> = isFormData
+    ? {}
+    : { 'Content-Type': 'application/json' }
+
   const res = await fetch(url, {
     headers: {
-      'Content-Type': 'application/json',
+      ...defaultHeaders,
       ...authHeaders(),
       ...options?.headers,
     },

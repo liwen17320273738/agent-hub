@@ -193,7 +193,7 @@ async with engine.begin() as conn:
 
 | 序号 | 问题描述 | 修复方案 | 涉及文件 |
 | :--- | :--- | :--- | :--- |
-| 9 | **角色权限硬编码**<br>权限表包含 `wayne-ceo` 等特定租户数据 | 移除硬编码，改为通用角色模型，并允许通过 `GUARDRAIL_ROLE_PER 环境变量` 进行动态覆盖 | `backend/app/services/guardrails.py` |
+| 9 | **角色权限硬编码**<br>权限表包含 `Agent-ceo` 等特定租户数据 | 移除硬编码，改为通用角色模型，并允许通过 `GUARDRAIL_ROLE_PER 环境变量` 进行动态覆盖 | `backend/app/services/guardrails.py` |
 | 10 | **SQL 注入 + 静默异常**<br>`min_quality` 使用 f-string 拼接 | 切换为**参数化查询** (`:min_quality`)；针对异常捕获增加详细的 `logger.error` 日志 | `backend/app/services/memory.py` |
 
 ---

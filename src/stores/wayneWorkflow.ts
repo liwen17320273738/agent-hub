@@ -1,29 +1,29 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
-  createWayneStages,
+  createAgentStages,
   inferPrimaryStageByAgent,
-  nextWayneStage,
+  nextAgentStage,
   stageMetaById,
-  type WayneHandoffRecord,
-  type WayneStageId,
-  type WayneStageStatus,
-  type WayneWorkflow,
+  type AgentHandoffRecord,
+  type AgentStageId,
+  type AgentStageStatus,
+  type AgentWorkflow,
 } from '@/services/wayneWorkflow'
 
-const STORAGE_KEY = 'wayne-stack-workflow'
+const STORAGE_KEY = 'Agent-stack-workflow'
 
-function loadWorkflow(): WayneWorkflow | null {
+function loadWorkflow(): AgentWorkflow | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
-    return JSON.parse(raw) as WayneWorkflow
+    return JSON.parse(raw) as AgentWorkflow
   } catch {
     return null
   }
 }
 
-function persistWorkflow(workflow: WayneWorkflow | null) {
+function persistWorkflow(workflow: AgentWorkflow | null) {
   if (!workflow) {
     localStorage.removeItem(STORAGE_KEY)
     return
@@ -31,8 +31,8 @@ function persistWorkflow(workflow: WayneWorkflow | null) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(workflow))
 }
 
-export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
-  const workflow = ref<WayneWorkflow | null>(loadWorkflow())
+export const useAgentWorkflowStore = defineStore('Agent-workflow', () => {
+  const workflow = ref<AgentWorkflow | null>(loadWorkflow())
 
   const hasWorkflow = computed(() => !!workflow.value)
   const currentStage = computed(() =>
@@ -46,7 +46,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
       title: title.trim() || '新工作流',
       goal: goal.trim(),
       currentStageId: 'discovery',
-      stages: createWayneStages(now),
+      stages: createAgentStages(now),
       handoffs: [],
       createdAt: now,
       updatedAt: now,
@@ -62,7 +62,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     persistWorkflow(workflow.value)
   }
 
-  function setStageStatus(stageId: WayneStageId, status: WayneStageStatus) {
+  function setStageStatus(stageId: AgentStageId, status: AgentStageStatus) {
     if (!workflow.value) return
     const stage = workflow.value.stages.find((item) => item.id === stageId)
     if (!stage) return
@@ -72,7 +72,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     persistWorkflow(workflow.value)
   }
 
-  function setCurrentStage(stageId: WayneStageId) {
+  function setCurrentStage(stageId: AgentStageId) {
     if (!workflow.value) return
     workflow.value.currentStageId = stageId
     workflow.value.stages.forEach((stage) => {
@@ -89,7 +89,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     if (!workflow.value) return
     const stageId = workflow.value.currentStageId
     setStageStatus(stageId, 'done')
-    const next = nextWayneStage(stageId)
+    const next = nextAgentStage(stageId)
     if (next) {
       setCurrentStage(next)
       if (note?.trim()) {
@@ -107,10 +107,10 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     }
   }
 
-  function addHandoff(stageId: WayneStageId, toAgentId: string, note: string) {
+  function addHandoff(stageId: AgentStageId, toAgentId: string, note: string) {
     if (!workflow.value) return
     const stage = stageMetaById(stageId)
-    const record: WayneHandoffRecord = {
+    const record: AgentHandoffRecord = {
       id: crypto.randomUUID(),
       fromAgentId: stage.ownerAgentId,
       toAgentId,
@@ -129,7 +129,7 @@ export const useWayneWorkflowStore = defineStore('wayne-workflow', () => {
     addHandoff(workflow.value.currentStageId, agentId, note)
   }
 
-  function inferStageForAgent(agentId: string): WayneStageId | null {
+  function inferStageForAgent(agentId: string): AgentStageId | null {
     return inferPrimaryStageByAgent(agentId)
   }
 

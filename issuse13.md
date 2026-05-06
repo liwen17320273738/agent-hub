@@ -27,7 +27,7 @@ Agent-Hub 不是一个"聊天机器人壳"，也还不是"智能体军团"。准
 
 #	Agent	类别	是否接入流水线	当前状态	趋势/可扩展性
 1
-Wayne Orchestrator 总控
+Agent Orchestrator 总控
 pipeline
 ✅ 编排核心
 阶段判断 + 派发，但仍是模板化推进，缺真"决策"
@@ -39,19 +39,19 @@ pipeline
 issue12 暴露：飞书反馈关键词与新 final_accept 状态机不通
 → 真"对话调度员"：意图识别+多轮澄清+任务路由
 3
-Wayne Product Manager
+Agent Product Manager
 pipeline
 ✅ Discovery/PRD
 模板 PRD，无用户访谈、无竞品自动调研
 解锁 Browser+Search 后→ 真需求挖掘
 4
-Wayne Developer
+Agent Developer
 pipeline
 ✅ Build
 强项（Claude CLI + auto-fix×3），但无 codebase 索引
 接入 codebase_indexer.py（已起骨架）后→ 大项目可做
 5
-Wayne QA Lead
+Agent QA Lead
 pipeline
 ✅ QA 阶段
 peer-review + quality_gates，但 reject 流程隐形（issue11 痛点）
@@ -111,7 +111,7 @@ support
 纯 prompt
 工具型 agent，可作为后处理插件嵌到任何阶段
 残酷结论
-"14 角色"目前 60% 是营销话术。真正在战场上的只有 5 个 Wayne Stack 流水线角色。
+"14 角色"目前 60% 是营销话术。真正在战场上的只有 5 个 Agent Stack 流水线角色。
 
 三、近 12 轮 Issue 揭示的演进趋势
 按时间顺序梳理 issuse01→12，能看出一条非常清晰的进化曲线：
@@ -266,7 +266,7 @@ Plan/Act 双模式
                     ┌──────────────────────────────────┐
                     │   指挥层 Commander                │
                     │   plan + dispatch + 复盘 + 反思   │
-                    │   (升级 Wayne Orchestrator)       │
+                    │   (升级 Agent Orchestrator)       │
                     └────────────────┬─────────────────┘
                                      │ delegate / report
        ┌───────────────────┬─────────┴─────────┬───────────────────┐

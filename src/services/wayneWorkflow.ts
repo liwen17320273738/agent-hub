@@ -1,9 +1,9 @@
-export type WayneStageId = 'discovery' | 'prd' | 'build' | 'qa' | 'retro'
+export type AgentStageId = 'discovery' | 'prd' | 'build' | 'qa' | 'retro'
 
-export type WayneStageStatus = 'pending' | 'active' | 'done' | 'blocked'
+export type AgentStageStatus = 'pending' | 'active' | 'done' | 'blocked'
 
-export interface WayneStageMeta {
-  id: WayneStageId
+export interface AgentStageMeta {
+  id: AgentStageId
   label: string
   ownerAgentId: string
   ownerLabel: string
@@ -13,39 +13,39 @@ export interface WayneStageMeta {
   recommendedModel: string
 }
 
-export interface WayneStageState extends WayneStageMeta {
-  status: WayneStageStatus
+export interface AgentStageState extends AgentStageMeta {
+  status: AgentStageStatus
   updatedAt: number
 }
 
-export interface WayneHandoffRecord {
+export interface AgentHandoffRecord {
   id: string
   fromAgentId: string
   toAgentId: string
-  stageId: WayneStageId
+  stageId: AgentStageId
   note: string
   recommendedModel: string
   createdAt: number
 }
 
-export interface WayneWorkflow {
+export interface AgentWorkflow {
   id: string
   title: string
   goal: string
-  currentStageId: WayneStageId
-  stages: WayneStageState[]
-  handoffs: WayneHandoffRecord[]
+  currentStageId: AgentStageId
+  stages: AgentStageState[]
+  handoffs: AgentHandoffRecord[]
   createdAt: number
   updatedAt: number
 }
 
-export const WAYNE_STAGE_ORDER: WayneStageId[] = ['discovery', 'prd', 'build', 'qa', 'retro']
+export const Agent_STAGE_ORDER: AgentStageId[] = ['discovery', 'prd', 'build', 'qa', 'retro']
 
-export const WAYNE_STAGE_META: WayneStageMeta[] = [
+export const Agent_STAGE_META: AgentStageMeta[] = [
   {
     id: 'discovery',
     label: '需求发现',
-    ownerAgentId: 'wayne-orchestrator',
+    ownerAgentId: 'Agent-orchestrator',
     ownerLabel: 'Agent Hub 总控',
     deliverable: '阶段判断 / 下一步动作',
     deliveryDocName: '01-prd.md',
@@ -55,7 +55,7 @@ export const WAYNE_STAGE_META: WayneStageMeta[] = [
   {
     id: 'prd',
     label: 'PRD 定义',
-    ownerAgentId: 'wayne-product-manager',
+    ownerAgentId: 'Agent-product-manager',
     ownerLabel: '产品经理',
     deliverable: '01-prd.md',
     deliveryDocName: '01-prd.md',
@@ -65,7 +65,7 @@ export const WAYNE_STAGE_META: WayneStageMeta[] = [
   {
     id: 'build',
     label: '开发实现',
-    ownerAgentId: 'wayne-developer',
+    ownerAgentId: 'Agent-developer',
     ownerLabel: '开发工程师',
     deliverable: '实现方案 / 代码改动',
     deliveryDocName: '04-implementation-notes.md',
@@ -75,7 +75,7 @@ export const WAYNE_STAGE_META: WayneStageMeta[] = [
   {
     id: 'qa',
     label: '质量验证',
-    ownerAgentId: 'wayne-qa-lead',
+    ownerAgentId: 'Agent-qa-lead',
     ownerLabel: 'QA 负责人',
     deliverable: '测试计划 / 风险结论',
     deliveryDocName: '05-test-report.md',
@@ -85,7 +85,7 @@ export const WAYNE_STAGE_META: WayneStageMeta[] = [
   {
     id: 'retro',
     label: '复盘收口',
-    ownerAgentId: 'wayne-orchestrator',
+    ownerAgentId: 'Agent-orchestrator',
     ownerLabel: 'Agent Hub 总控',
     deliverable: '复盘 / 下一步建议',
     deliveryDocName: '06-acceptance.md',
@@ -94,27 +94,27 @@ export const WAYNE_STAGE_META: WayneStageMeta[] = [
   },
 ]
 
-export function createWayneStages(now = Date.now()): WayneStageState[] {
-  return WAYNE_STAGE_META.map((meta, index) => ({
+export function createAgentStages(now = Date.now()): AgentStageState[] {
+  return Agent_STAGE_META.map((meta, index) => ({
     ...meta,
     status: index === 0 ? 'active' : 'pending',
     updatedAt: now,
   }))
 }
 
-export function stageMetaById(id: WayneStageId): WayneStageMeta {
-  const hit = WAYNE_STAGE_META.find((item) => item.id === id)
+export function stageMetaById(id: AgentStageId): AgentStageMeta {
+  const hit = Agent_STAGE_META.find((item) => item.id === id)
   if (!hit) throw new Error(`Unknown stage: ${id}`)
   return hit
 }
 
-export function nextWayneStage(id: WayneStageId): WayneStageId | null {
-  const index = WAYNE_STAGE_ORDER.indexOf(id)
-  if (index < 0 || index === WAYNE_STAGE_ORDER.length - 1) return null
-  return WAYNE_STAGE_ORDER[index + 1]
+export function nextAgentStage(id: AgentStageId): AgentStageId | null {
+  const index = Agent_STAGE_ORDER.indexOf(id)
+  if (index < 0 || index === Agent_STAGE_ORDER.length - 1) return null
+  return Agent_STAGE_ORDER[index + 1]
 }
 
-export function inferPrimaryStageByAgent(agentId: string): WayneStageId | null {
-  const hit = WAYNE_STAGE_META.find((item) => item.ownerAgentId === agentId)
+export function inferPrimaryStageByAgent(agentId: string): AgentStageId | null {
+  const hit = Agent_STAGE_META.find((item) => item.ownerAgentId === agentId)
   return hit?.id ?? null
 }

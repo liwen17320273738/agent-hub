@@ -16,7 +16,7 @@
           />
         </div>
         <div class="hero-actions">
-          <VoiceInput class="voice-btn" />
+          <VoiceInput class="voice-btn" @fill-input="taskInput = $event" />
           <el-button
             type="primary"
             size="large"

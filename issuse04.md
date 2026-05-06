@@ -66,20 +66,20 @@ Agent 定义
 14 个角色 Agent + 10 个技能
 Agent 团队（14个角色）
 核心 Agent:
-  wayne-ceo       → 战略决策、需求分析、验收评审
-  wayne-cto       → 架构设计、代码审查、技术选型
-  wayne-product   → PRD撰写、用户故事
-  wayne-developer → 全栈开发、Git工作流
-  wayne-qa        → 测试计划、自动化测试
-  wayne-designer  → UI/UX 设计
-  wayne-devops    → CI/CD、部署、监控
-  wayne-acceptance→ 最终验收
-  wayne-security  → 安全审计
+  Agent-ceo       → 战略决策、需求分析、验收评审
+  Agent-cto       → 架构设计、代码审查、技术选型
+  Agent-product   → PRD撰写、用户故事
+  Agent-developer → 全栈开发、Git工作流
+  Agent-qa        → 测试计划、自动化测试
+  Agent-designer  → UI/UX 设计
+  Agent-devops    → CI/CD、部署、监控
+  Agent-acceptance→ 最终验收
+  Agent-security  → 安全审计
 支持 Agent:
-  wayne-data      → 数据分析
-  wayne-marketing → 营销策略
-  wayne-finance   → 成本分析
-  wayne-legal     → 法务合规
+  Agent-data      → 数据分析
+  Agent-marketing → 营销策略
+  Agent-finance   → 成本分析
+  Agent-legal     → 法务合规
   openclaw        → 网关入口
 三、测试脚本、运维 Agent 怎么关联执行？
 关联机制：Pipeline Stage → Agent Role → Tools
@@ -91,8 +91,8 @@ DAGStage("deployment", "部署上线", "devops",       depends_on=["reviewing"])
 每个 Agent 绑定了不同的工具集：
 
 # seed.py
-"wayne-qa":      ["file_read", "file_list", "bash", "test_execute", "test_detect", "run_tests", "git_diff", "git_log", "deerflow_delegate"]
-"wayne-devops":  ["file_read", "file_write", "file_list", "bash", "git_status", "git_add", "git_commit", "git_push", "build", "install_deps", "run_tests", "deerflow_delegate"]
+"Agent-qa":      ["file_read", "file_list", "bash", "test_execute", "test_detect", "run_tests", "git_diff", "git_log", "deerflow_delegate"]
+"Agent-devops":  ["file_read", "file_write", "file_list", "bash", "git_status", "git_add", "git_commit", "git_push", "build", "install_deps", "run_tests", "deerflow_delegate"]
 执行链路
 Pipeline Engine 调用 execute_stage()
   → 检查 AGENT_TOOLS 是否有工具绑定

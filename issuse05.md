@@ -19,75 +19,75 @@
 二、Agent 角色矩阵（按代码事实）
 1. 14 个种子 Agent（backend/app/agents/seed.py）
 Agent ID	角色	在主管线	工具数	绑定技能	备注
-wayne-ceo
+Agent-ceo
 CEO/总控
 ✅ planning + reviewing
 6
 prd-writing
 orchestrator
-wayne-cto
+Agent-cto
 CTO/架构师
 ✅ architecture
 16（含 codebase_*）
 code-review/security-audit/architecture-design
 tech-lead
-wayne-product
+Agent-product
 产品经理
 ❌ 未挂阶段
 8
 prd-writing/deep-research/data-analysis
 与 CEO 角色重叠
-wayne-developer
+Agent-developer
 开发
 ✅ development
 22（最完整）
 code-review/api-design
 全工具链
-wayne-qa
+Agent-qa
 测试
 ✅ testing
 16（含 browser/test_execute）
 test-strategy/code-review
 真正能跑测试
-wayne-designer
+Agent-designer
 UI/UX 设计
 ❌ 未挂阶段
 7
 deep-research
 仅靠 codegen 内部插 design 段
-wayne-devops
+Agent-devops
 DevOps/SRE
 ✅ deployment
 12
 deploy-checklist/security-audit
-wayne-acceptance
+Agent-acceptance
 验收官
 ❌ 未挂阶段
 8
 prd-writing/test-strategy
 角色与 reviewing 重叠
-wayne-security
+Agent-security
 安全
 ❌ delegation only
 7
 security-audit/code-review
 被动召唤
-wayne-data
+Agent-data
 数据分析
 ❌ delegation only
 6
 data-analysis
-wayne-marketing
+Agent-marketing
 CMO
 ❌ delegation only
 4
 deep-research
-wayne-finance
+Agent-finance
 CFO
 ❌ delegation only
 4
 data-analysis/token-optimization
-wayne-legal
+Agent-legal
 法务
 ❌ delegation only
 4
@@ -203,7 +203,7 @@ tools/build_tool.py 提供 build/install_deps/run_tests 三个粗粒度工具；
 问题：
 
 DAG 路径下 peer-review 比线性路径弱（AI-Agent.md P3-4 已记录）
-"验收官" agent (wayne-acceptance) 完全没接管线
+"验收官" agent (Agent-acceptance) 完全没接管线
 验收没用 e2e 真实部署后的 URL 做 E2E 验证
 五、能力短板（按"距军团差距"分级）
 🔴 致命级（0→1 已通，但不可大规模商用）
@@ -284,5 +284,5 @@ UI 设计
 
 把 9 个孤儿 agent 接进 DAG 模板 — 在 dag_orchestrator.PIPELINE_TEMPLATES 加 design / acceptance / security / legal 等阶段，让 14 角色真上场
 新增 design 独立阶段 — 设计师 agent 输出布局/配色/组件规范，作为 codegen 的强输入而不是 prompt 拼接
-统一 reviewing 与 acceptance — 把 wayne-acceptance 真正挂到 reviewing 阶段（替代当前 CEO），并要求基于 e2e 部署后的 URL 做截图验证
+统一 reviewing 与 acceptance — 把 Agent-acceptance 真正挂到 reviewing 阶段（替代当前 CEO），并要求基于 e2e 部署后的 URL 做截图验证
 Cost Governor + Prompt Injection 防御 — 接 IM 进生产前的两个最低门槛

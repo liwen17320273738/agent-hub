@@ -120,7 +120,7 @@
       </div>
 
       <!-- Welcome / empty state -->
-      <div v-if="!activeConv && !showWayneRouterPanel" class="chat-welcome">
+      <div v-if="!activeConv && !showAgentRouterPanel" class="chat-welcome">
         <div class="welcome-icon" :style="{ background: agent.color + '20', color: agent.color }">
           <el-icon :size="48"><component :is="resolveAgentIcon(agent.icon)" /></el-icon>
         </div>
@@ -146,8 +146,8 @@
         </div>
       </div>
 
-      <div v-else-if="showWayneRouterPanel" class="wayne-router-panel">
-        <div class="wayne-router-header">
+      <div v-else-if="showAgentRouterPanel" class="Agent-router-panel">
+        <div class="Agent-router-header">
           <div>
             <h3>{{ t('agentChat.text_5') }}</h3>
             <p>{{ t('agentChat.text_6') }}</p>
@@ -156,34 +156,34 @@
         </div>
 
         <el-input
-          v-model="wayneRoutingTask"
+          v-model="AgentRoutingTask"
           type="textarea"
           :rows="3"
           :placeholder="t('agentChat.placeholder_3')"
         />
 
-        <div class="wayne-router-actions">
-          <el-button type="primary" @click="refreshWayneSuggestions">{{ t('agentChat.text_7') }}</el-button>
-          <el-button text @click="resetWayneRouting">{{ t('agentChat.text_8') }}</el-button>
+        <div class="Agent-router-actions">
+          <el-button type="primary" @click="refreshAgentSuggestions">{{ t('agentChat.text_7') }}</el-button>
+          <el-button text @click="resetAgentRouting">{{ t('agentChat.text_8') }}</el-button>
         </div>
 
-        <div class="wayne-suggestion-list">
+        <div class="Agent-suggestion-list">
           <div
-            v-for="routeItem in wayneSuggestions"
+            v-for="routeItem in AgentSuggestions"
             :key="routeItem.id"
-            class="wayne-suggestion-card"
+            class="Agent-suggestion-card"
           >
-            <div class="wayne-suggestion-top">
+            <div class="Agent-suggestion-top">
               <div>
-                <div class="wayne-suggestion-stage">{{ routeItem.stage }}</div>
-                <div class="wayne-suggestion-title">{{ routeItem.title }}</div>
+                <div class="Agent-suggestion-stage">{{ routeItem.stage }}</div>
+                <div class="Agent-suggestion-title">{{ routeItem.title }}</div>
               </div>
               <el-tag size="small" type="info" effect="plain">{{ routeItem.recommendedModel }}</el-tag>
             </div>
-            <div class="wayne-suggestion-agent">{{ routeItem.targetAgentName }}</div>
-            <p class="wayne-suggestion-reason">{{ routeItem.reason }}</p>
-            <div class="wayne-suggestion-actions">
-              <el-button size="small" type="primary" @click="handoffWayneRoute(routeItem)">
+            <div class="Agent-suggestion-agent">{{ routeItem.targetAgentName }}</div>
+            <p class="Agent-suggestion-reason">{{ routeItem.reason }}</p>
+            <div class="Agent-suggestion-actions">
+              <el-button size="small" type="primary" @click="handoffAgentRoute(routeItem)">
                 {{ t('agentChat.handoffToRole') }}
               </el-button>
               <el-button size="small" text @click="openRouteAgent(routeItem)">
@@ -281,7 +281,7 @@ import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'
-import { useWayneWorkflowStore } from '@/stores/wayneWorkflow'
+import { useAgentWorkflowStore } from '@/stores/wayneWorkflow'
 import { chatCompletion } from '@/services/llm'
 import { completionWithToolLoop } from '@/services/chatWithTools'
 import { buildLLMMessages } from '@/services/messageContext'
@@ -294,11 +294,11 @@ import type { AgentConfig, ChatMessage as ChatMessageType, Conversation, Pipelin
 import ChatMessage from '@/components/ChatMessage.vue'
 import { listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc, type DeliveryDocMeta } from '@/services/deliveryDocs'
 import {
-  buildWayneSeed,
-  getWayneDefaultRoutes,
-  inferWayneRoute,
+  buildAgentSeed,
+  getAgentDefaultRoutes,
+  inferAgentRoute,
   tryApplyRecommendedModel,
-  type WayneRouteSuggestion,
+  type AgentRouteSuggestion,
 } from '@/services/wayneRouting'
 import { resolveAgentIcon } from '@/utils/agentIcon'
 import { useI18n } from 'vue-i18n'
@@ -311,7 +311,7 @@ const router = useRouter()
 const agentStore = useAgentStore()
 const chatStore = useChatStore()
 const settingsStore = useSettingsStore()
-const wayneWorkflowStore = useWayneWorkflowStore()
+const AgentWorkflowStore = useAgentWorkflowStore()
 
 const inputText = ref('')
 const messagesRef = ref<HTMLElement>()
@@ -328,8 +328,8 @@ const editingMessageId = ref<string | null>(null)
 const lastAutoRunKey = ref('')
 const pendingRecommendedModel = ref('')
 const pendingRecommendedApplied = ref(false)
-const wayneRoutingTask = ref('')
-const wayneSuggestions = ref<WayneRouteSuggestion[]>(getWayneDefaultRoutes())
+const AgentRoutingTask = ref('')
+const AgentSuggestions = ref<AgentRouteSuggestion[]>(getAgentDefaultRoutes())
 const deliveryDocOptions = ref<DeliveryDocMeta[]>([])
 const deliveryTargetDoc = ref('01-prd.md')
 const pipelineTask = ref<PipelineTask | null>(null)
@@ -381,8 +381,8 @@ const visibleError = computed(() => {
 
 const recommendedModelLabel = computed(() => pendingRecommendedModel.value || null)
 const recommendedModelApplied = computed(() => pendingRecommendedApplied.value)
-const showWayneRouterPanel = computed(() => agent.value?.id === 'wayne-orchestrator' && !activeConv.value)
-const currentWorkflowDoc = computed(() => wayneWorkflowStore.currentStage?.deliveryDocName || '01-prd.md')
+const showAgentRouterPanel = computed(() => agent.value?.id === 'Agent-orchestrator' && !activeConv.value)
+const currentWorkflowDoc = computed(() => AgentWorkflowStore.currentStage?.deliveryDocName || '01-prd.md')
 const latestAssistantMessage = computed(() => {
   const messages = activeConv.value?.messages ?? []
   return [...messages].reverse().find((m) => m.role === 'assistant') ?? null
@@ -550,25 +550,25 @@ function clearRequestError() {
   requestError.value = null
 }
 
-function refreshWayneSuggestions() {
-  wayneSuggestions.value = inferWayneRoute(wayneRoutingTask.value)
+function refreshAgentSuggestions() {
+  AgentSuggestions.value = inferAgentRoute(AgentRoutingTask.value)
 }
 
-function resetWayneRouting() {
-  wayneRoutingTask.value = ''
-  wayneSuggestions.value = getWayneDefaultRoutes()
+function resetAgentRouting() {
+  AgentRoutingTask.value = ''
+  AgentSuggestions.value = getAgentDefaultRoutes()
 }
 
-async function openRouteAgent(routeItem: WayneRouteSuggestion) {
+async function openRouteAgent(routeItem: AgentRouteSuggestion) {
   const result = tryApplyRecommendedModel(routeItem.recommendedModel)
   if (result.reason) {
     if (result.applied) ElMessage.success(result.reason)
     else ElMessage.warning(result.reason)
   }
 
-  const stageId = wayneWorkflowStore.currentStage?.id ?? wayneWorkflowStore.inferStageForAgent(routeItem.targetAgentId)
+  const stageId = AgentWorkflowStore.currentStage?.id ?? AgentWorkflowStore.inferStageForAgent(routeItem.targetAgentId)
   if (stageId) {
-    wayneWorkflowStore.handoffToAgent(
+    AgentWorkflowStore.handoffToAgent(
       routeItem.targetAgentId,
       t('agentChat.handoffOpenRole', { title: routeItem.title }),
     )
@@ -583,21 +583,21 @@ async function openRouteAgent(routeItem: WayneRouteSuggestion) {
   })
 }
 
-async function handoffWayneRoute(routeItem: WayneRouteSuggestion) {
-  const seed = buildWayneSeed(routeItem, wayneRoutingTask.value)
+async function handoffAgentRoute(routeItem: AgentRouteSuggestion) {
+  const seed = buildAgentSeed(routeItem, AgentRoutingTask.value)
   const result = tryApplyRecommendedModel(routeItem.recommendedModel)
   if (result.reason) {
     if (result.applied) ElMessage.success(result.reason)
     else ElMessage.warning(result.reason)
   }
 
-  const stageId = wayneWorkflowStore.currentStage?.id ?? wayneWorkflowStore.inferStageForAgent(routeItem.targetAgentId)
+  const stageId = AgentWorkflowStore.currentStage?.id ?? AgentWorkflowStore.inferStageForAgent(routeItem.targetAgentId)
   if (stageId) {
-    wayneWorkflowStore.handoffToAgent(
+    AgentWorkflowStore.handoffToAgent(
       routeItem.targetAgentId,
       t('agentChat.handoffOrchestrator', {
         title: routeItem.title,
-        task: wayneRoutingTask.value.trim() || t('agentChat.taskUnset'),
+        task: AgentRoutingTask.value.trim() || t('agentChat.taskUnset'),
       }),
     )
   }
@@ -1179,7 +1179,7 @@ async function sendMessage() {
   max-width: 700px;
 }
 
-.wayne-router-panel {
+.Agent-router-panel {
   margin: 24px auto 0;
   width: min(920px, calc(100% - 48px));
   padding: 20px;
@@ -1189,7 +1189,7 @@ async function sendMessage() {
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
 }
 
-.wayne-router-header {
+.Agent-router-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1197,40 +1197,40 @@ async function sendMessage() {
   margin-bottom: 14px;
 }
 
-.wayne-router-header h3 {
+.Agent-router-header h3 {
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 4px;
 }
 
-.wayne-router-header p {
+.Agent-router-header p {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.7;
 }
 
-.wayne-router-actions {
+.Agent-router-actions {
   display: flex;
   gap: 8px;
   margin-top: 12px;
 }
 
-.wayne-suggestion-list {
+.Agent-suggestion-list {
   margin-top: 16px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 12px;
 }
 
-.wayne-suggestion-card {
+.Agent-suggestion-card {
   padding: 14px;
   border-radius: 14px;
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
 }
 
-.wayne-suggestion-top {
+.Agent-suggestion-top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1238,32 +1238,32 @@ async function sendMessage() {
   margin-bottom: 8px;
 }
 
-.wayne-suggestion-stage {
+.Agent-suggestion-stage {
   font-size: 12px;
   color: var(--accent);
   font-weight: 600;
   margin-bottom: 4px;
 }
 
-.wayne-suggestion-title {
+.Agent-suggestion-title {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.wayne-suggestion-agent {
+.Agent-suggestion-agent {
   font-size: 13px;
   color: var(--text-muted);
   margin-bottom: 8px;
 }
 
-.wayne-suggestion-reason {
+.Agent-suggestion-reason {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.7;
 }
 
-.wayne-suggestion-actions {
+.Agent-suggestion-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;

@@ -80,14 +80,14 @@
 
 | 角色 | stage_id | agent_key | 实际做了什么 | 用了工具? |
 |------|----------|-----------|-------------|----------|
-| CEO 总控 | planning | ceo-agent → wayne-ceo | LLM 写 PRD 文本（~2K字符） | ❌ 无工具 |
+| CEO 总控 | planning | ceo-agent → Agent-ceo | LLM 写 PRD 文本（~2K字符） | ❌ 无工具 |
 | 产品经理 | planning | 同上 | 需求文档文本 | ❌ 无工具 |
-| UI 设计师 | design | designer-agent → wayne-designer | 设计规范文字描述（配色+组件） | ❌ **没有生成设计图** |
-| 架构师 | architecture | architect-agent → wayne-cto | 技术方案 markdown（~13K字符） | ❌ 无工具 |
-| 开发者 | development | developer-agent → wayne-developer | markdown 内嵌代码块（~17K） | ❌ **代码没提取到文件** |
-| 测试 | testing | qa-agent → wayne-qa | 测试报告文本（~8K） | ❌ **没有运行任何测试** |
-| 验收 | reviewing | acceptance-agent → wayne-acceptance | **空（0c）** | ❌ 从未被真正调用 |
-| 运维 | deployment | devops-agent → wayne-devops | **空（0c）** | ❌ 从未被真正调用 |
+| UI 设计师 | design | designer-agent → Agent-designer | 设计规范文字描述（配色+组件） | ❌ **没有生成设计图** |
+| 架构师 | architecture | architect-agent → Agent-cto | 技术方案 markdown（~13K字符） | ❌ 无工具 |
+| 开发者 | development | developer-agent → Agent-developer | markdown 内嵌代码块（~17K） | ❌ **代码没提取到文件** |
+| 测试 | testing | qa-agent → Agent-qa | 测试报告文本（~8K） | ❌ **没有运行任何测试** |
+| 验收 | reviewing | acceptance-agent → Agent-acceptance | **空（0c）** | ❌ 从未被真正调用 |
+| 运维 | deployment | devops-agent → Agent-devops | **空（0c）** | ❌ 从未被真正调用 |
 | 安全 | security-review | 有定义 | **不在默认 7 阶段流水线中** | ❌ |
 
 **agent_runtime 有 TOOL_REGISTRY (file_write, bash, git, browser_navigate)，但 execute_stage() 只有当 `AGENT_TOOLS.get(stage_agent_id)` 非空时才走 tool loop。当前所有阶段的 agent 都没有注册 tools → 全部走纯文本 llm_chat_with_fallback()。**
@@ -97,7 +97,7 @@
 | 维度 | 状态 | 代码位置 |
 |------|------|---------|
 | executor_bridge.py | ✅ 存在 | `backend/app/services/executor_bridge.py` — `execute_claude_code()` subprocess 调 claude CLI |
-| claude CLI 安装 | ✅ 已装 | `/Users/wayne/.local/bin/claude` |
+| claude CLI 安装 | ✅ 已装 | `/Users/Agent/.local/bin/claude` |
 | API 端点 | ✅ 可调 | `POST /api/executor/run` → `execute_claude_code()` |
 | CodeGen Agent | ✅ 存在 | `POST /api/pipeline/tasks/{id}/codegen` → `CodeGenAgent` → 可选调 Claude CLI |
 | **默认流水线集成** | ❌ **未集成** | `execute_stage()` 和 `execute_full_pipeline()` **从不调用** executor_bridge |

@@ -864,6 +864,11 @@ export default {
     text_23: "로컬 디렉토리",
     placeholder_1: "요구사항 간단 설명...",
     placeholder_2: "요구사항 상세 설명...",
+    selectAllPlanning: "모두 선택",
+    deleteSelectedPlanning: "선택 삭제 ({n})",
+    titleBulkDeletePlanning: "일괄 삭제",
+    confirmBulkDeletePlanningMessage: "선택한 작업 {count}개를 삭제할까요? 복구할 수 없습니다.",
+    elMessageBulkDeletedPlanning: "작업 {count}개를 삭제했습니다",
     title_1: "작업 삭제",
     title_2: "새 작업 만들기",
     label_1: "작업 제목",
@@ -1325,7 +1330,7 @@ export default {
     text_1: "로드 중...",
     text_2: "로그인 페이지로 이동",
   },
-  wayneConsole: {
+  AgentConsole: {
     text_1: "블루프린트 확인",
     elMessage_1: "먼저档을 선택하세요",
     elMessage_2: "바인딩 실패",
@@ -1340,7 +1345,7 @@ export default {
     elMessage_11: "docs/delivery 템플릿이 초기화되었습니다",
     elMessage_12: "배달 문서가 docs/delivery에 저장되었습니다",
   },
-  wayneStack: {
+  AgentStack: {
     text_1: "Agent Hub 블루프린트 실행",
     text_2: "Claude Code 중심",
     text_3: "Cursor 컴퓨터",

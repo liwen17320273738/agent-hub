@@ -95,19 +95,19 @@ async def _top_up_stage_output(
     return f"{partial_content.rstrip()}\n\n{extra}".strip()
 
 _AGENT_KEY_TO_SEED_ID = {
-    "ceo-agent":         "wayne-ceo",
-    "architect-agent":   "wayne-cto",
-    "developer-agent":   "wayne-developer",
-    "qa-agent":          "wayne-qa",
-    "devops-agent":      "wayne-devops",
-    "product-agent":     "wayne-product",
-    "designer-agent":    "wayne-designer",
-    "security-agent":    "wayne-security",
-    "acceptance-agent":  "wayne-acceptance",
-    "data-agent":        "wayne-data",
-    "marketing-agent":   "wayne-marketing",
-    "finance-agent":     "wayne-finance",
-    "legal-agent":       "wayne-legal",
+    "ceo-agent":         "Agent-ceo",
+    "architect-agent":   "Agent-cto",
+    "developer-agent":   "Agent-developer",
+    "qa-agent":          "Agent-qa",
+    "devops-agent":      "Agent-devops",
+    "product-agent":     "Agent-product",
+    "designer-agent":    "Agent-designer",
+    "security-agent":    "Agent-security",
+    "acceptance-agent":  "Agent-acceptance",
+    "data-agent":        "Agent-data",
+    "marketing-agent":   "Agent-marketing",
+    "finance-agent":     "Agent-finance",
+    "legal-agent":       "Agent-legal",
 }
 
 # Reverse lookup used by review/acceptance/cost code that only knows the seed id.
@@ -1405,7 +1405,7 @@ async def execute_stage(
         elif agent_tools:
             from .agent_runtime import AgentRuntime
             _max_steps = 8
-            if stage_agent_id in ("wayne-acceptance", "wayne-devops", "wayne-qa"):
+            if stage_agent_id in ("Agent-acceptance", "Agent-devops", "Agent-qa"):
                 _max_steps = 14
             runtime = AgentRuntime(
                 agent_id=stage_agent_id or stage_id,

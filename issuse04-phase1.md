@@ -40,7 +40,7 @@ curl -X POST /api/pipeline/tasks \
   -d '{"title":"添加暗色模式","repo_url":"https://github.com/user/repo.git"}'
 # 本地项目
 curl -X POST /api/pipeline/tasks \
-  -d '{"title":"重构数据库层","project_path":"/home/wayne/my-project"}'
+  -d '{"title":"重构数据库层","project_path":"/home/Agent/my-project"}'
 # E2E 一键执行
 curl -X POST /api/pipeline/e2e \
   -d '{"title":"加缓存","repo_url":"https://github.com/user/repo.git"}'

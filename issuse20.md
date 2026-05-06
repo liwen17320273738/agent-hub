@@ -41,7 +41,7 @@
 | 入口 | 路由 | 替代谁 | 必要二级 tab |
 |------|------|--------|------------|
 | 📥 **收件箱** | `/inbox` | Dashboard + PlanInbox + InsightsDigest + PipelineDashboard 的待办区 | 待审批计划 / 进行中 / 已完成 / 报表 |
-| 🤖 **团队** | `/team` | AgentsConsole + WayneConsole + WayneStack + 14 个 agent 子项 | 实时活跃 / 角色目录 / 历史会话 |
+| 🤖 **团队** | `/team` | AgentsConsole + AgentConsole + AgentStack + 14 个 agent 子项 | 实时活跃 / 角色目录 / 历史会话 |
 | 🔧 **工作流** | `/workflow` | WorkflowBuilder + 部分 Pipeline | 画布 / 运行 / 模板 / 版本 |
 | 📚 **资产** | `/assets` | 模型实验室 + Settings 模型部分 + MCP 服务器 + 技能中心 + 代码索引 + 知识库 | 模型 / MCP / 技能 / 知识库 / 代码索引 |
 | ⚙️ **设置** | `/settings` | Settings 其余 + 新增 RBAC/SSO/计费 | 个人 / 工作区 / 成员 / SSO / 计费 / API Keys |
@@ -143,15 +143,15 @@
   - 5 个 tab：模型 / MCP / 技能 / 知识库（placeholder）/ 代码索引
   - 模型 tab 内嵌 `ModelLab.vue` 内容；MCP tab 嵌 `McpServers.vue`；技能 tab 嵌 `SkillsView.vue`；代码索引 tab 嵌 `CodebaseLab.vue`
 - [ ] **品牌收口** — 全局替换
-  - `Wayne Stack` / `Wayne Console` / `一人公司智能体中心` / `AI 军团流水线` → `Agent Hub`
-  - 涉及 `Dashboard.vue` h1、`WayneStack.vue`、`WayneConsole.vue` 标题、`PipelineDashboard.vue` h1、`README.md`
+  - `Agent Stack` / `Agent Console` / `一人公司智能体中心` / `AI 军团流水线` → `Agent Hub`
+  - 涉及 `Dashboard.vue` h1、`AgentStack.vue`、`AgentConsole.vue` 标题、`PipelineDashboard.vue` h1、`README.md`
 - [ ] **🔥 修 P0 bug：交付文档全局共享会被覆盖**
   - `backend/app/api/delivery_docs.py` 的 `_DELIVERY_DIR` 和 `write_stage_output` / `compile_deliverables` 全部改成按 `{task_id}` 分目录：`data/deliverables/{task_id}/0X-xxx.md`
   - 所有读写接口加上 `task_id` 路径参数；旧 `/api/delivery-docs/{name}` 路由保留，自动取**当前激活 task**（兼容期 30 天后删）
   - 新建 `services/deliverable_store.py` 统一封装路径解析 + 防越权（参考 `pipeline_attachments.py` 的 `try_resolve_storage_path`）
   - 单测：两个 task 并发写 PRD 互不干扰
 - [ ] **`src/views/Dashboard.vue`** — 改成 Hero CTA + 待办 + 最近任务（**三段式，不再是 teaser 墙**）
-  - 删除 4 个 alert teaser（Wayne Stack / Wayne Console / Pipeline / ModelLab）
+  - 删除 4 个 alert teaser（Agent Stack / Agent Console / Pipeline / ModelLab）
   - **顶部**：单 CTA「告诉 AI 军团你要做什么」大输入框 + 两个按钮「先给方案 / 直接执行」+ 5 个模板卡片（竞品调研 / PRD→代码 / 客服问答 / 周报生成 / 数据分析）
   - **中部 我的待办**（3 列）：
     - 待审批（链到 `/inbox?tab=pending`）
@@ -163,9 +163,9 @@
 
 #### D7 验收
 - [ ] sidebar 只剩 5 项 + 设置
-- [ ] 全站没有"Wayne Stack/Console"字样
+- [ ] 全站没有"Agent Stack/Console"字样
 - [ ] 首页打开 5 秒内能看清"该干什么"
-- [ ] 旧深链（`/wayne-stack` 等）仍可访问
+- [ ] 旧深链（`/Agent-stack` 等）仍可访问
 - [ ] `make dev` 跑得起来，所有现有任务流不回归
 - [ ] 两个 task 并发跑，PRD 不互相覆盖（开两个 tab 同时建任务验证）
 - [ ] 任务卡上 7 个交付包图标灰/亮状态正确
@@ -352,8 +352,8 @@ CLAUDE.md                          更新 5 入口架构 + 交付物存储说明
 
 ### 标记 deprecated（不删，留兼容）
 ```
-src/views/WayneConsole.vue         legacy 路由保留
-src/views/WayneStack.vue
+src/views/AgentConsole.vue         legacy 路由保留
+src/views/AgentStack.vue
 src/views/AgentsConsole.vue
 src/views/PipelineDashboard.vue    内容并入 Inbox 主体
 src/views/PlanInbox.vue            并入 Inbox 「待审批」tab

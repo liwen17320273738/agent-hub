@@ -68,6 +68,28 @@
                 <span class="stage-name">{{ stage.label }}</span>
               </el-badge>
             </div>
+            <div
+              v-if="stage.id === 'planning' && (pipelineStore.tasksByStage[stage.id] || []).length"
+              class="planning-bulk-bar"
+              @click.stop
+            >
+              <el-checkbox
+                :model-value="planningSelectAllChecked"
+                :indeterminate="planningSelectIndeterminate"
+                @change="onPlanningSelectAll"
+              >
+                {{ t('pipelineDashboard.selectAllPlanning') }}
+              </el-checkbox>
+              <el-button
+                type="danger"
+                size="small"
+                plain
+                :disabled="planningSelectedCount === 0"
+                @click="confirmDeletePlanningBulk"
+              >
+                {{ t('pipelineDashboard.deleteSelectedPlanning', { n: planningSelectedCount }) }}
+              </el-button>
+            </div>
             <div class="stage-tasks">
             <div
               v-for="task in (pipelineStore.tasksByStage[stage.id] || [])"
@@ -75,20 +97,33 @@
               class="task-card"
               @click="$router.push(`/pipeline/task/${task.id}`)"
             >
-              <button
-                v-if="stage.id === 'planning'"
-                type="button"
-                class="task-delete"
-                :title="t('pipelineDashboard.title_1')"
-                :aria-label="t('pipelineDashboard.title_1')"
-                @click.stop="confirmDeletePlanningTask(task)"
-              >
-                <el-icon :size="14"><Delete /></el-icon>
-              </button>
-              <div class="task-title"><AutoTranslated :text="task.title" /></div>
-              <div class="task-meta">
-                <el-tag :type="sourceTagType(task.source)" size="small">{{ task.source }}</el-tag>
-                <span class="task-time">{{ timeAgo(task.updatedAt) }}</span>
+              <div class="task-card-body">
+                <el-checkbox
+                  v-if="stage.id === 'planning'"
+                  class="task-planning-check"
+                  :model-value="planningSelectedIds.has(task.id)"
+                  @change="(v) => onPlanningRowCheck(task.id, v)"
+                  @click.stop
+                />
+                <div class="task-card-main">
+                  <div class="task-card-top">
+                    <div class="task-title"><AutoTranslated :text="task.title" /></div>
+                    <button
+                      v-if="stage.id === 'planning'"
+                      type="button"
+                      class="task-delete"
+                      :title="t('pipelineDashboard.title_1')"
+                      :aria-label="t('pipelineDashboard.title_1')"
+                      @click.stop="confirmDeletePlanningTask(task)"
+                    >
+                      <el-icon :size="14"><Delete /></el-icon>
+                    </button>
+                  </div>
+                  <div class="task-meta">
+                    <el-tag :type="sourceTagType(task.source)" size="small">{{ task.source }}</el-tag>
+                    <span class="task-time">{{ timeAgo(task.updatedAt) }}</span>
+                  </div>
+                </div>
               </div>
             </div>
             <div v-if="!(pipelineStore.tasksByStage[stage.id] || []).length" class="stage-empty">
@@ -356,7 +391,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
@@ -535,17 +570,17 @@ const modelTiers = computed(() => [
   {
     key: 'planning' as const,
     label: t('pipelineDashboard.tier1'),
-    roles: ['orchestrator', 'lead-agent', 'wayne-ceo', 'wayne-cto', 'wayne-acceptance'],
+    roles: ['orchestrator', 'lead-agent', 'Agent-ceo', 'Agent-cto', 'Agent-acceptance'],
   },
   {
     key: 'execution' as const,
     label: t('pipelineDashboard.tier2'),
-    roles: ['product-manager', 'developer', 'qa-lead', 'wayne-product', 'wayne-developer'],
+    roles: ['product-manager', 'developer', 'qa-lead', 'Agent-product', 'Agent-developer'],
   },
   {
     key: 'routine' as const,
     label: t('pipelineDashboard.tier3'),
-    roles: ['wayne-marketing', 'wayne-finance', 'wayne-devops', 'openclaw'],
+    roles: ['Agent-marketing', 'Agent-finance', 'Agent-devops', 'openclaw'],
   },
 ])
 
@@ -621,6 +656,81 @@ function stageColor(id: string) {
   return stageColors[id] || '#666'
 }
 
+const planningTasksList = computed(() => pipelineStore.tasksByStage['planning'] ?? [])
+
+const planningSelectedIds = shallowRef(new Set<string>())
+
+const planningSelectedCount = computed(() => {
+  let n = 0
+  for (const task of planningTasksList.value) {
+    if (planningSelectedIds.value.has(task.id)) n++
+  }
+  return n
+})
+
+const planningSelectAllChecked = computed(() => {
+  const list = planningTasksList.value
+  return list.length > 0 && planningSelectedCount.value === list.length
+})
+
+const planningSelectIndeterminate = computed(() => {
+  const list = planningTasksList.value
+  const c = planningSelectedCount.value
+  return c > 0 && c < list.length
+})
+
+watch(planningTasksList, (list) => {
+  const idSet = new Set(list.map((t) => t.id))
+  const next = new Set<string>()
+  for (const id of planningSelectedIds.value) {
+    if (idSet.has(id)) next.add(id)
+  }
+  if (next.size !== planningSelectedIds.value.size) {
+    planningSelectedIds.value = next
+  }
+})
+
+function onPlanningSelectAll(checked: boolean | string | number) {
+  const on = Boolean(checked)
+  const list = planningTasksList.value
+  planningSelectedIds.value = on ? new Set(list.map((t) => t.id)) : new Set()
+}
+
+function onPlanningRowCheck(taskId: string, val: boolean | string | number) {
+  const next = new Set(planningSelectedIds.value)
+  if (Boolean(val)) next.add(taskId)
+  else next.delete(taskId)
+  planningSelectedIds.value = next
+}
+
+async function confirmDeletePlanningBulk() {
+  const ids = planningTasksList.value
+    .map((t) => t.id)
+    .filter((id) => planningSelectedIds.value.has(id))
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('pipelineDashboard.confirmBulkDeletePlanningMessage', { count: ids.length }),
+      t('pipelineDashboard.titleBulkDeletePlanning'),
+      {
+        type: 'warning',
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
+      },
+    )
+    for (const id of ids) {
+      await pipelineStore.removeTask(id)
+    }
+    planningSelectedIds.value = new Set()
+    ElMessage.success(t('pipelineDashboard.elMessageBulkDeletedPlanning', { count: ids.length }))
+  } catch (e: unknown) {
+    if (e === 'cancel') return
+    ElMessage.error(
+      t('pipelineDashboard.elMessageDeleteError', { message: e instanceof Error ? e.message : String(e) }),
+    )
+  }
+}
+
 function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
   const map: Record<string, 'primary' | 'success' | 'warning' | 'info' | 'danger'> = {
     feishu: 'warning',
@@ -643,6 +753,9 @@ async function confirmDeletePlanningTask(task: PipelineTask) {
       },
     )
     await pipelineStore.removeTask(task.id)
+    const next = new Set(planningSelectedIds.value)
+    next.delete(task.id)
+    planningSelectedIds.value = next
     ElMessage.success(t('pipelineDashboard.elMessage_6'))
   } catch (e: unknown) {
     if (e === 'cancel') return
@@ -1017,21 +1130,64 @@ onUnmounted(() => {
   z-index: 0;
 }
 
+.planning-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 4px 2px 10px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.planning-bulk-bar :deep(.el-checkbox) {
+  margin-right: 0;
+}
+
+.task-card-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-planning-check {
+  flex-shrink: 0;
+  margin-top: -4px;
+}
+
+.task-planning-check :deep(.el-checkbox__label) {
+  display: none;
+}
+
 .task-card:hover {
   border-color: var(--accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   z-index: 1;
 }
 
+.task-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+  min-width: 0;
+}
+
 .task-delete {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
+  margin-top: -1px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -1047,10 +1203,18 @@ onUnmounted(() => {
 }
 
 .task-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-title :deep(.auto-translated) {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

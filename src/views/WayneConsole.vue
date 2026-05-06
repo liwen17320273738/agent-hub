@@ -1,5 +1,5 @@
 <template>
-  <div class="wayne-console-page">
+  <div class="Agent-console-page">
     <header class="console-header">
       <div>
         <h1>Agent Console</h1>
@@ -8,7 +8,7 @@
         </p>
       </div>
       <div class="console-actions">
-        <el-button type="primary" @click="$router.push('/wayne-stack')">{{ t('wayneConsole.text_1') }}</el-button>
+        <el-button type="primary" @click="$router.push('/Agent-stack')">{{ t('AgentConsole.text_1') }}</el-button>
       </div>
     </header>
 
@@ -327,11 +327,11 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  getWayneCostModeMeta,
+  getAgentCostModeMeta,
   tryApplyRecommendedModel,
 } from '@/services/wayneRouting'
-import { useWayneWorkflowStore } from '@/stores/wayneWorkflow'
-import { WAYNE_STAGE_ORDER } from '@/services/wayneWorkflow'
+import { useAgentWorkflowStore } from '@/stores/wayneWorkflow'
+import { Agent_STAGE_ORDER } from '@/services/wayneWorkflow'
 import { useSettingsStore } from '@/stores/settings'
 import {
   initDeliveryDocs,
@@ -346,7 +346,7 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const router = useRouter()
-const workflowStore = useWayneWorkflowStore()
+const workflowStore = useAgentWorkflowStore()
 const settingsStore = useSettingsStore()
 const consoleProfileId = ref(settingsStore.activeProfileId)
 const roleProfileDrafts = reactive<Record<string, string>>({})
@@ -364,7 +364,7 @@ const deliverySaving = ref(false)
 const currentWorkflow = computed(() => workflowStore.workflow)
 const currentStageId = computed(() => workflowStore.currentStage?.id || null)
 const currentStageDoc = computed(() => workflowStore.currentStage?.deliveryDocName || '01-prd.md')
-const currentCostMode = computed(() => getWayneCostModeMeta(settingsStore.settings.wayneCostMode))
+const currentCostMode = computed(() => getAgentCostModeMeta(settingsStore.settings.AgentCostMode))
 const activeProfileName = computed(() => settingsStore.activeProfile?.name || '未命名档案')
 const profileOptions = computed(() =>
   settingsStore.profiles.map((profile) => ({
@@ -377,7 +377,7 @@ const profileOptions = computed(() =>
 const orderedStages = computed(() => {
   const wf = workflowStore.workflow
   if (!wf) return []
-  return WAYNE_STAGE_ORDER.map((id) => wf.stages.find((stage) => stage.id === id)).filter(Boolean)
+  return Agent_STAGE_ORDER.map((id) => wf.stages.find((stage) => stage.id === id)).filter(Boolean)
 })
 
 const sortedDeliveryDocs = computed(() => deliveryDocs.value)
@@ -388,7 +388,7 @@ const stages = [
     step: '01',
     title: '判断当前阶段',
     agent: 'Agent Hub 总控',
-    agentId: 'wayne-orchestrator',
+    agentId: 'Agent-orchestrator',
     description: '先让总控判断这是 PRD、开发、QA 还是发布阶段，避免一上来就乱做。',
     output: '阶段判断 / 下一步动作',
     seed: '请判断这个任务现在处于 Agent Hub 的哪个阶段，并给出下一步最小动作。',
@@ -399,7 +399,7 @@ const stages = [
     step: '02',
     title: '生成 PRD',
     agent: 'Agent Hub 产品经理',
-    agentId: 'wayne-product-manager',
+    agentId: 'Agent-product-manager',
     description: '把模糊需求整理成目标、范围、非目标、用户故事和验收标准。',
     output: '01-prd.md',
     seed: '请把这个想法整理成一版 Agent Hub PRD，包含目标、范围、非目标、用户故事、验收标准和开放问题。',
@@ -410,7 +410,7 @@ const stages = [
     step: '03',
     title: '进入开发',
     agent: 'Agent Hub 开发工程师',
-    agentId: 'wayne-developer',
+    agentId: 'Agent-developer',
     description: '根据已确认需求输出最小实现方案、涉及模块、验证方式和潜在风险。',
     output: '实现方案 / 开发任务',
     seed: '根据当前需求，给我一版 Agent Hub 的最小实现方案，列出涉及模块、改动点、验证方式和风险。',
@@ -421,7 +421,7 @@ const stages = [
     step: '04',
     title: '质量验证',
     agent: 'Agent Hub QA 负责人',
-    agentId: 'wayne-qa-lead',
+    agentId: 'Agent-qa-lead',
     description: '把验收标准转成 QA 检查清单，并输出 PASS / NEEDS WORK 的判断模板。',
     output: '测试计划 / 风险结论',
     seed: '请基于这项工作生成 Agent Hub QA 检查清单，重点覆盖主路径、边界、回归风险，并给出 PASS / NEEDS WORK 模板。',
@@ -438,13 +438,13 @@ const scenarios = [
     actions: [
       {
         label: '先找总控',
-        agentId: 'wayne-orchestrator',
+        agentId: 'Agent-orchestrator',
         seed: '我要开始一个新功能，请先判断 Agent Hub 的推进顺序和最小起步动作。',
         recommendedModel: 'Opus 4.6',
       },
       {
         label: '写 PRD',
-        agentId: 'wayne-product-manager',
+        agentId: 'Agent-product-manager',
         seed: '把这个新功能整理成一版可以直接开发的 PRD。',
         recommendedModel: 'GPT-4.5',
       },
@@ -458,13 +458,13 @@ const scenarios = [
     actions: [
       {
         label: '进入开发',
-        agentId: 'wayne-developer',
+        agentId: 'Agent-developer',
         seed: '基于当前需求，给我最小可交付实现方案，并拆成开发任务。',
         recommendedModel: 'Sonnet 4.6',
       },
       {
         label: '开发前把关',
-        agentId: 'wayne-orchestrator',
+        agentId: 'Agent-orchestrator',
         seed: '开发前请检查我还缺哪些上游产物，避免 Agent Hub 跳阶段。',
         recommendedModel: 'Opus 4.6',
       },
@@ -478,13 +478,13 @@ const scenarios = [
     actions: [
       {
         label: '跑 QA',
-        agentId: 'wayne-qa-lead',
+        agentId: 'Agent-qa-lead',
         seed: '请从 Agent Hub QA 视角检查当前功能，给出风险点和是否建议发布。',
         recommendedModel: 'Gemini 4',
       },
       {
         label: '总控判断',
-        agentId: 'wayne-orchestrator',
+        agentId: 'Agent-orchestrator',
         seed: '结合当前 QA 结论，判断是否可以进入 Agent Hub 的发布阶段。',
         recommendedModel: 'Opus 4.6',
       },
@@ -498,13 +498,13 @@ const scenarios = [
     actions: [
       {
         label: '中文润色',
-        agentId: 'wayne-china-strategist',
+        agentId: 'Agent-china-strategist',
         seed: '请把当前内容改成更自然、更像中国业务语境的中文表达，并指出原文的 AI 腔问题。',
         recommendedModel: '智谱 GLM-4.5',
       },
       {
         label: '老板汇报版',
-        agentId: 'wayne-china-strategist',
+        agentId: 'Agent-china-strategist',
         seed: '请把这份内容重写成老板能快速读懂的中文汇报版本，强调目标、风险和下一步。',
         recommendedModel: '智谱 GLM-4.5',
       },
@@ -514,7 +514,7 @@ const scenarios = [
 
 const agents = [
   {
-    id: 'wayne-orchestrator',
+    id: 'Agent-orchestrator',
     name: 'Agent Hub 总控',
     title: 'Orchestrator',
     icon: 'Connection',
@@ -523,7 +523,7 @@ const agents = [
     recommendedModel: '推荐：Opus 4.6',
   },
   {
-    id: 'wayne-product-manager',
+    id: 'Agent-product-manager',
     name: 'Agent Hub 产品经理',
     title: 'Product Manager',
     icon: 'Memo',
@@ -532,7 +532,7 @@ const agents = [
     recommendedModel: '推荐：GPT-4.5',
   },
   {
-    id: 'wayne-developer',
+    id: 'Agent-developer',
     name: 'Agent Hub 开发工程师',
     title: 'Developer',
     icon: 'Cpu',
@@ -541,7 +541,7 @@ const agents = [
     recommendedModel: '推荐：Sonnet 4.6',
   },
   {
-    id: 'wayne-qa-lead',
+    id: 'Agent-qa-lead',
     name: 'Agent Hub QA 负责人',
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
@@ -550,7 +550,7 @@ const agents = [
     recommendedModel: '推荐：Gemini 4',
   },
   {
-    id: 'wayne-china-strategist',
+    id: 'Agent-china-strategist',
     name: 'Agent Hub 中文策略',
     title: 'China Strategist',
     icon: 'ChatLineSquare',
@@ -670,21 +670,21 @@ function applyConsoleProfile() {
 function bindRoleProfile(agentId: string) {
   const profileId = roleProfileDrafts[agentId]
   if (!profileId) {
-    ElMessage.warning(t('wayneConsole.elMessage_1'))
+    ElMessage.warning(t('AgentConsole.elMessage_1'))
     return
   }
   const ok = settingsStore.bindRoleProfile(agentId, profileId)
   if (!ok) {
-    ElMessage.error(t('wayneConsole.elMessage_2'))
+    ElMessage.error(t('AgentConsole.elMessage_2'))
     return
   }
-  ElMessage.success(t('wayneConsole.elMessage_3'))
+  ElMessage.success(t('AgentConsole.elMessage_3'))
 }
 
 function unbindRoleProfile(agentId: string) {
   settingsStore.unbindRoleProfile(agentId)
   roleProfileDrafts[agentId] = ''
-  ElMessage.success(t('wayneConsole.elMessage_4'))
+  ElMessage.success(t('AgentConsole.elMessage_4'))
 }
 
 for (const entry of agents) {
@@ -694,13 +694,13 @@ for (const entry of agents) {
 function ensureWorkflowStarted() {
   if (workflowStore.hasWorkflow) return true
   if (!workflowForm.goal.trim()) {
-    ElMessage.warning(t('wayneConsole.elMessage_5'))
+    ElMessage.warning(t('AgentConsole.elMessage_5'))
     return false
   }
   workflowStore.startWorkflow(workflowForm.title, workflowForm.goal)
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
-  ElMessage.success(t('wayneConsole.elMessage_6'))
+  ElMessage.success(t('AgentConsole.elMessage_6'))
   return true
 }
 
@@ -710,7 +710,7 @@ function syncWorkflowMeta() {
     title: workflowForm.title,
     goal: workflowForm.goal,
   })
-  ElMessage.success(t('wayneConsole.elMessage_7'))
+  ElMessage.success(t('AgentConsole.elMessage_7'))
 }
 
 function markCurrentStageDone() {
@@ -718,20 +718,20 @@ function markCurrentStageDone() {
   workflowStore.completeCurrentStage('由 Agent Hub Console 推进到下一阶段')
   activeDeliveryName.value = currentStageDoc.value
   void openDeliveryDoc(currentStageDoc.value)
-  ElMessage.success(t('wayneConsole.elMessage_8'))
+  ElMessage.success(t('AgentConsole.elMessage_8'))
 }
 
 function markCurrentStageBlocked() {
   if (!workflowStore.hasWorkflow) return
   workflowStore.blockCurrentStage('需要 Agent Hub 人工判断或补齐上游产物')
-  ElMessage.warning(t('wayneConsole.elMessage_9'))
+  ElMessage.warning(t('AgentConsole.elMessage_9'))
 }
 
 function resetWorkflow() {
   workflowStore.resetWorkflow()
   workflowForm.title = 'Agent Hub 新工作流'
   workflowForm.goal = ''
-  ElMessage.success(t('wayneConsole.elMessage_10'))
+  ElMessage.success(t('AgentConsole.elMessage_10'))
 }
 
 async function loadDeliveryList() {
@@ -754,7 +754,7 @@ async function initializeDeliveryDocs() {
   try {
     deliveryDocs.value = await initDeliveryDocs()
     await openDeliveryDoc(activeDeliveryName.value)
-    ElMessage.success(t('wayneConsole.elMessage_11'))
+    ElMessage.success(t('AgentConsole.elMessage_11'))
   } finally {
     deliveryLoading.value = false
   }
@@ -766,7 +766,7 @@ async function saveDeliveryDoc() {
   try {
     activeDeliveryDoc.value = await writeDeliveryDoc(activeDeliveryName.value, deliveryDraft.value)
     await loadDeliveryList()
-    ElMessage.success(t('wayneConsole.elMessage_12'))
+    ElMessage.success(t('AgentConsole.elMessage_12'))
   } finally {
     deliverySaving.value = false
   }
@@ -784,7 +784,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.wayne-console-page {
+.Agent-console-page {
   padding: 32px 40px 48px;
   max-width: 1400px;
   margin: 0 auto;
@@ -1241,7 +1241,7 @@ onMounted(async () => {
 }
 
 @media (max-width: 900px) {
-  .wayne-console-page {
+  .Agent-console-page {
     padding: 24px 20px 36px;
   }
 

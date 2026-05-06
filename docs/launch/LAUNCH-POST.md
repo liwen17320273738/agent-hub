@@ -31,7 +31,7 @@ All copy is in English. Adjust `<PLACEHOLDER>` markers before submitting.
 **Body** (paste verbatim, ~600 words):
 
 ```text
-Hi HN — I'm Wayne. For the past few months I've been building Agent Hub
+Hi HN — I'm Agent. For the past few months I've been building Agent Hub
 (github.com/<ORG>/agent-hub), an open-source AI agent platform that does
 one thing well: it takes a Jira ticket or a GitHub issue, plans the work,
 writes the code in a Docker sandbox, opens a PR, responds to reviewer

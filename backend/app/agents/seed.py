@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 # These map to TOOL_REGISTRY keys in services/tools/registry.py
 
 AGENT_TOOLS = {
-    "wayne-ceo": [
+    "Agent-ceo": [
         "web_search", "browser_open", "browser_extract",
         "file_read", "file_list",
         "delegate_to_agent",
         "deerflow_delegate",
     ],
-    "wayne-cto": [
+    "Agent-cto": [
         "file_read", "file_list", "bash",
         "web_search", "browser_open", "browser_extract",
         "git_diff", "git_log",
@@ -37,13 +37,13 @@ AGENT_TOOLS = {
         "delegate_to_agent", "agent_publish", "agent_wait_for",
         "deerflow_delegate",
     ],
-    "wayne-product": [
+    "Agent-product": [
         "web_search", "browser_open", "browser_extract",
         "file_read", "file_write", "file_list",
         "delegate_to_agent",
         "deerflow_delegate",
     ],
-    "wayne-developer": [
+    "Agent-developer": [
         "file_read", "file_write", "file_list", "str_replace", "bash",
         "git_status", "git_add", "git_commit", "git_diff", "git_log",
         "git_checkout", "git_push", "git_create_pr", "write_file",
@@ -53,7 +53,7 @@ AGENT_TOOLS = {
         "delegate_to_agent", "agent_publish", "agent_wait_for",
         "deerflow_delegate",
     ],
-    "wayne-qa": [
+    "Agent-qa": [
         "file_read", "file_list", "bash",
         "test_execute", "test_detect", "run_tests",
         "git_diff", "git_log",
@@ -63,46 +63,46 @@ AGENT_TOOLS = {
         "delegate_to_agent", "agent_publish", "agent_wait_for",
         "deerflow_delegate",
     ],
-    "wayne-designer": [
+    "Agent-designer": [
         "web_search", "browser_open", "browser_screenshot", "browser_extract",
         "file_read", "file_write", "file_list",
         "deerflow_delegate",
     ],
-    "wayne-devops": [
+    "Agent-devops": [
         "file_read", "file_write", "file_list", "bash",
         "git_status", "git_add", "git_commit", "git_push",
         "build", "install_deps", "run_tests",
         "delegate_to_agent",
         "deerflow_delegate",
     ],
-    "wayne-security": [
+    "Agent-security": [
         "file_read", "file_list", "bash",
         "web_search", "browser_open",
         "git_diff", "codebase_search", "code_semantic_search",
         "deerflow_delegate",
     ],
-    "wayne-acceptance": [
+    "Agent-acceptance": [
         "file_read", "file_list", "web_search",
         "test_execute", "browser_open", "browser_screenshot",
         "codebase_search", "code_semantic_search",
         "deerflow_delegate",
     ],
-    "wayne-data": [
+    "Agent-data": [
         "file_read", "file_write", "bash",
         "web_search", "browser_open", "browser_extract",
         "deerflow_delegate",
     ],
-    "wayne-marketing": [
+    "Agent-marketing": [
         "web_search", "browser_open", "browser_extract",
         "file_write",
         "deerflow_delegate",
     ],
-    "wayne-finance": [
+    "Agent-finance": [
         "web_search", "browser_open", "browser_extract",
         "file_read",
         "deerflow_delegate",
     ],
-    "wayne-legal": [
+    "Agent-legal": [
         "web_search", "browser_open", "browser_extract",
         "file_read",
         "deerflow_delegate",
@@ -118,26 +118,26 @@ AGENT_TOOLS = {
 # Maps agent_id -> list of skill_ids (must exist in DEFAULT_SKILLS)
 
 AGENT_SKILL_BINDINGS = {
-    "wayne-ceo": ["prd-writing"],
-    "wayne-cto": ["code-review", "security-audit", "architecture-design"],
-    "wayne-product": ["prd-writing", "deep-research", "data-analysis"],
-    "wayne-developer": ["code-review", "api-design"],
-    "wayne-qa": ["test-strategy", "code-review"],
-    "wayne-designer": ["deep-research"],
-    "wayne-devops": ["deploy-checklist", "security-audit"],
-    "wayne-security": ["security-audit", "code-review"],
-    "wayne-acceptance": ["prd-writing", "test-strategy"],
-    "wayne-data": ["data-analysis", "deep-research"],
-    "wayne-marketing": ["deep-research", "data-analysis"],
-    "wayne-finance": ["data-analysis", "token-optimization"],
-    "wayne-legal": ["deep-research"],
+    "Agent-ceo": ["prd-writing"],
+    "Agent-cto": ["code-review", "security-audit", "architecture-design"],
+    "Agent-product": ["prd-writing", "deep-research", "data-analysis"],
+    "Agent-developer": ["code-review", "api-design"],
+    "Agent-qa": ["test-strategy", "code-review"],
+    "Agent-designer": ["deep-research"],
+    "Agent-devops": ["deploy-checklist", "security-audit"],
+    "Agent-security": ["security-audit", "code-review"],
+    "Agent-acceptance": ["prd-writing", "test-strategy"],
+    "Agent-data": ["data-analysis", "deep-research"],
+    "Agent-marketing": ["deep-research", "data-analysis"],
+    "Agent-finance": ["data-analysis", "token-optimization"],
+    "Agent-legal": ["deep-research"],
     "hermes-overseer": ["code-review", "security-audit"],
 }
 
 
 DEFAULT_AGENTS: list[dict] = [
     {
-        "id": "wayne-ceo",
+        "id": "Agent-ceo",
         "name": "CEO / 总控",
         "title": "CEO & Orchestrator",
         "icon": "Trophy",
@@ -165,7 +165,7 @@ DEFAULT_AGENTS: list[dict] = [
                 "高风险动作必须提醒审批",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-product", "wayne-developer", "wayne-qa", "wayne-devops"],
+                "reviews_output_of": ["Agent-product", "Agent-developer", "Agent-qa", "Agent-devops"],
                 "output_reviewed_by": [],
                 "can_escalate_to": [],
             },
@@ -194,8 +194,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "最终产出与用户原始需求对齐",
             ],
             "handoff_protocol": [
-                {"when": "需要架构评审", "to": "wayne-cto", "context": "需求+约束"},
-                {"when": "需要安全审查", "to": "wayne-security", "context": "架构方案+敏感数据清单"},
+                {"when": "需要架构评审", "to": "Agent-cto", "context": "需求+约束"},
+                {"when": "需要安全审查", "to": "Agent-security", "context": "架构方案+敏感数据清单"},
             ],
         },
         "preferred_model": "claude-opus-4-20250514",
@@ -209,7 +209,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-cto",
+        "id": "Agent-cto",
         "name": "CTO / 架构师",
         "title": "CTO & Tech Lead",
         "icon": "Cpu",
@@ -236,9 +236,9 @@ DEFAULT_AGENTS: list[dict] = [
                 "权衡方案利弊，给出推荐",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-developer"],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "reviews_output_of": ["Agent-developer"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "claude-sonnet-4-20250514",
@@ -267,8 +267,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "有明确的实施路线图(分阶段)",
             ],
             "handoff_protocol": [
-                {"when": "需要安全评审", "to": "wayne-security", "context": "架构方案"},
-                {"when": "需要数据建模", "to": "wayne-data", "context": "业务实体清单"},
+                {"when": "需要安全评审", "to": "Agent-security", "context": "架构方案"},
+                {"when": "需要数据建模", "to": "Agent-data", "context": "业务实体清单"},
             ],
         },
         "quick_prompts": [
@@ -279,7 +279,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-product",
+        "id": "Agent-product",
         "name": "产品经理",
         "title": "Product Manager",
         "icon": "Memo",
@@ -308,8 +308,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo", "wayne-cto"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo", "Agent-cto"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "gpt-4.5",
@@ -339,8 +339,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "包含里程碑规划",
             ],
             "handoff_protocol": [
-                {"when": "需要技术可行性评估", "to": "wayne-cto", "context": "需求+技术约束"},
-                {"when": "需要UI方案", "to": "wayne-designer", "context": "用户故事+交互流程"},
+                {"when": "需要技术可行性评估", "to": "Agent-cto", "context": "需求+技术约束"},
+                {"when": "需要UI方案", "to": "Agent-designer", "context": "用户故事+交互流程"},
             ],
         },
         "quick_prompts": [
@@ -351,7 +351,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-developer",
+        "id": "Agent-developer",
         "name": "开发工程师",
         "title": "Senior Developer",
         "icon": "Monitor",
@@ -380,8 +380,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-cto", "wayne-qa"],
-                "can_escalate_to": ["wayne-cto"],
+                "output_reviewed_by": ["Agent-cto", "Agent-qa"],
+                "can_escalate_to": ["Agent-cto"],
             },
         },
         "preferred_model": "claude-sonnet-4-20250514",
@@ -410,8 +410,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "代码包含错误处理",
             ],
             "handoff_protocol": [
-                {"when": "架构问题", "to": "wayne-cto", "context": "技术约束+当前实现"},
-                {"when": "测试验证", "to": "wayne-qa", "context": "代码+验证步骤"},
+                {"when": "架构问题", "to": "Agent-cto", "context": "技术约束+当前实现"},
+                {"when": "测试验证", "to": "Agent-qa", "context": "代码+验证步骤"},
             ],
         },
         "quick_prompts": [
@@ -422,7 +422,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-qa",
+        "id": "Agent-qa",
         "name": "测试工程师",
         "title": "QA Engineer",
         "icon": "CircleCheckFilled",
@@ -448,9 +448,9 @@ DEFAULT_AGENTS: list[dict] = [
                 "区分已验证与未验证，不制造虚假信心",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-developer"],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "reviews_output_of": ["Agent-developer"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "gemini-2.5-pro",
@@ -480,8 +480,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "缺陷有严重度分级",
             ],
             "handoff_protocol": [
-                {"when": "发现代码缺陷", "to": "wayne-developer", "context": "缺陷描述+复现步骤"},
-                {"when": "需要需求澄清", "to": "wayne-product", "context": "歧义的验收标准"},
+                {"when": "发现代码缺陷", "to": "Agent-developer", "context": "缺陷描述+复现步骤"},
+                {"when": "需要需求澄清", "to": "Agent-product", "context": "歧义的验收标准"},
             ],
         },
         "quick_prompts": [
@@ -492,7 +492,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-designer",
+        "id": "Agent-designer",
         "name": "UI/UX 设计师",
         "title": "Design Lead",
         "icon": "PictureFilled",
@@ -519,8 +519,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo", "wayne-product"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo", "Agent-product"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "gpt-4o",
@@ -550,7 +550,7 @@ DEFAULT_AGENTS: list[dict] = [
                 "有响应式适配方案",
             ],
             "handoff_protocol": [
-                {"when": "需要前端实现", "to": "wayne-developer", "context": "设计规范+组件清单"},
+                {"when": "需要前端实现", "to": "Agent-developer", "context": "设计规范+组件清单"},
             ],
         },
         "quick_prompts": [
@@ -561,7 +561,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-devops",
+        "id": "Agent-devops",
         "name": "DevOps / SRE",
         "title": "DevOps Engineer",
         "icon": "SetUp",
@@ -588,8 +588,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo", "wayne-cto"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo", "Agent-cto"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "claude-sonnet-4-20250514",
@@ -620,8 +620,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "有监控告警配置",
             ],
             "handoff_protocol": [
-                {"when": "应用代码问题", "to": "wayne-developer", "context": "部署日志+错误信息"},
-                {"when": "安全配置", "to": "wayne-security", "context": "环境配置+网络拓扑"},
+                {"when": "应用代码问题", "to": "Agent-developer", "context": "部署日志+错误信息"},
+                {"when": "安全配置", "to": "Agent-security", "context": "环境配置+网络拓扑"},
             ],
         },
         "quick_prompts": [
@@ -632,7 +632,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-security",
+        "id": "Agent-security",
         "name": "安全工程师",
         "title": "Security Engineer",
         "icon": "Lock",
@@ -657,9 +657,9 @@ DEFAULT_AGENTS: list[dict] = [
                 "漏洞按 CVSS 评分分级",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-developer", "wayne-devops"],
-                "output_reviewed_by": ["wayne-cto"],
-                "can_escalate_to": ["wayne-cto", "wayne-ceo"],
+                "reviews_output_of": ["Agent-developer", "Agent-devops"],
+                "output_reviewed_by": ["Agent-cto"],
+                "can_escalate_to": ["Agent-cto", "Agent-ceo"],
             },
         },
         "preferred_model": "claude-sonnet-4-20250514",
@@ -687,8 +687,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "包含威胁模型分析",
             ],
             "handoff_protocol": [
-                {"when": "代码修复", "to": "wayne-developer", "context": "漏洞详情+修复方案"},
-                {"when": "安全部署配置", "to": "wayne-devops", "context": "安全加固清单"},
+                {"when": "代码修复", "to": "Agent-developer", "context": "漏洞详情+修复方案"},
+                {"when": "安全部署配置", "to": "Agent-devops", "context": "安全加固清单"},
             ],
         },
         "quick_prompts": [
@@ -699,7 +699,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-acceptance",
+        "id": "Agent-acceptance",
         "name": "验收官",
         "title": "Acceptance Officer",
         "icon": "Stamp",
@@ -725,9 +725,9 @@ DEFAULT_AGENTS: list[dict] = [
                 "REJECTED 必须说明退回到哪个阶段",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-qa", "wayne-developer", "wayne-devops"],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "reviews_output_of": ["Agent-qa", "Agent-developer", "Agent-devops"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "claude-opus-4-20250514",
@@ -755,8 +755,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "REJECTED 时指明退回阶段",
             ],
             "handoff_protocol": [
-                {"when": "补充测试", "to": "wayne-qa", "context": "未验证项"},
-                {"when": "缺陷修复", "to": "wayne-developer", "context": "缺陷清单"},
+                {"when": "补充测试", "to": "Agent-qa", "context": "未验证项"},
+                {"when": "缺陷修复", "to": "Agent-developer", "context": "缺陷清单"},
             ],
         },
         "quick_prompts": [
@@ -767,7 +767,7 @@ DEFAULT_AGENTS: list[dict] = [
         ],
     },
     {
-        "id": "wayne-data",
+        "id": "Agent-data",
         "name": "数据分析师",
         "title": "Data Analyst",
         "icon": "DataAnalysis",
@@ -790,8 +790,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo", "wayne-product"],
-                "can_escalate_to": ["wayne-cto"],
+                "output_reviewed_by": ["Agent-ceo", "Agent-product"],
+                "can_escalate_to": ["Agent-cto"],
             },
         },
         "preferred_model": "deepseek-chat",
@@ -823,7 +823,7 @@ DEFAULT_AGENTS: list[dict] = [
         "quick_prompts": ["设计核心指标体系", "分析留存率", "设计数据看板", "写数据分析代码"],
     },
     {
-        "id": "wayne-marketing",
+        "id": "Agent-marketing",
         "name": "营销总监",
         "title": "CMO",
         "icon": "Promotion",
@@ -846,8 +846,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "deepseek-chat",
@@ -879,7 +879,7 @@ DEFAULT_AGENTS: list[dict] = [
         "quick_prompts": ["写一篇产品推文", "制定社媒发布计划", "分析竞品营销策略", "生成爆款标题"],
     },
     {
-        "id": "wayne-finance",
+        "id": "Agent-finance",
         "name": "CFO / 财务",
         "title": "CFO",
         "icon": "Money",
@@ -902,8 +902,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "deepseek-chat",
@@ -935,7 +935,7 @@ DEFAULT_AGENTS: list[dict] = [
         "quick_prompts": ["分析本月 Token 费用", "制定费用优化方案", "做预算规划", "计算 ROI"],
     },
     {
-        "id": "wayne-legal",
+        "id": "Agent-legal",
         "name": "法务顾问",
         "title": "Legal Advisor",
         "icon": "Document",
@@ -958,8 +958,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "deepseek-chat",
@@ -987,7 +987,7 @@ DEFAULT_AGENTS: list[dict] = [
                 "包含免责声明",
             ],
             "handoff_protocol": [
-                {"when": "技术安全问题", "to": "wayne-security", "context": "安全合规需求"},
+                {"when": "技术安全问题", "to": "Agent-security", "context": "安全合规需求"},
             ],
         },
         "quick_prompts": ["起草服务合同", "写隐私政策", "审查合同风险条款", "合规检查"],
@@ -1017,8 +1017,8 @@ DEFAULT_AGENTS: list[dict] = [
             ],
             "collaboration": {
                 "reviews_output_of": [],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "preferred_model": "deepseek-chat",
@@ -1046,7 +1046,7 @@ DEFAULT_AGENTS: list[dict] = [
                 "未识别意图回退人工确认",
             ],
             "handoff_protocol": [
-                {"when": "任务执行", "to": "wayne-ceo", "context": "结构化需求"},
+                {"when": "任务执行", "to": "Agent-ceo", "context": "结构化需求"},
             ],
         },
         "quick_prompts": ["创建新的开发任务", "查看进行中的任务", "查看流水线状态", "任务进度汇总"],
@@ -1076,9 +1076,9 @@ DEFAULT_AGENTS: list[dict] = [
                 "监督与执行分离，不参与代码实现",
             ],
             "collaboration": {
-                "reviews_output_of": ["wayne-developer", "wayne-qa", "wayne-devops"],
-                "output_reviewed_by": ["wayne-ceo"],
-                "can_escalate_to": ["wayne-ceo"],
+                "reviews_output_of": ["Agent-developer", "Agent-qa", "Agent-devops"],
+                "output_reviewed_by": ["Agent-ceo"],
+                "can_escalate_to": ["Agent-ceo"],
             },
         },
         "role_card": {
@@ -1102,8 +1102,8 @@ DEFAULT_AGENTS: list[dict] = [
                 "无主观判断，全部基于契约和事实",
             ],
             "handoff_protocol": [
-                {"when": "需要修复缺陷", "to": "wayne-developer", "context": "缺陷清单+严重度"},
-                {"when": "需要升级决策", "to": "wayne-ceo", "context": "监督报告"},
+                {"when": "需要修复缺陷", "to": "Agent-developer", "context": "缺陷清单+严重度"},
+                {"when": "需要升级决策", "to": "Agent-ceo", "context": "监督报告"},
             ],
         },
         "preferred_model": "claude-opus-4-20250514",

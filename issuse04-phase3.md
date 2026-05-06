@@ -33,7 +33,7 @@ b. 启用全部 14 角色：
 
 _AGENT_KEY_TO_SEED_ID 从 5 项扩到 13 项
 在 5 个核心阶段 prompt 末尾注入 _DELEGATE_HINT，明确告诉它们"何时该 delegate、给哪个角色"
-9 个先前闲置的 wayne-* agent 全部具备完整工具集，随时可被 delegate 召唤
+9 个先前闲置的 Agent-* agent 全部具备完整工具集，随时可被 delegate 召唤
 c. 顺手修 memory bug：AgentRuntime 加 task_id 入参；pipeline_engine 调用时透传，store_memory(task_id=effective_task_id) 不再写错值。
 
 🔴 P0-5 Codebase 索引
@@ -44,7 +44,7 @@ codebase_search — 优先用系统 rg，否则 pure-Python 走 os.walk，行号
 codebase_read_chunk — 切片读，配合 search 命中后下钻
 烟测：在 services/tools 上 0.4s 抽出 14 文件 + 全部函数符号；ripgrep 路径 0.05s 找到 4 处 TOOL_REGISTRY。
 
-绑定到 wayne-cto / wayne-developer / wayne-qa（含 read_chunk）和 wayne-security / wayne-acceptance（仅 search）。
+绑定到 Agent-cto / Agent-developer / Agent-qa（含 read_chunk）和 Agent-security / Agent-acceptance（仅 search）。
 
 验证矩阵
 检查项	结果

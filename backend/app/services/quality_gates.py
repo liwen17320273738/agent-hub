@@ -436,7 +436,7 @@ ISSUES: <主要问题列表，每行一条，以 - 开头>"""
 
     try:
         from ..config import settings as app_settings
-        model = app_settings.llm_model or "deepseek-chat"
+        model = app_settings.llm_model or "glm-4-flash"
         api_url = app_settings.llm_api_url or ""
 
         result = await llm_chat(

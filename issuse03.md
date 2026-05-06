@@ -18,7 +18,7 @@
 | **后端 (DB)** | `AgentDefinition` 表 + `seed.py` | 数据库持久化存储 | 仅存在于数据库，前端和 Pipeline 均未真正调用。 |
 | **Pipeline** | `STAGE_ROLE_PROMPTS` (硬编码) | 流水线阶段执行 | 逻辑完全脱离 DB Agent，也不读取前端 Agent。 |
 
-**后果：** 你在前端看到的 `wayne-product-manager` 与 Pipeline 中执行的 `product-manager` 角色是两个完全无关的实体。
+**后果：** 你在前端看到的 `Agent-product-manager` 与 Pipeline 中执行的 `product-manager` 角色是两个完全无关的实体。
 
 ### 2. Agent 缺乏真正的“能力” (Capability Gap)
 目前的 Agent 仅仅是一段 `systemPrompt` 文本，缺乏以下核心要素：
@@ -102,7 +102,7 @@ Pipeline
 STAGE_ROLE_PROMPTS + AGENT_PROFILES 硬编码
 Pipeline 阶段执行
 不读 DB Agent，不读前端 Agent
-后果： 你在前端看到的 wayne-product-manager 和 Pipeline 里执行的 product-manager 角色是两个完全无关的东西。前端聊天用前端 systemPrompt，Pipeline 用另一套硬编码 prompt，数据库里的 Agent 定义谁都不用。
+后果： 你在前端看到的 Agent-product-manager 和 Pipeline 里执行的 product-manager 角色是两个完全无关的东西。前端聊天用前端 systemPrompt，Pipeline 用另一套硬编码 prompt，数据库里的 Agent 定义谁都不用。
 
 问题二：Agent 没有真正的"能力"
 当前 Agent 的全部"能力"就是一段 systemPrompt 文字。没有：

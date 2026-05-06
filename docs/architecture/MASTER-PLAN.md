@@ -131,7 +131,7 @@ backend/
 
 | 类型 | 角色 | Title | 核心能力 |
 |------|------|-------|---------|
-| **核心** | CEO / 总控 | Wayne Orchestrator | 战略决策、任务编排、审批 |
+| **核心** | CEO / 总控 | Agent Orchestrator | 战略决策、任务编排、审批 |
 | **核心** | CTO / 架构师 | Tech Lead | 技术架构、代码审查、技术选型 |
 | **核心** | 产品经理 | Product Manager | PRD、用户故事、验收标准 |
 | **核心** | 开发工程师 | Developer | 代码实现、技术方案 |

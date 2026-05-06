@@ -3,11 +3,11 @@ import { apiUrl, isEnterpriseBuild } from './enterpriseApi'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { detectProviderFromApiUrl, type ModelProvider } from './modelCatalog'
-import type { WayneCostMode } from './wayneRouting'
+import type { AgentCostMode } from './wayneRouting'
 
 export interface LLMSettings {
   provider?: ModelProvider
-  wayneCostMode?: WayneCostMode
+  AgentCostMode?: AgentCostMode
   apiUrl: string
   apiKey: string
   model: string
@@ -30,7 +30,7 @@ export interface LLMSettings {
 
 export const defaultSettings: LLMSettings = {
   provider: 'deepseek',
-  wayneCostMode: 'balanced',
+  AgentCostMode: 'balanced',
   apiUrl: 'https://api.deepseek.com/v1/chat/completions',
   apiKey: '',
   model: 'deepseek-chat',

@@ -203,7 +203,7 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
   },
 ]
 
-export const WAYNE_CORE_MODELS = MODEL_CATALOG.filter((m) => m.isCore)
+export const Agent_CORE_MODELS = MODEL_CATALOG.filter((m) => m.isCore)
 
 export const SCORE_LABELS: { key: keyof ModelScores; label: string }[] = [
   { key: 'cost', label: '性价比' },

@@ -164,16 +164,16 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 const ROLE_TO_AGENT_ID: Record<string, string> = {
-  ceo: 'wayne-ceo',
-  cto: 'wayne-cto',
-  pm: 'wayne-pm',
-  developer: 'wayne-developer',
-  qa: 'wayne-qa',
-  designer: 'wayne-designer',
-  security: 'wayne-security',
-  devops: 'wayne-devops',
-  acceptance: 'wayne-acceptance',
-  data: 'wayne-data',
+  ceo: 'Agent-ceo',
+  cto: 'Agent-cto',
+  pm: 'Agent-pm',
+  developer: 'Agent-developer',
+  qa: 'Agent-qa',
+  designer: 'Agent-designer',
+  security: 'Agent-security',
+  devops: 'Agent-devops',
+  acceptance: 'Agent-acceptance',
+  data: 'Agent-data',
 }
 
 const form = reactive({
@@ -224,7 +224,7 @@ const optAgentId = ref('')
 const optResult = ref<PromptRevision | null>(null)
 
 function resolveAgentId(role: string): string {
-  return ROLE_TO_AGENT_ID[role.toLowerCase()] || (role.startsWith('wayne-') ? role : `wayne-${role}`)
+  return ROLE_TO_AGENT_ID[role.toLowerCase()] || (role.startsWith('Agent-') ? role : `Agent-${role}`)
 }
 
 async function openOptimize(role: string) {
