@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -13,10 +13,8 @@ import re
 from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
-from ..models.pipeline import PipelineTask, PipelineStage, PipelineArtifact
+from ..models.pipeline import PipelineTask, PipelineArtifact
 from .sse import emit_event
 from .notify import notify_task_event
 

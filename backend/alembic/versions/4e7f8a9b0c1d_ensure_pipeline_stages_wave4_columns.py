@@ -8,7 +8,6 @@ Earlier 2c3d4e5f6a7b used batch_alter_table; on some PostgreSQL setups the
 columns were never created while alembic_version advanced. Idempotent ADD.
 """
 from alembic import op
-import sqlalchemy as sa
 from sqlalchemy import text
 
 

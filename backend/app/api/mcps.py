@@ -13,7 +13,7 @@ already and is managed by /agents/{id}/mcps in the existing CRUD layer.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field

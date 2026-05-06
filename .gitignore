@@ -35,6 +35,12 @@ logs/
 *.log
 pnpm-debug.log*
 
+# Playwright
+/playwright-report/
+/test-results/
+/blob-report/
+/playwright/.cache/
+
 # IDE
 .idea/
 .vscode/
@@ -48,5 +54,6 @@ skills/custom/*
 # Docker
 docker/provisioner/
 
-# SQLite memory DB artifacts
-file::memory:
+# aiosqlite in-memory DB artifacts (cwd-relative names under backend/)
+backend/file::memory:
+backend/file::memory:-journal

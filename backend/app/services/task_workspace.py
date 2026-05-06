@@ -23,7 +23,6 @@ import asyncio
 import json
 import logging
 import re
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional

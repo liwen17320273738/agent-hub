@@ -1364,7 +1364,6 @@ async def seed_skills(db: AsyncSession) -> None:
 
 async def seed_agent_skills(db: AsyncSession) -> None:
     """Create AgentSkill bindings between agents and skills."""
-    from sqlalchemy import select
 
     for agent_id, skill_ids in AGENT_SKILL_BINDINGS.items():
         agent = await db.get(AgentDefinition, agent_id)

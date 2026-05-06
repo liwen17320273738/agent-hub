@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.user import User
 from ..security import get_current_user
-from ..services.llm_router import chat_completion, chat_completion_stream, infer_provider
+from ..services.llm_router import chat_completion, chat_completion_stream
 from ..services.token_tracker import record_usage
 
 router = APIRouter(prefix="/llm", tags=["llm"])

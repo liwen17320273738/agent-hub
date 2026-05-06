@@ -55,7 +55,7 @@ async def build_project(params: Dict[str, Any], log_callback: LogCallback = None
         projects_root = Path(root, "projects").resolve()
         cwd = str(Path(projects_root, project).resolve())
         if not cwd.startswith(str(projects_root)):
-            return f"Error: Invalid project name — path traversal denied"
+            return "Error: Invalid project name — path traversal denied"
     else:
         cwd = root
 

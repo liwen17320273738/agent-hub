@@ -13,7 +13,6 @@ import logging
 import shutil
 import tarfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import List
 
 from sqlalchemy import select, or_, and_

@@ -4,7 +4,6 @@ Public share API — unauthenticated access to task deliverables via signed toke
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel

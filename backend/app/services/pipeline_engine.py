@@ -1626,6 +1626,13 @@ async def execute_stage(
     except Exception as cost_err:
         logger.debug(f"[pipeline] cost_governor record failed for {stage_id}: {cost_err}")
 
+    span_meta = {}
+    if stage_id == "development":
+        if cc_job_id:
+            span_meta["claude_code_job_id"] = cc_job_id
+        if cc_written_files:
+            span_meta["claude_code_files_written"] = len(cc_written_files)
+
     # --- Layer 8: Complete trace span ---
     await complete_span(
         span.span_id,
@@ -1639,6 +1646,7 @@ async def execute_stage(
         guardrail_level=guardrail_result.get("level", GuardrailLevel.AUTO_APPROVE).value
             if isinstance(guardrail_result.get("level"), GuardrailLevel)
             else guardrail_result.get("level", "auto_approve"),
+        metadata_updates=span_meta or None,
     )
 
     # --- Layer 9: Memory → store output for future retrieval ---
@@ -1660,16 +1668,17 @@ async def execute_stage(
 
     # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
     try:
-        from .artifact_writer import write_artifact_v2, write_stage_artifacts_v2, _write_one_artifact
+        from .artifact_writer import (
+            write_stage_artifacts_v2,
+            _write_one_artifact,
+            AUX_STAGE_LABELS,
+        )
 
-        # For development stage with Claude Code output, write both implementation
-        # and a dedicated code_link artifact with the actual file list.
         if stage_id == "development" and cc_written_files:
             written_arts = await write_stage_artifacts_v2(
                 db, task_id=task_id, task_title=task_title,
                 stage_id=stage_id, content=content, agent_name=agent_name,
             )
-            # Overwrite code_link with structured file list instead of markdown summary
             code_link_json = json.dumps({
                 "job_id": cc_job_id,
                 "files": cc_written_files,
@@ -1682,29 +1691,17 @@ async def execute_stage(
             )
             logger.info("[pipeline] Wrote %d artifacts for development stage (incl. code_link with %d files)",
                 len(written_arts) + 1, len(cc_written_files))
-        else:
-            await write_artifact_v2(
+        elif (content or "").strip() or stage_id in AUX_STAGE_LABELS:
+            n = len(await write_stage_artifacts_v2(
                 db,
                 task_id=task_id,
+                task_title=task_title,
                 stage_id=stage_id,
-                content=content,
+                content=content or "",
                 agent_name=agent_name,
-            )
+            ))
+            logger.info("[pipeline] Wrote %d artifact row(s) for stage %s", n, stage_id)
 
-        # For testing stage, additionally write a structured test_report artifact
-        if stage_id == "testing" and content:
-            test_verdict = "PASS" if "✅ PASS" in content else "FAIL" if "❌ FAIL" in content else "UNKNOWN"
-            test_report_json = json.dumps({
-                "stage": "testing",
-                "verdict": test_verdict,
-                "agent": agent_name,
-                "content": content[:8000],
-                "generated_at": datetime.utcnow().isoformat(),
-            }, ensure_ascii=False, indent=2)
-            await _write_one_artifact(
-                db, task_id, stage_id, "test_report", test_report_json,
-                "test-report.md", agent_name,
-            )
         await emit_event("stage:artifact-written", {
             "taskId": task_id,
             "stageId": stage_id,

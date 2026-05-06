@@ -1,5 +1,4 @@
 """Unit tests for the v2 artifact system (issuse21 Phase 2-4)."""
-import pytest
 from app.models.task_artifact import (
     TaskArtifact,
     ArtifactTypeRegistry,
@@ -32,7 +31,7 @@ class TestArtifactTypeRegistry:
             sort_order=99,
         )
         assert reg.type_key == "test_type"
-        assert reg.is_builtin is None or reg.is_builtin == True
+        assert reg.is_builtin is None or reg.is_builtin is True
 
     def test_sort_order_sequential(self):
         orders = [t["sort_order"] for t in BUILTIN_ARTIFACT_TYPES]
@@ -51,7 +50,7 @@ class TestTaskArtifactModel:
         )
         assert art.artifact_type == "prd"
         assert art.version == 1
-        assert art.is_latest is None or art.is_latest == True
+        assert art.is_latest is None or art.is_latest is True
         assert art.status is None or art.status == "active"
 
     def test_default_mime_type(self):
@@ -70,8 +69,8 @@ class TestStageToArtifactMapping:
         for stage, art_type in STAGE_TO_ARTIFACT.items():
             assert art_type in valid_types, f"Stage {stage} maps to invalid type: {art_type}"
 
-    def test_unknown_stage_returns_none(self):
-        assert STAGE_TO_ARTIFACT.get("nonexistent") is None
+    def test_deployment_maps_to_ops_runbook_tab(self):
+        assert STAGE_TO_ARTIFACT["deployment"] == "ops_runbook"
 
 
 class TestConfigFlag:

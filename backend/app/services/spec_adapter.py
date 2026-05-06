@@ -17,12 +17,10 @@ Agent Hub mapping:
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,7 +115,6 @@ async def import_spec_kit_dir(
 
     # 3. Create PipelineTask with spec_driven template
     task_title = title or feature_names[0] if feature_names else "Spec-Driven Task"
-    task_description_parts = []
     spec_content = "\n\n---\n\n".join(merged[SPEC_FILE]) if merged[SPEC_FILE] else ""
     plan_content = "\n\n---\n\n".join(merged[PLAN_FILE]) if merged[PLAN_FILE] else ""
     tasks_content = "\n\n---\n\n".join(merged[TASKS_FILE]) if merged[TASKS_FILE] else ""

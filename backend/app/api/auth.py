@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.user import Org, User
+from ..models.user import User
 from ..schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserInfo
 from ..security import (
     create_access_token,

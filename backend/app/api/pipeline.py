@@ -1,7 +1,6 @@
 """Pipeline API: task management, stage progression, collaboration."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -624,7 +623,7 @@ async def delete_task(
 # previous_outputs) are still persisted, but those blobs are reconstructed
 # from the DB on resume rather than carried in the params dict.
 
-from ..services.task_scheduler import get_scheduler, register_kind
+from ..services.task_scheduler import get_scheduler, register_kind  # noqa: E402
 
 
 def _build_smart_run(params):
@@ -670,7 +669,7 @@ def _build_auto_run(params):
 def _build_run_stage(params):
     async def _run(bg_db: AsyncSession):
         from ..services.pipeline_engine import execute_stage
-        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
+        from ..models.pipeline import PipelineTask as PT
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
@@ -748,7 +747,7 @@ def _build_resume_pipeline(params):
     DB so we don't carry large blobs through Redis."""
     async def _run(bg_db: AsyncSession):
         from ..services.pipeline_engine import execute_full_pipeline
-        from ..models.pipeline import PipelineTask as PT, PipelineStage as PS
+        from ..models.pipeline import PipelineTask as PT
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
 
@@ -2237,7 +2236,6 @@ async def final_reject_task(
         # Re-enqueue the DAG. We use the existing dag_run path so the resume
         # mechanism (skip already-DONE stages) takes care of the rest.
         if background_tasks is not None:
-            from ..services.dag_orchestrator import execute_dag_pipeline
             background_tasks.add_task(
                 _resume_dag_after_reject,
                 str(task.id),

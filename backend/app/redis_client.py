@@ -71,6 +71,17 @@ class _MemoryFallback:
         _memory_sets.pop(key, None)
         _memory_zsets.pop(key, None)
 
+    async def incr(self, key: str) -> int:
+        self._expire_check(key)
+        raw = _memory_store.get(key)
+        try:
+            n = int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            n = 0
+        n += 1
+        _memory_store[key] = str(n)
+        return n
+
     async def expire(self, key: str, ttl: int) -> None:
         _memory_expiry[key] = time.time() + ttl
 

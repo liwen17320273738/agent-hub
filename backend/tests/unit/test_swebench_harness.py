@@ -9,7 +9,6 @@ from scripts.swebench import dataset, evaluator, patch_utils
 from scripts.swebench.agent import (
     _parse_selected_paths,
     _shortlist_paths,
-    AgentAttempt,
     run_agentless_attempt,
 )
 

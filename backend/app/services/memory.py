@@ -14,15 +14,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import uuid
-from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import httpx
 from sqlalchemy import select, func, text, String as SAString
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.memory import TaskMemory, LearnedPattern, KnowledgeCollection
+from ..models.memory import TaskMemory, LearnedPattern
 from ..models.pipeline import PipelineTask
 from ..redis_client import get_redis, cache_get, cache_set
 

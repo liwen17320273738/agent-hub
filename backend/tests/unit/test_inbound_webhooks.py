@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-import pytest
 
 from app.services.connectors import webhook as wh
 

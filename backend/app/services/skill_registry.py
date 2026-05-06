@@ -29,14 +29,14 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.skill import Skill
-from .skill_loader import _parse_skill_md  # noqa: intentionally reusing the loader
+from .skill_loader import _parse_skill_md  # intentionally reuse private parser
 
 logger = logging.getLogger(__name__)
 

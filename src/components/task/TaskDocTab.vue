@@ -131,7 +131,7 @@ const ARTIFACT_TO_DOC: Record<string, string> = {
   ui_spec: 'docs/02-ui-spec.md',
   architecture: 'docs/03-architecture.md',
   implementation: 'docs/04-implementation-notes.md',
-  code_link: 'docs/04-implementation-notes.md',
+  code_link: 'docs/code-snapshot.md',
   test_report: 'docs/05-test-report.md',
   acceptance: 'docs/06-acceptance.md',
   ops_runbook: 'docs/07-ops-runbook.md',

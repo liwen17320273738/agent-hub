@@ -353,7 +353,7 @@ def _check_code_files(output: str, min_count: int) -> VerifyResult:
     return VerifyResult(
         check_name="code_files",
         status=VerifyStatus.WARN,
-        message=f"未检测到带路径的代码文件（建议使用 ```lang:path 格式）",
+        message="未检测到带路径的代码文件（建议使用 ```lang:path 格式）",
     )
 
 

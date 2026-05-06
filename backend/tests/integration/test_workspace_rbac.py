@@ -1,6 +1,5 @@
 """Integration tests for Workspace model + RBAC logic."""
 import uuid
-import pytest
 from app.models.workspace import Workspace, WorkspaceMember
 from app.models.credential import Credential, _fernet
 

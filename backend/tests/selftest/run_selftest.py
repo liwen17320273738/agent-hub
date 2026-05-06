@@ -350,9 +350,9 @@ class SelfTester:
                             result.add(f"T3-推进{stage_id}", "WARN", f"Expected next={expected}, got={new_stage}")
                     else:
                         if new_status == "done":
-                            result.add(f"T3-完成全部阶段", "PASS", "status=done")
+                            result.add("T3-完成全部阶段", "PASS", "status=done")
                         else:
-                            result.add(f"T3-最终阶段", "WARN", f"status={new_status}")
+                            result.add("T3-最终阶段", "WARN", f"status={new_status}")
                 else:
                     result.add(f"T3-推进{stage_id}", "FAIL", f"status={r.status_code}: {r.text[:150]}")
                     self._record_issue("FAIL", "advance", f"推进{stage_id}失败", r.text[:200], pid)
@@ -675,8 +675,8 @@ class SelfTester:
 
         r = self._get("/api/observability/traces")
         if r.status_code == 200:
-            traces = r.json()
-            print(f"  ✅ Traces: OK")
+            r.json()
+            print("  ✅ Traces: OK")
         else:
             print(f"  ⚠️ Traces: {r.status_code}")
 
@@ -720,7 +720,7 @@ class SelfTester:
             },
         })
         if r.status_code == 200:
-            print(f"  ✅ Quality gate override: OK")
+            print("  ✅ Quality gate override: OK")
         else:
             print(f"  ⚠️ Quality gate override: {r.status_code}")
 
@@ -740,8 +740,8 @@ class SelfTester:
             "",
             "## 总览",
             "",
-            f"| 指标 | 数值 |",
-            f"|------|------|",
+            "| 指标 | 数值 |",
+            "|------|------|",
             f"| 测试项目数 | {len(self.results)} |",
             f"| 总测试用例 | {total_tests} |",
             f"| ✅ 通过 | {total_pass} |",
@@ -757,8 +757,8 @@ class SelfTester:
             status = "✅" if r.failed == 0 else "❌"
             report_lines.append(f"### {status} [{r.project_id}] {r.project_title} ({r.category})")
             report_lines.append("")
-            report_lines.append(f"| 测试 | 状态 | 详情 |")
-            report_lines.append(f"|------|------|------|")
+            report_lines.append("| 测试 | 状态 | 详情 |")
+            report_lines.append("|------|------|------|")
             for t in r.tests:
                 icon = {"PASS": "✅", "FAIL": "❌", "WARN": "⚠️"}.get(t["status"], "❓")
                 detail = t["detail"].replace("|", "\\|")[:80]

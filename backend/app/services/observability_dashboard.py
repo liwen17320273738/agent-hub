@@ -16,13 +16,12 @@ All cheap aggregates against indexed columns; safe to call on every page load.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import func, select, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.observability import (
-    TraceRecord,
     SpanRecord,
     AuditLog,
     ApprovalRecord,

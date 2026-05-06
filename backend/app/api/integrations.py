@@ -296,7 +296,7 @@ async def add_task_link(
 
     existing = _normalize_existing_links(task.external_links)
     dedup_key = _link_dedup_key(new_link)
-    merged = [l for l in existing if _link_dedup_key(l) != dedup_key]
+    merged = [link for link in existing if _link_dedup_key(link) != dedup_key]
     merged.append(new_link)
 
     task.external_links = merged
@@ -325,7 +325,7 @@ async def remove_task_link(
     task = await _load_task(db, task_id)
     target_dedup = _link_dedup_key({"kind": kind, "key": key})
     existing = _normalize_existing_links(task.external_links)
-    remaining = [l for l in existing if _link_dedup_key(l) != target_dedup]
+    remaining = [link for link in existing if _link_dedup_key(link) != target_dedup]
     if len(remaining) == len(existing):
         raise HTTPException(status_code=404, detail="link not found")
 
@@ -385,7 +385,7 @@ async def create_and_bind_task_link(
     }
     existing = _normalize_existing_links(task.external_links)
     dedup_key = _link_dedup_key(new_link)
-    merged = [l for l in existing if _link_dedup_key(l) != dedup_key]
+    merged = [link for link in existing if _link_dedup_key(link) != dedup_key]
     merged.append(new_link)
     task.external_links = merged
     await db.commit()

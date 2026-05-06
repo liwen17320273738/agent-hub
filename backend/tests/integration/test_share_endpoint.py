@@ -1,6 +1,4 @@
 """Integration tests for the share token system."""
-import time
-import pytest
 from app.services.share_token import create_share_token, verify_share_token
 
 

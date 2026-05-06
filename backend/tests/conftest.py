@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import uuid
 from typing import AsyncGenerator
 
 import pytest
@@ -18,10 +17,10 @@ os.environ.setdefault("ADMIN_EMAIL", "test@test.com")
 os.environ.setdefault("ADMIN_PASSWORD", "testpassword")
 os.environ.setdefault("DEBUG", "true")
 
-from app.database import Base, engine, async_session
-from app.main import app
-from app.security import create_access_token, hash_password
-from app.models.user import User, Org
+from app.database import Base, engine, async_session  # noqa: E402
+from app.main import app  # noqa: E402
+from app.security import create_access_token, hash_password  # noqa: E402
+from app.models.user import User, Org  # noqa: E402
 
 
 @pytest.fixture(scope="session")

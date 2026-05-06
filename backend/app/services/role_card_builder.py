@@ -10,7 +10,7 @@ compose a deterministic, high-quality prompt from these structured fields.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +104,6 @@ def build_skill_criteria_check(
         passed = False
         reason = ""
 
-        criterion_lower = criterion.lower()
-
         if "≥" in criterion or ">=" in criterion:
             passed = output_len > 200
             reason = f"output length={output_len}" if not passed else "ok"
@@ -116,7 +114,7 @@ def build_skill_criteria_check(
                 passed = any(kp.lower() in output_lower for kp in keyword_parts)
             else:
                 passed = True
-            reason = "found" if passed else f"keyword not found in output"
+            reason = "found" if passed else "keyword not found in output"
         elif "结论" in criterion and ("PASS" in criterion or "APPROVED" in criterion):
             passed = any(kw in stage_output for kw in ["PASS", "NEEDS WORK", "BLOCKED", "APPROVED", "REJECTED"])
             reason = "conclusion found" if passed else "no conclusion keyword"

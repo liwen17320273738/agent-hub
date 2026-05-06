@@ -11,21 +11,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, func, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.skill import Skill
 from .tool_schema import (
-    SkillSchema, validate_input, validate_output,
-    compute_idempotency_key, check_idempotency,
+    SkillSchema, validate_input, check_idempotency,
     record_execution_start, record_execution_complete,
 )
 from .llm_router import chat_completion
 from .sse import emit_event
-from .skill_loader import discover_skills, get_loaded_skills, get_skill as get_fs_skill
+from .skill_loader import get_loaded_skills, get_skill as get_fs_skill
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +255,6 @@ async def execute_skill(
     except ValueError as e:
         return {"ok": False, "error": f"Input validation failed: {e}"}
 
-    idempotency_key = compute_idempotency_key(skill_id, validated_input)
     cached = check_idempotency(skill_id, validated_input)
     if cached and cached.status == "completed" and cached.output:
         return {"ok": True, "content": cached.output, "cached": True}

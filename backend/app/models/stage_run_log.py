@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
-from sqlalchemy import Column, DateTime, String, Text, Integer, Float, ForeignKey
+from sqlalchemy import Column, DateTime, String, Text, Integer, Float
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, utcnow_default
 
 
 class StageRunLog(Base):

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Agent Hub — 定价与方案</title>
+  <meta name="description" content="Agent Hub 产品定价意向：Starter / Team / Enterprise，支持私有化与定制集成。" />
+  <style>
+    :root {
+      --bg: #0a0c10;
+      --surface: #12161d;
+      --text: #eef2f7;
+      --muted: #8b96a8;
+      --accent: #38bdf8;
+      --accent2: #a78bfa;
+      --ok: #34d399;
+      --radius: 16px;
+      --max: 920px;
+      font-family: "SF Pro Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(900px 480px at 20% -10%, #0e749066, transparent), var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      margin-bottom: 1.75rem;
+      font-size: 0.88rem;
+    }
+    .nav a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid #38bdf888;
+    }
+    .nav a:hover { color: #7dd3fc; }
+    header { margin-bottom: 2rem; }
+    .logo {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-size: clamp(1.65rem, 4vw, 2.2rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.5rem;
+    }
+    .lead { color: var(--muted); max-width: 40rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid #1f2937;
+      border-radius: var(--radius);
+      padding: 1.35rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+    h2 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--accent2);
+      margin-bottom: 0.9rem;
+    }
+    .grid {
+      display: grid;
+      gap: 1rem;
+    }
+    @media (min-width: 720px) {
+      .grid-3 { grid-template-columns: repeat(3, 1fr); }
+    }
+    .card {
+      border: 1px solid #273549;
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      background: #0f1419;
+      display: flex;
+      flex-direction: column;
+    }
+    .card h3 { font-size: 1.05rem; margin-bottom: 0.35rem; }
+    .price {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: var(--ok);
+      margin: 0.5rem 0 0.35rem;
+    }
+    ul { list-style: none; font-size: 0.92rem; color: var(--muted); }
+    li {
+      padding: 0.25rem 0 0.25rem 1rem;
+      position: relative;
+    }
+    li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.72rem;
+      width: 5px;
+      height: 5px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    .note { font-size: 0.82rem; color: var(--muted); margin-top: auto; padding-top: 0.75rem; }
+    .cta { margin-top: 1.35rem; display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    a.btn {
+      display: inline-block;
+      padding: 0.65rem 1.15rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--accent), #6366f1);
+      color: #0a0c10;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    a.btn.secondary {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid #38bdf888;
+    }
+    .fine { font-size: 0.78rem; color: var(--muted); margin-top: 0.65rem; }
+    footer { margin-top: 2rem; font-size: 0.8rem; color: var(--muted); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="nav" aria-label="站内">
+      <a href="./agent-hub-landing.html">产品介绍</a>
+      <a href="../portfolio/index.html">个人 Portfolio</a>
+      <a href="mailto:17695633572@163.com">邮件询价</a>
+    </nav>
+
+    <header>
+      <div class="logo">Agent Hub</div>
+      <h1>定价与交付方式</h1>
+      <p class="lead">以下为商务对齐用的<strong>结构占位</strong>，正式报价按部署形态（SaaS / 私有化）、席位与集成深度调整。</p>
+    </header>
+
+    <section>
+      <h2>方案对比</h2>
+      <div class="grid grid-3">
+        <div class="card">
+          <h3>Starter</h3>
+          <p class="price">¥ — / 月</p>
+          <ul>
+            <li>单工作区、标准流水线模板</li>
+            <li>多通道接入（能力随版本开放）</li>
+            <li>邮件 / 工单级支持</li>
+          </ul>
+          <p class="note">适合内部试点与 PMF 验证。</p>
+        </div>
+        <div class="card">
+          <h3>Team</h3>
+          <p class="price">¥ — / 月</p>
+          <ul>
+            <li>多工作区 RBAC</li>
+            <li>更高并发与定制通道优先级</li>
+            <li>约定 SLA 的升级支持</li>
+          </ul>
+          <p class="note">适合事业部持续交付。</p>
+        </div>
+        <div class="card">
+          <h3>Enterprise</h3>
+          <p class="price">议付</p>
+          <ul>
+            <li>私有化与合规（审计、水印等按项）</li>
+            <li>SSO、定制编排与集成</li>
+            <li>按人天 / 年维框架合同</li>
+          </ul>
+          <p class="note">适合金融、政务等对隔离与审计要求高的场景。</p>
+        </div>
+      </div>
+      <p class="fine">LLM 与云资源费用通常不含在软件订阅内，可在方案阶段单列或由客户自备 Key。</p>
+    </section>
+
+    <section>
+      <h2>单次交付 / 里程碑</h2>
+      <ul>
+        <li style="padding-left:0;position:static;color:var(--text);">固定价 MVP：范围说明书 + 验收清单 + 上线移交（适合已有明确需求边界）</li>
+        <li style="padding-left:0;position:static;color:var(--text);margin-top:0.35rem;">定制集成按人天计价，与 Team / Enterprise 可打包。</li>
+      </ul>
+    </section>
+
+    <div class="cta">
+      <a class="btn" href="mailto:17695633572@163.com?subject=Agent%20Hub%20%E5%AE%9A%E4%BB%B7%E5%92%A8%E8%AF%A2">预约商务沟通</a>
+      <a class="btn secondary" href="https://github.com/liwen17320273738/agent-hub">查看开源仓库</a>
+    </div>
+
+    <footer>
+      © AI-agent · <a href="mailto:17695633572@163.com">17695633572@163.com</a>
+    </footer>
+  </div>
+</body>
+</html>

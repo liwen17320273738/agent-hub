@@ -3,7 +3,6 @@ import pytest
 
 from app.services.tool_schema import (
     SkillSchema,
-    RetryPolicy,
     validate_input,
     validate_output,
     compute_idempotency_key,

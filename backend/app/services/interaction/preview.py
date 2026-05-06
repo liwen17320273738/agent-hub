@@ -5,7 +5,6 @@ import asyncio
 import base64
 import logging
 import os
-import shutil
 from ipaddress import ip_address
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse

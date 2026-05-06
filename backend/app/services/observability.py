@@ -21,7 +21,6 @@ from typing import Optional, Dict, Any, List
 
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.observability import TraceRecord, SpanRecord
 from ..database import async_session
@@ -184,6 +183,7 @@ async def _persist_span_to_db(span: TraceSpan) -> None:
                 record.guardrail_level = span.guardrail_level
                 record.approval_id = span.approval_id
                 record.retry_count = span.retry_count
+                record.metadata_extra = span.metadata
             else:
                 record = SpanRecord(
                     span_id=span.span_id,
@@ -405,6 +405,7 @@ async def complete_span(
     guardrail_level: Optional[str] = None,
     approval_id: Optional[str] = None,
     retry_count: int = 0,
+    metadata_updates: Optional[Dict[str, Any]] = None,
 ) -> Optional[TraceSpan]:
     """Complete a span with results."""
     span = await _load_span(span_id)
@@ -426,6 +427,8 @@ async def complete_span(
     span.guardrail_level = guardrail_level
     span.approval_id = approval_id
     span.retry_count = retry_count
+    if metadata_updates:
+        span.metadata = {**span.metadata, **metadata_updates}
 
     await cache_set(f"span:{span_id}", span.model_dump(), ttl=SPAN_COMPLETED_TTL)
     await _persist_span_to_db(span)

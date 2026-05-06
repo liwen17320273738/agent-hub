@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select

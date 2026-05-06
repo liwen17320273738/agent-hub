@@ -21,6 +21,7 @@ from .test_runner import (
     format_test_report,
 )
 from .deerflow_tool import deerflow_delegate, deerflow_list_skills, deerflow_list_models
+from .codebase_index import repo_map as _codebase_map, search_repo as _codebase_search, read_chunk as _codebase_read_chunk
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,6 @@ try:
 except Exception as _be:  # noqa: BLE001
     logger.info(f"[tools] browser tools not available: {_be}")
     _BROWSER_LOADED = False
-
-from .codebase_index import repo_map as _codebase_map, search_repo as _codebase_search, read_chunk as _codebase_read_chunk
 
 
 async def _test_execute_handler(params: Dict[str, Any]) -> str:
@@ -953,7 +952,9 @@ def role_tool_summary(role: str) -> Dict[str, Any]:
     try:
         from ..sandbox_overrides import override_decision
     except Exception:  # pragma: no cover — defensive
-        override_decision = lambda _r, _t: None  # type: ignore
+
+        def override_decision(_role: str, _tool: str) -> None:  # type: ignore[misc]
+            return None
 
     whitelist = ROLE_TOOL_WHITELIST.get(role)
     all_tools = set(TOOL_REGISTRY.keys())

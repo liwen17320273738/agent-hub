@@ -5,6 +5,8 @@ After creating a task, automatically triggers pipeline execution in the backgrou
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import secrets as _secrets
 import uuid
@@ -1631,15 +1633,13 @@ async def github_webhook(
 
     Only processes events that match a task's ``repo_refs``.
     """
-    import json as _json
-
     body = await request.body()
     event = request.headers.get("x-github-event", "")
-    signature = request.headers.get("x-hub-signature-256", "")
+    _ = request.headers.get("x-hub-signature-256", "")
     payload: dict = {}
 
     try:
-        payload = _json.loads(body) if isinstance(body, bytes) else _json.loads(body.decode())
+        payload = json.loads(body) if isinstance(body, bytes) else json.loads(body.decode())
     except (json.JSONDecodeError, UnicodeDecodeError):
         logger.warning("[github-webhook] Invalid JSON payload")
         return {"ok": False, "error": "Invalid JSON"}
@@ -1779,8 +1779,6 @@ async def github_webhook(
 #     <MsgId>1234567890</MsgId>
 #   </xml>
 
-import hashlib as _hashlib
-
 _WX_TEXT_REPLY_TMPL = (
     "<xml>"
     "<ToUserName><![CDATA[{to_user}]]></ToUserName>"
@@ -1799,7 +1797,7 @@ def _wx_check_signature(signature: str, timestamp: str, nonce: str) -> bool:
     if not token or not signature or not timestamp or not nonce:
         return False
     tmp = "".join(sorted([token, timestamp, nonce]))
-    return _hashlib.sha1(tmp.encode()).hexdigest() == signature
+    return hashlib.sha1(tmp.encode()).hexdigest() == signature
 
 
 def _wx_parse_xml(xml: str) -> Dict[str, str]:

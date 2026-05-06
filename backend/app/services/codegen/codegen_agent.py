@@ -21,8 +21,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from .templates import scaffold_project, get_template, list_templates
-from ..tools.sandbox import configure_sandbox, get_sandbox_root
+from .templates import scaffold_project, get_template
+from ..tools.sandbox import get_sandbox_root
 from ..tools import execute_tool
 from ..llm_router import chat_completion
 

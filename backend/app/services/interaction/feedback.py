@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..sse import emit_event
 from ...models.observability import FeedbackRecord
@@ -324,7 +323,6 @@ async def _apply_feedback_in_background(
                  project_dir; codegen/build/deploy will pick up the changes.
     - fix      → same as iterate but biased toward development/testing stages.
     """
-    from ..e2e_orchestrator import run_full_e2e
     from ..notify import notify_task_event
     from ..feedback_lock import (
         acquire_lock, release_lock, enqueue_pending, drain_pending,

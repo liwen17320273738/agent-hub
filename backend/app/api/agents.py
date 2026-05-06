@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from ..database import get_db
-from ..models.agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugin, AgentMcp
+from ..models.agent import AgentDefinition, AgentMcp
 from ..models.user import User
 from ..schemas.agent import AgentOut, AgentCreate, AgentUpdate, ToolBindingOut
 from ..security import get_current_user, get_pipeline_auth, require_admin
@@ -281,7 +281,6 @@ async def _load_mcp_tools_for_agent(
     db: AsyncSession, seed_id: str
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
     """Load any MCP tools bound to this agent, returning (defs, handlers)."""
-    from ..models.agent import AgentMcp
     from ..services.mcp_client import build_tool_handlers
 
     rows = (await db.execute(

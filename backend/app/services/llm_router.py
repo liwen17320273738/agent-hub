@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import json
 import logging
-import re
 import time
 from ipaddress import ip_address
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import httpx
 
 from ..config import settings
+from ..redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,74 @@ def _is_retriable_failure(result: Dict[str, Any]) -> bool:
         return False
     err_low = str(err).lower()
     return any(s in err_low for s in _RETRIABLE_ERROR_SUBSTRINGS)
+
+
+def _circuit_fingerprint(provider: str, model: str, api_url: str = "") -> str:
+    """Stable short id for Redis keys (provider + model + custom URL for local)."""
+    url_part = (api_url or "").strip() if provider == "local" else ""
+    raw = f"{provider}|{model}|{url_part}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _cb_streak_key(fp: str) -> str:
+    return f"agenthub:llm:cb:streak:{fp}"
+
+
+def _cb_open_key(fp: str) -> str:
+    return f"agenthub:llm:cb:open:{fp}"
+
+
+async def circuit_is_open(provider: str, model: str, api_url: str = "") -> bool:
+    if not settings.llm_circuit_breaker_enabled:
+        return False
+    try:
+        r = get_redis()
+        fp = _circuit_fingerprint(provider, model, api_url)
+        v = await r.get(_cb_open_key(fp))
+        return bool(v)
+    except Exception:
+        return False
+
+
+async def circuit_on_success(provider: str, model: str, api_url: str = "") -> None:
+    if not settings.llm_circuit_breaker_enabled:
+        return
+    try:
+        r = get_redis()
+        fp = _circuit_fingerprint(provider, model, api_url)
+        await r.delete(_cb_streak_key(fp))
+        await r.delete(_cb_open_key(fp))
+    except Exception as e:
+        logger.debug("[llm-circuit] reset failed: %s", e)
+
+
+async def circuit_on_retriable_failure(provider: str, model: str, api_url: str = "") -> None:
+    if not settings.llm_circuit_breaker_enabled:
+        return
+    try:
+        r = get_redis()
+        fp = _circuit_fingerprint(provider, model, api_url)
+        n = await r.incr(_cb_streak_key(fp))
+        await r.expire(_cb_streak_key(fp), settings.llm_circuit_streak_ttl_seconds)
+        thr = max(1, settings.llm_circuit_failure_threshold)
+        if n >= thr:
+            await r.setex(
+                _cb_open_key(fp),
+                settings.llm_circuit_open_seconds,
+                "1",
+            )
+            await r.delete(_cb_streak_key(fp))
+            logger.warning(
+                "[llm-circuit] OPEN %s/%s (%s) for %ss after %d failures",
+                provider,
+                model,
+                fp[:8],
+                settings.llm_circuit_open_seconds,
+                n,
+            )
+    except Exception as e:
+        logger.debug("[llm-circuit] record failure failed: %s", e)
+
 
 PROVIDER_ENDPOINTS: Dict[str, str] = {
     "openai": "https://api.openai.com/v1/chat/completions",
@@ -1023,17 +1092,38 @@ async def chat_completion_with_fallback(
             break
 
     logger.info("[llm-fallback] attempts=%s health=%s", attempts, _provider_health)
-    last_result: Dict[str, Any] = {}
-    for idx, attempt in enumerate(attempts):
-        # Skip providers known to be unhealthy (unless it's the primary — always try once)
-        if idx > 0 and not _provider_health.get(attempt["provider"], True):
-            logger.info("[llm-fallback] skipping %s (marked unhealthy)", attempt["provider"])
+
+    work_list: List[Tuple[int, Dict[str, str]]] = []
+    for i, att in enumerate(attempts):
+        u = api_url if i == 0 else ""
+        if await circuit_is_open(att["provider"], att["model"], u):
+            logger.info(
+                "[llm-fallback] skipping %s/%s (circuit open)",
+                att["provider"],
+                att["model"],
+            )
             continue
-        logger.info("[llm-fallback] trying idx=%d provider=%s model=%s", idx, attempt["provider"], attempt["model"])
+        work_list.append((i, att))
+    if not work_list:
+        work_list = [(i, attempts[i]) for i in range(len(attempts))]
+        logger.warning("[llm-fallback] all candidates circuit-open; forcing full chain")
+
+    work_health: List[Tuple[int, Dict[str, str]]] = []
+    for orig_idx, att in work_list:
+        if orig_idx > 0 and not _provider_health.get(att["provider"], True):
+            logger.info("[llm-fallback] skipping %s (marked unhealthy)", att["provider"])
+            continue
+        work_health.append((orig_idx, att))
+    if not work_health:
+        work_health = list(work_list)
+
+    last_result: Dict[str, Any] = {}
+    for wi, (orig_idx, attempt) in enumerate(work_health):
+        logger.info("[llm-fallback] trying orig_idx=%d provider=%s model=%s", orig_idx, attempt["provider"], attempt["model"])
 
         # Primary uses caller's api_url (could be a custom OpenAI-compatible
         # endpoint). Fallbacks always use the canonical provider endpoint.
-        attempt_api_url = api_url if idx == 0 else ""
+        attempt_api_url = api_url if orig_idx == 0 else ""
         last_result = await chat_completion_with_retry(
             model=attempt["model"],
             messages=messages,
@@ -1054,19 +1144,23 @@ async def chat_completion_with_fallback(
             "ok": ok,
         })
         if ok:
+            await circuit_on_success(attempt["provider"], attempt["model"], attempt_api_url)
             last_result["tried_providers"] = tried
-            last_result["fell_back"] = idx > 0
+            last_result["fell_back"] = orig_idx > 0
             return last_result
 
+        if _is_retriable_failure(last_result):
+            await circuit_on_retriable_failure(attempt["provider"], attempt["model"], attempt_api_url)
+
         # Decide whether to advance or bail.
-        if not _is_retriable_failure(last_result) or idx == len(attempts) - 1:
+        if not _is_retriable_failure(last_result) or wi == len(work_health) - 1:
             last_result.setdefault("error", "all providers failed")
             last_result["tried_providers"] = tried
             last_result["fell_back"] = False
             return last_result
 
         # Notify observers (SSE / metrics) before the next attempt.
-        next_attempt = attempts[idx + 1]
+        _, next_attempt = work_health[wi + 1]
         reason = (
             f"primary {attempt['provider']}/{attempt['model']} returned "
             f"status={last_result.get('status')} — {excerpt[:120]}"

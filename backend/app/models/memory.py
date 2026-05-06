@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional, List
 
 from sqlalchemy import Column, DateTime, String, Text, Integer, Float, Boolean, ForeignKey
 

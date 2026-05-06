@@ -248,7 +248,6 @@ async def test_escalation_fires_at_threshold_and_throttles(monkeypatch):
     _patch_connectors(monkeypatch, {"jira": jira, "github": gh})
 
     # Stub IM notify so we don't try to import dispatcher's deps.
-    import app.services.escalation as _esc
 
     async def _fake_notify(task, *, event, message="", url="", extras=None):
         from app.services.notify.dispatcher import NotifyResult

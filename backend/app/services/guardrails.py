@@ -21,7 +21,6 @@ from typing import Optional, Dict, Any, List
 
 from pydantic import BaseModel
 from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.observability import AuditLog, ApprovalRecord
 from ..database import async_session

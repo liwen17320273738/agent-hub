@@ -12,8 +12,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models.task_artifact import TaskArtifact, ArtifactTypeRegistry, BUILTIN_ARTIFACT_TYPES
-from ..models.pipeline import PipelineTask
+from ..models.task_artifact import TaskArtifact, ArtifactTypeRegistry
 from ..security import get_pipeline_auth, get_pipeline_auth_optional
 from ..models.user import User
 
@@ -57,7 +56,7 @@ async def list_task_artifacts(
     result = await db.execute(
         select(TaskArtifact)
         .where(TaskArtifact.task_id == uuid.UUID(task_id))
-        .where(TaskArtifact.is_latest == True)
+        .where(TaskArtifact.is_latest.is_(True))
         .order_by(TaskArtifact.artifact_type)
     )
     artifacts = result.scalars().all()
@@ -101,7 +100,7 @@ async def get_artifact(
     if version:
         filters.append(TaskArtifact.version == version)
     else:
-        filters.append(TaskArtifact.is_latest == True)
+        filters.append(TaskArtifact.is_latest.is_(True))
 
     result = await db.execute(select(TaskArtifact).where(and_(*filters)))
     art = result.scalar_one_or_none()
@@ -174,7 +173,7 @@ async def create_or_update_artifact(
         select(TaskArtifact)
         .where(TaskArtifact.task_id == uuid.UUID(task_id))
         .where(TaskArtifact.artifact_type == artifact_type)
-        .where(TaskArtifact.is_latest == True)
+        .where(TaskArtifact.is_latest.is_(True))
     )
     current = existing.scalar_one_or_none()
 
@@ -227,7 +226,7 @@ async def supersede_artifact(
         select(TaskArtifact)
         .where(TaskArtifact.task_id == uuid.UUID(task_id))
         .where(TaskArtifact.artifact_type == artifact_type)
-        .where(TaskArtifact.is_latest == True)
+        .where(TaskArtifact.is_latest.is_(True))
     )
     art = result.scalar_one_or_none()
     if not art:

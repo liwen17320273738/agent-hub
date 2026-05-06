@@ -102,4 +102,4 @@ async def mirror_comment_to_links(
 
     # Fan out concurrently. ``return_exceptions=False`` is fine —
     # ``_one`` already swallows everything inside the per-link try.
-    return await asyncio.gather(*[_one(l) for l in normalized])
+    return await asyncio.gather(*[_one(link) for link in normalized])

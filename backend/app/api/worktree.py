@@ -12,12 +12,10 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
 from ..models.user import User
 from ..security import get_pipeline_auth_optional
-from ..services.task_workspace import get_task_root, find_task_root, DOC_SPECS
+from ..services.task_workspace import find_task_root, DOC_SPECS
 
 router = APIRouter(prefix="/tasks", tags=["worktree"])
 

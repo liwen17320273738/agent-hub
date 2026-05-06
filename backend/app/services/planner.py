@@ -20,7 +20,7 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..config import settings
 from .llm_router import chat_completion

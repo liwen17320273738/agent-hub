@@ -19,8 +19,6 @@ Session state is persisted to Redis for multi-worker consistency.
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import uuid
 from datetime import datetime
@@ -29,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
-from ..redis_client import get_redis, cache_get, cache_set
+from ..redis_client import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 

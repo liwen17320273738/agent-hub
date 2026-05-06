@@ -7,7 +7,7 @@
 #   - Redis (port 6379): Cache + SSE pub/sub + working memory
 #   - Nginx (port 80): Reverse proxy (Docker only)
 
-.PHONY: help check config install dev dev-daemon start stop clean test lint \
+.PHONY: help check config install dev dev-daemon start stop clean test lint format-backend \
         docker-start docker-stop docker-logs docker-build
 
 PYTHON ?= python3
@@ -23,7 +23,8 @@ help:
 	@echo "  make stop            - Stop all running services"
 	@echo "  make clean           - Clean up processes and temporary files"
 	@echo "  make test            - Run all tests"
-	@echo "  make lint            - Lint all code"
+	@echo "  make lint            - Lint all code (backend: ruff check only)"
+	@echo "  make format-backend  - Backend: ruff format (optional; touches many files)"
 	@echo ""
 	@echo "Docker Commands:"
 	@echo "  make docker-build    - Build Docker images"
@@ -86,6 +87,10 @@ test-unit:
 lint:
 	@cd backend && $(PYTHON) -m ruff check . 2>/dev/null || echo "ruff not installed, skipping backend lint"
 	@cd frontend && pnpm lint 2>/dev/null || echo "frontend lint skipped"
+
+# Optional: full-tree style normalization — run sparingly (large diffs; use a dedicated PR).
+format-backend:
+	@cd backend && $(PYTHON) -m ruff format .
 
 # ── Docker ───────────────────────────────────────────────────────────────────
 

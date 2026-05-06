@@ -19,12 +19,12 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.observability import AuditLog, SpanRecord, TraceRecord
+from ..models.observability import AuditLog, SpanRecord
 from ..models.pipeline import PipelineStage, PipelineTask
 
 logger = logging.getLogger(__name__)

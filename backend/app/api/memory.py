@@ -9,7 +9,7 @@ GET  /memory/stats         — Memory usage statistics
 """
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -20,15 +20,12 @@ from ..database import get_db
 from ..models.pipeline import PipelineTask
 from ..models.user import User
 from ..security import get_current_user
+from ..models.memory import TaskMemory, LearnedPattern, KnowledgeCollection
 from ..services.memory import (
-    TaskMemory,
-    LearnedPattern,
-    KnowledgeCollection,
     search_similar_memories,
     get_working_context,
     set_working_context,
     clear_working_context,
-    extract_patterns,
 )
 
 router = APIRouter(prefix="/memory", tags=["memory"])

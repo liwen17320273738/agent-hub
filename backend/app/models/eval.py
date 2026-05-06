@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import Column, DateTime, String, Text, Integer, Float, Boolean, ForeignKey
 from sqlalchemy.orm import relationship

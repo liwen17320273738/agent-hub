@@ -17,7 +17,6 @@ Design notes:
 """
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
 import math
@@ -33,7 +32,7 @@ from ..compat import is_pgvector_enabled
 from ..models.code_chunk import CodeChunk
 from .llm_router import create_embeddings
 from .tools.codebase_index import (
-    _SKIP_DIRS, _SKIP_EXTS, _INDEXABLE_EXTS, _extract_symbols,
+    _INDEXABLE_EXTS, _extract_symbols,
     _should_skip_dir, _should_skip_file, _is_indexable,
 )
 from ..config import settings

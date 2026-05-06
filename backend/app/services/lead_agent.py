@@ -23,7 +23,7 @@ from .planner_worker import resolve_model
 from .memory import get_context_from_history, store_memory
 from .self_verify import verify_stage_output
 from .sse import emit_event
-from .observability import start_trace, start_span, complete_span, complete_trace
+from .observability import start_trace, complete_trace
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ async def run_smart_pipeline(
     from datetime import datetime
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
-    from ..models.pipeline import PipelineTask, PipelineStage
+    from ..models.pipeline import PipelineTask
     import uuid as _uuid
     try:
         task_uuid = _uuid.UUID(task_id)

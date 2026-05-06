@@ -26,7 +26,15 @@ STAGE_TO_ARTIFACT: dict[str, str] = {
     "development":  "code_link",
     "testing":      "test_report",
     "reviewing":    "acceptance",
-    "deployment":   "deploy_manifest",
+    "deployment":   "ops_runbook",
+}
+
+AUX_STAGE_LABELS: dict[str, str] = {
+    "security-review": "安全审查",
+    "data-modeling": "数据建模",
+    "marketing-launch": "上线运营",
+    "finance-review": "财务评估",
+    "legal-review": "法务审查",
 }
 
 STAGE_TO_DOC_FILE: dict[str, str] = {
@@ -36,7 +44,7 @@ STAGE_TO_DOC_FILE: dict[str, str] = {
     "development":  "docs/04-implementation-notes.md",
     "testing":      "docs/05-test-report.md",
     "reviewing":    "docs/06-acceptance.md",
-    "deployment":   "docs/deploy-manifest.md",
+    "deployment":   "docs/07-ops-runbook.md",
 }
 
 
@@ -51,6 +59,33 @@ def _brief_from_planning(title: str, content: str) -> str:
     if len(head) > cap:
         head = head[:cap] + "\n\n…(完整 PRD 见「PRD」工件与 docs/01-prd.md)"
     return f"# 需求简报 — {title}\n\n{head}\n"
+
+
+async def _append_auxiliary_attachment(
+    db: AsyncSession,
+    task_id: str,
+    stage_id: str,
+    section_title: str,
+    content: str,
+    agent_name: Optional[str] = None,
+) -> TaskArtifact:
+    tid = uuid.UUID(task_id) if isinstance(task_id, str) else task_id
+    existing = await db.execute(
+        select(TaskArtifact).where(
+            and_(
+                TaskArtifact.task_id == tid,
+                TaskArtifact.artifact_type == "attachment",
+                TaskArtifact.is_latest.is_(True),
+            )
+        )
+    )
+    prev = existing.scalar_one_or_none()
+    base = (prev.content if prev else "# 附属交付物（安全 / 数据 / 运营 / 财务 / 法务）\n")
+    section = f"\n\n## {section_title} (`{stage_id}`)\n\n{(content or '').strip()}\n"
+    return await _write_one_artifact(
+        db, task_id, stage_id, "attachment", base + section,
+        "docs/auxiliary-stages.md", agent_name,
+    )
 
 
 async def _write_one_artifact(
@@ -69,7 +104,7 @@ async def _write_one_artifact(
             and_(
                 TaskArtifact.task_id == tid,
                 TaskArtifact.artifact_type == artifact_type,
-                TaskArtifact.is_latest == True,
+                TaskArtifact.is_latest.is_(True),
             )
         )
     )
@@ -137,11 +172,24 @@ async def write_stage_artifacts_v2(
     agent_name: Optional[str] = None,
 ) -> list[TaskArtifact]:
     """Persist all v2 artifacts for a stage (planning→brief+prd, dev→implementation+code_link)."""
-    if not settings.artifact_store_v2 or not (content or "").strip():
+    if not settings.artifact_store_v2:
         return []
 
     written: list[TaskArtifact] = []
 
+    if stage_id in AUX_STAGE_LABELS and (content or "").strip():
+        written.append(await _append_auxiliary_attachment(
+            db, task_id, stage_id, AUX_STAGE_LABELS[stage_id], content, agent_name,
+        ))
+        try:
+            from .manifest_sync import trigger_manifest_refresh
+            await trigger_manifest_refresh(str(task_id))
+        except Exception:
+            pass
+        return written
+
+    if not (content or "").strip():
+        return []
     if stage_id == "planning":
         brief = _brief_from_planning(task_title or "任务", content)
         written.append(await _write_one_artifact(

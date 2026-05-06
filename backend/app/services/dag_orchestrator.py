@@ -828,6 +828,7 @@ async def execute_dag_pipeline(
         })
 
         async def _run_stage(stage: DAGStage, stage_db: AsyncSession) -> Dict[str, Any]:
+            t0 = time.monotonic()
             stage.status = StageStatus.RUNNING
             await emit_event("stage:processing", {
                 "taskId": task_id, "stageId": stage.stage_id,
@@ -1089,7 +1090,7 @@ async def execute_dag_pipeline(
                 success=bool(stage_result.get("ok")),
                 error_message=stage_result.get("error") or stage.error or "",
                 output=stage.output or stage_result.get("content", ""),
-                duration_ms=int((time.monotonic() - t0) * 1000) if "t0" in dir() else 0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
                 quality_score=stage_result.get("quality_score"),
                 verify_status=stage_result.get("verification", {}).get("status", ""),
             )

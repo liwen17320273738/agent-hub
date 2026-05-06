@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -20,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from ..database import get_db
 from ..security import get_current_user
 from ..models.user import User
-from ..models.pipeline import PipelineTask, PipelineStage
+from ..models.pipeline import PipelineTask
 from ..services.task_workspace import (
     ensure_task_workspace,
     list_task_docs,

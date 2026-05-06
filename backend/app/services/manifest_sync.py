@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +29,7 @@ async def rebuild_manifest(task_id: str, db: AsyncSession) -> Dict[str, Any]:
     result = await db.execute(
         select(TaskArtifact)
         .where(TaskArtifact.task_id == task_id)
-        .where(TaskArtifact.is_latest == True)
+        .where(TaskArtifact.is_latest.is_(True))
         .order_by(TaskArtifact.artifact_type)
     )
     artifacts = result.scalars().all()

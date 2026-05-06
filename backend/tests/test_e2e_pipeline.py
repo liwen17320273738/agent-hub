@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 import pytest
 
@@ -130,7 +130,7 @@ class TestE2EPipeline:
     async def test_e2e_task_pipeline_stages_created(self, client, db, auth_headers):
         """Task creation → all default pipeline stages are initialized."""
         from sqlalchemy import select
-        from app.models.pipeline import PipelineTask, PipelineStage
+        from app.models.pipeline import PipelineStage
 
         res = await client.post("/api/pipeline/tasks", json={
             "title": "E2E Test Task",

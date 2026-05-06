@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, Float, Boolean, Index
+from sqlalchemy import String, Text, Integer, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base

@@ -126,6 +126,13 @@ class Settings(BaseSettings):
     # Model cache TTL
     model_cache_ttl_seconds: int = 600  # 10 minutes
 
+    # LLM per-(provider,model) circuit breaker: skip endpoint after N consecutive
+    # retriable failures (timeout/5xx/quota) for OPEN_SECONDS; streak TTL resets.
+    llm_circuit_breaker_enabled: bool = True
+    llm_circuit_failure_threshold: int = 3
+    llm_circuit_open_seconds: int = 120
+    llm_circuit_streak_ttl_seconds: int = 300
+
     # Runtime translation: optional DB pre-warm of cache (reduces first-paint
     # latency in Inbox for Chinese task titles). LLM may run at startup; keep
     # off by default. Set TRANSLATE_PREGEN_ENABLED=1 to enable.

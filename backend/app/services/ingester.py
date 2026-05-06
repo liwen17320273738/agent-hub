@@ -14,8 +14,6 @@ it to a Celery / RQ / arq task queue.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -24,7 +22,7 @@ from uuid import UUID
 import httpx
 
 from ..database import async_session_factory
-from ..models.memory import KnowledgeCollection, TaskMemory
+from ..models.memory import KnowledgeCollection
 from .memory import store_memory
 
 logger = logging.getLogger(__name__)
