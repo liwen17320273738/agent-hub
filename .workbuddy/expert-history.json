@@ -40,7 +40,29 @@
         "usedAt": 1778028568624,
         "industryId": "02-Engineering"
       }
+    ],
+    "009a49d48c7e4b798d68e2474afa63a3": [
+      {
+        "expertId": "CodeReviewExpert",
+        "name": "火眼眼",
+        "profession": "代码审查专家",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/CodeReviewExpert/CodeReviewExpert.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/CodeReviewExpert/CodeReviewExpert_zh.md",
+        "usedAt": 1778049465250,
+        "industryId": "02-Engineering"
+      }
+    ],
+    "20448d06bb3b46aab1ff19574a0d3f24": [
+      {
+        "expertId": "WorkflowOptimizationExpert",
+        "name": "流畅畅",
+        "profession": "工作流优化专家",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/08-QualityAssurance/WorkflowOptimizationExpert/WorkflowOptimizationExpert.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/08-QualityAssurance/WorkflowOptimizationExpert/WorkflowOptimizationExpert_zh.md",
+        "usedAt": 1778049636333,
+        "industryId": "08-QualityAssurance"
+      }
     ]
   },
-  "lastUpdated": 1778030840572
+  "lastUpdated": 1778050494940
 }

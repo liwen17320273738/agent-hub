@@ -160,6 +160,8 @@ const router = createRouter({
   ],
 })
 
+const LOGIN_REDIRECT_KEY = 'agent-hub-login-redirect'
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (!auth.initialized) await auth.hydrate()
@@ -167,7 +169,17 @@ router.beforeEach(async (to) => {
     if (to.name === 'login' && auth.isLoggedIn) return { path: '/' }
     return true
   }
-  if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
+  if (!auth.isLoggedIn) {
+    const target = to.fullPath && to.path !== '/login' ? to.fullPath : '/'
+    if (target !== '/') {
+      try {
+        sessionStorage.setItem(LOGIN_REDIRECT_KEY, target)
+      } catch {
+        /* private mode / quota */
+      }
+    }
+    return { path: '/login' }
+  }
   return true
 })
 

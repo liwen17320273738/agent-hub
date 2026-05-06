@@ -88,6 +88,7 @@ export default {
       api: "API",
       selftest: "セルフテスト",
       "selftest-real": "実機セルフテスト",
+      e2e: "E2E",
     },
   },
   status: {

@@ -6,6 +6,7 @@ After creating a task, automatically triggers pipeline execution in the backgrou
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import secrets as _secrets
@@ -284,7 +285,8 @@ async def _try_parse_feedback(
                 _select(PipelineTask).where(PipelineTask.id == _uuid.UUID(task_id))
             )
             probe_task = row.scalar_one_or_none()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[gateway] feedback probe failed for task {task_id}: {e}")
         probe_task = None
 
     if probe_task and probe_task.status == "awaiting_final_acceptance":
@@ -310,8 +312,9 @@ async def _try_parse_feedback(
                     "• 回复「重做：原因」 → 打回重做"
                 ),
             )
-        except Exception:
-            pass
+            except Exception:
+                logger.debug(f"[gateway] notify failure (final_acceptance_prompt) for {source}:{user_id}", exc_info=True)
+                pass
         return {
             "ok": True, "action": "final_acceptance_prompt", "taskId": task_id,
         }
@@ -386,6 +389,7 @@ async def _apply_final_acceptance_from_im(
                         body=f"任务「{task.title}」已通过验收并上线，干得漂亮！",
                     )
                 except Exception:
+                    logger.debug("[gateway] notify failure (final_accepted)", exc_info=True)
                     pass
                 return {
                     "ok": True, "action": "final_accepted_from_im",
@@ -459,6 +463,7 @@ async def _apply_final_acceptance_from_im(
                 ),
             )
     except Exception:
+        logger.debug("[gateway] notify failure (final_rejected)", exc_info=True)
         pass
 
     return {
@@ -698,7 +703,8 @@ async def _try_handle_plan_reply(
                     .where(PipelineTask.id == uuid.UUID(pending_task_id))
                 )
                 task = res_pt.scalar_one_or_none()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[plan] pending task lookup failed for {pending_task_id}: {e}")
                 task = None
         if task:
             task.status = "active"
@@ -781,7 +787,8 @@ async def _try_handle_plan_reply(
                     if t_mx:
                         t_mx.status = "cancelled"
                         await db.flush()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"[plan] max-rotation cancel pending task failed: {e}")
                     pass
             try:
                 await notify_user_text(
@@ -789,7 +796,8 @@ async def _try_handle_plan_reply(
                     title="❗ 修改次数已用完",
                     body="已达最大调整次数。请重新发送一份完整需求。",
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"[plan] max-rotation notify failed: {e}")
                 pass
             return {"ok": True, "action": "plan_rejected", "reason": "max_rotations"}
 
@@ -818,6 +826,7 @@ async def _try_handle_plan_reply(
             body="还有计划等你确认。回复「开干」启动，「修改：xxx」调整，或「取消」放弃。",
         )
     except Exception:
+        logger.debug("[plan] unknown-intent notify failed", exc_info=True)
         pass
     return {"ok": True, "action": "plan_waiting"}
 
@@ -874,6 +883,7 @@ async def _handle_plan_card_action(
                 body="该计划已过期或已被处理，请重新发送需求。",
             )
         except Exception:
+            logger.debug("[plan] expired notify failed", exc_info=True)
             pass
         return {"ok": False, "action": "plan_card_expired"}
 
@@ -909,6 +919,7 @@ async def _handle_plan_card_action(
                 body=f"任务已启动：{title}\nID: {task.id}\n稍后会汇报阶段进展。",
             )
         except Exception:
+            logger.debug("[plan] approve notify (card) failed", exc_info=True)
             pass
         return {
             "ok": True,
@@ -927,6 +938,7 @@ async def _handle_plan_card_action(
                 body="此次计划已丢弃，可以重新发送新需求。",
             )
         except Exception:
+            logger.debug("[plan] cancel notify (card) failed", exc_info=True)
             pass
         return {"ok": True, "action": "plan_cancelled", "via": "card"}
 
@@ -945,6 +957,7 @@ async def _handle_plan_card_action(
                 ),
             )
         except Exception:
+            logger.debug("[plan] revise prompt (card) failed", exc_info=True)
             pass
         return {"ok": True, "action": "plan_revise_prompt", "via": "card"}
 
@@ -975,9 +988,18 @@ def _extract_gateway_bearer(request: Request) -> str:
 
 
 def _require_openclaw_secret(request: Request) -> None:
-    secret = settings.pipeline_api_key
+    """Authenticate OpenClaw gateway requests.
+
+    Uses ``GATEWAY_OPENCLAW_SECRET`` if set (preferred), falling back to
+    ``PIPELINE_API_KEY`` for backwards compatibility. When both are empty
+    the endpoint returns 503.
+    """
+    secret = settings.gateway_openclaw_secret or settings.pipeline_api_key
     if not secret:
-        raise HTTPException(status_code=503, detail="Gateway not configured: PIPELINE_API_KEY is required")
+        raise HTTPException(
+            status_code=503,
+            detail="Gateway not configured: set GATEWAY_OPENCLAW_SECRET or PIPELINE_API_KEY",
+        )
     token = _extract_gateway_bearer(request)
     if not _secrets.compare_digest(token, secret):
         raise HTTPException(status_code=403, detail="Invalid gateway secret")
@@ -1145,7 +1167,8 @@ async def openclaw_approve_plan(
                 .where(PipelineTask.id == uuid.UUID(pending_task_id))
             )
             task = result.scalar_one_or_none()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[openclaw_approve] pending task lookup failed for {pending_task_id}: {e}")
             task = None
 
     if task:
@@ -1632,10 +1655,30 @@ async def github_webhook(
       - ``push`` (branch update) → detect branch for pending tasks
 
     Only processes events that match a task's ``repo_refs``.
+
+    Requires ``GITHUB_WEBHOOK_SECRET`` to be set — the endpoint is disabled
+    without it to prevent unauthenticated task state manipulation.
     """
+    secret = settings.github_webhook_secret
+    if not secret:
+        logger.warning("[github-webhook] Endpoint disabled: GITHUB_WEBHOOK_SECRET not set")
+        raise HTTPException(status_code=503, detail="GitHub webhook not configured: set GITHUB_WEBHOOK_SECRET")
+
     body = await request.body()
     event = request.headers.get("x-github-event", "")
-    _ = request.headers.get("x-hub-signature-256", "")
+    signature = request.headers.get("x-hub-signature-256", "")
+
+    # Verify HMAC-SHA256 signature (required in production)
+    if not signature:
+        logger.warning("[github-webhook] Missing x-hub-signature-256 header")
+        raise HTTPException(status_code=403, detail="Missing signature header")
+    expected = "sha256=" + hmac.new(
+        secret.encode("utf-8"), body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        logger.warning("[github-webhook] Signature verification failed")
+        raise HTTPException(status_code=403, detail="Invalid signature")
+
     payload: dict = {}
 
     try:
@@ -1912,3 +1955,110 @@ async def wechat_webhook(
             return Response(content=reply_xml, media_type="application/xml")
 
     return Response(content=_EMPTY_REPLY, media_type="text/plain")
+
+
+# ─────────────────────────────────────────────────────────────────
+# VibeVoice Speech AI Gateway
+# ─────────────────────────────────────────────────────────────────
+
+
+class VibeVoiceTranscribeRequest(BaseModel):
+    """Request to transcribe an audio file."""
+    audioUrl: str = ""
+    prompt: str = ""
+    returnFormat: str = "parsed"
+
+
+@router.post("/vibevoice/transcribe")
+async def vibevoice_transcribe(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Transcribe an audio file to structured text via VibeVoice ASR.
+
+    Accepts:
+        1. ``audioUrl`` in JSON body
+        2. ``multipart/form-data`` with an ``audio`` file field
+    """
+    if not settings.vibevoice_enabled:
+        raise HTTPException(status_code=503, detail="VibeVoice not enabled (set VIBEVOICE_ENABLED=True)")
+
+    from ..services.vibevoice_proxy import get_vibevoice
+    proxy = get_vibevoice()
+
+    content_type = (request.headers.get("content-type") or "").lower()
+    audio_url = ""
+    prompt = ""
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        audio_file = form.get("audio")
+        if audio_file is None or not hasattr(audio_file, "read"):
+            raise HTTPException(status_code=400, detail="Missing audio file in multipart upload")
+        audio_bytes = await audio_file.read()
+        prompt = str(form.get("prompt", ""))
+        result = await proxy.transcribe_bytes(
+            audio_bytes,
+            filename=getattr(audio_file, "filename", "audio.wav"),
+            prompt=prompt,
+        )
+    else:
+        body = await request.json()
+        audio_url = str(body.get("audioUrl", "")).strip()
+        if not audio_url:
+            raise HTTPException(status_code=400, detail="audioUrl is required for JSON requests")
+        prompt = str(body.get("prompt", ""))
+        result = await proxy.transcribe(audio_url, prompt=prompt)
+
+    output = result.to_dict()
+
+    # Auto-dispatch as a pipeline task when transcription is meaningful
+    if output.get("fullText") and len(output["fullText"]) > 20:
+        task_title = f"语音任务: {output['fullText'][:50]}..."
+        task_description = (
+            f"## 语音转录任务\n\n"
+            f"来源音频时长: {output.get('durationS', 0)}秒\n"
+            f"说话人数: {output.get('speakerCount', 0)}\n\n"
+            f"### 完整转录文本\n\n"
+            f"{output['fullText']}"
+        )
+
+        from ..services.e2e_orchestrator import run_full_e2e as _run_e2e
+
+        async def _dispatch_vibevoice_task():
+            async with async_session_factory() as _db:
+                task = await _create_task_from_gateway(
+                    _db, task_title, task_description, "vibevoice",
+                )
+                await _commit_task_before_background(_db, task)
+                await _run_e2e(
+                    _db,
+                    task_id=str(task.id),
+                    task_title=task_title,
+                    task_description=task_description,
+                    auto_deploy=False,
+                    dag_template="full",
+                    pause_for_acceptance=True,
+                )
+                await _db.commit()
+
+        background_tasks.add_task(_dispatch_vibevoice_task)
+        output["taskCreated"] = True
+        output["taskTitle"] = task_title
+
+    return {"ok": True, "transcription": output}
+
+
+@router.get("/vibevoice/status")
+async def vibevoice_status():
+    """Check VibeVoice availability."""
+    from ..services.vibevoice_proxy import get_vibevoice
+    proxy = get_vibevoice()
+    return {
+        "ok": True,
+        "enabled": settings.vibevoice_enabled,
+        "available": proxy.is_available(),
+        "mode": "local" if settings.vibevoice_force_local else "api",
+        "model": "microsoft/VibeVoice-ASR-HF",
+    }

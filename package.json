@@ -20,6 +20,10 @@
     "dev:full": "concurrently -k \"pnpm backend\" \"pnpm dev\"",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "E2E_SLOW_MO=400 E2E_PAUSE_MS=13500 playwright test --headed",
+    "test:e2e:headed:fast": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
     "i18n:sync": "node scripts/i18n_sync.mjs",
     "i18n:sync:dry": "node scripts/i18n_sync.mjs --dry-run",
     "i18n:audit": "node scripts/i18n_audit.mjs",
@@ -53,6 +57,7 @@
     "@vitejs/plugin-vue": "^5.0.4",
     "concurrently": "^9.1.2",
     "typescript": "^5.4.0",
+    "@playwright/test": "^1.49.1",
     "vite": "^5.2.8",
     "vitest": "^2.1.9"
   }

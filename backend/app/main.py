@@ -85,6 +85,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
             )
 
+    # Reject weak / default admin credentials in production.  Debug mode
+    # allows the old "admin@example.com:changeme" for local development.
+    _weak_admin_password = (
+        not settings.admin_password
+        or len(settings.admin_password) < 12
+        or settings.admin_password.strip() in (
+            "changeme", "admin", "password", "admin123", "123456"
+        )
+    )
+    if not settings.debug and _weak_admin_password:
+        raise RuntimeError(
+            "生产环境必须设置强管理员密码（至少 12 个字符）。"
+            "请在 .env 中配置 ADMIN_PASSWORD。"
+        )
+    if _weak_admin_password and settings.admin_password:
+        logger.warning(
+            "ADMIN_PASSWORD 强度不足（%d 字符），仅在调试模式下允许。"
+            "生产环境请在 .env 中设置强密码。",
+            len(settings.admin_password),
+        )
+
     if "sqlite" in settings.database_url or settings.debug:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -279,6 +300,13 @@ async def _bootstrap_admin(db):
 
     count_result = await db.execute(select(func.count()).select_from(User))
     if count_result.scalar() > 0:
+        return
+
+    if not settings.admin_email or not settings.admin_password:
+        logger.warning(
+            "首次启动但 ADMIN_EMAIL / ADMIN_PASSWORD 未设置，"
+            "跳过管理员创建。请设置后重启，或通过 API 注册首个用户。"
+        )
         return
 
     org = Org(name="Agent Hub")

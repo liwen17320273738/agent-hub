@@ -68,6 +68,19 @@ models:
 # Pipeline Configuration
 # ============================================================================
 
+# Ruflo Agent Orchestration (MCP Bridge) — enabled by default
+# Fails gracefully: pipeline runs normally if Ruflo is not installed.
+# Set to false only if you want to explicitly disable the integration.
+# Requires Node.js + ruflo@latest (auto-installed in Docker).
+ruflo_enabled: true
+ruflo_memory_enrich: true
+ruflo_auto_swarm: true
+
+# VibeVoice Speech AI (Microsoft open-source) — enabled by default
+# Works in mock mode without HF_API_KEY; returns placeholder transcriptions.
+# For real transcription: set HF_API_KEY=<your key> or vibevoice_force_local=true (GPU)
+vibevoice_enabled: true
+
 pipeline:
   default_stages:
     - planning

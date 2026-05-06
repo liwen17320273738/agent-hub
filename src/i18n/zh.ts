@@ -86,6 +86,7 @@ export default {
       api: "API",
       selftest: "自检",
       "selftest-real": "实机自检",
+      e2e: "端到端",
     },
   },
   status: {

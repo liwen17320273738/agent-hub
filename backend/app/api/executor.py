@@ -84,6 +84,26 @@ async def get_job_logs_endpoint(
     return {"ok": True, "jobId": job_id, "logs": logs, "logCount": len(logs)}
 
 
+@router.get("/ruflo/status")
+async def ruflo_status():
+    """Check Ruflo MCP bridge health status."""
+    from ..config import settings
+    if not settings.ruflo_enabled:
+        return {"ok": True, "enabled": False, "status": "disabled"}
+    try:
+        from ..services.mcp_bridge import get_bridge
+        bridge = await get_bridge()
+        return {
+            "ok": True,
+            "enabled": True,
+            "connected": bridge.is_running,
+            "serverName": bridge.server_name,
+            "serverVersion": bridge.server_version,
+        }
+    except Exception as e:
+        return {"ok": True, "enabled": True, "connected": False, "error": str(e)}
+
+
 @router.get("/jobs/task/{task_id}")
 async def get_jobs_by_task_endpoint(
     task_id: str,

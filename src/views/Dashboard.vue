@@ -16,6 +16,7 @@
           />
         </div>
         <div class="hero-actions">
+          <VoiceInput class="voice-btn" />
           <el-button
             type="primary"
             size="large"
@@ -154,6 +155,7 @@ import { fetchBackendTasks } from '@/services/pipelineApi'
 import { openClawIntake } from '@/services/gatewayApi'
 import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
+import VoiceInput from '@/components/voice/VoiceInput.vue'
 import { ElMessage } from 'element-plus'
 
 const { t, locale } = useI18n()

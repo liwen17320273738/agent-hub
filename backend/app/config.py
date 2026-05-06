@@ -7,18 +7,30 @@ from pydantic_settings import BaseSettings
 
 
 def _default_db_url() -> str:
-    """Use PostgreSQL if available (Docker), fall back to SQLite for zero-dependency dev."""
+    """Use PostgreSQL if available (Docker), fall back to SQLite for zero-dependency dev.
+
+    Credentials default to POSTGRES_USER / POSTGRES_PASSWORD env vars (matching
+    docker-compose.yml). Never hardcode production secrets.
+    """
     import os
     import socket
 
-    pg_url = "postgresql+asyncpg://agenthub:agenthub@localhost:5432/agenthub"
+    pg_user = os.getenv("POSTGRES_USER", "agenthub")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "")
+    pg_db = os.getenv("POSTGRES_DB", "agenthub")
+    pg_host = os.getenv("POSTGRES_HOST", "localhost")
+    pg_port = os.getenv("POSTGRES_PORT", "5432")
+
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
-        result = sock.connect_ex(("localhost", 5432))
+        result = sock.connect_ex((pg_host, int(pg_port)))
         sock.close()
         if result == 0:
-            return pg_url
+            # Only use PostgreSQL if a password is provided (non-empty)
+            if pg_pass:
+                return f"postgresql+asyncpg://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
+            # Password not set — fall through to SQLite for safety
     except Exception:
         pass
 
@@ -39,8 +51,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
 
-    admin_email: str = "admin@example.com"
-    admin_password: str = "changeme"
+    admin_email: str = ""
+    admin_password: str = ""
 
     cors_origins: List[str] = ["http://localhost:5200", "http://127.0.0.1:5200"]
 
@@ -74,6 +86,10 @@ class Settings(BaseSettings):
     pipeline_api_key: str = ""
     pipeline_upload_dir: str = ""
     pipeline_upload_max_mb: int = 15
+
+    # OpenClaw gateway authentication — separate from pipeline_api_key to
+    # avoid conflating internal pipeline auth with external API access.
+    gateway_openclaw_secret: str = ""
 
     # Task workspace (issuse21 D1)
     workspace_root: str = ""
@@ -117,6 +133,17 @@ class Settings(BaseSettings):
     # Use this when cloud keys exist but you want all execution on local OpenAI-compat.
     pipeline_force_local_llm: bool = False
 
+    # ── Ruflo Agent Orchestration (MCP Bridge) ─────────────────────────
+    ruflo_enabled: bool = True                  # enable Ruflo MCP integration (fails gracefully if not installed)
+    ruflo_cmd: str = "ruflo"                    # path or command to ruflo CLI
+    ruflo_memory_enrich: bool = True            # inject Ruflo memory context into stages
+    ruflo_auto_swarm: bool = True               # auto-init Ruflo swarm on first use
+
+    # ── VibeVoice Speech AI (Microsoft) ────────────────────────────────
+    vibevoice_enabled: bool = True              # enable VibeVoice ASR (mock mode if no HF_API_KEY)
+    vibevoice_force_local: bool = False         # force local model (needs GPU)
+    hf_api_key: str = ""                        # HuggingFace Inference API key
+
     # Rate limiting (per-IP, sliding 60s window).
     # 600/min ≈ 10 req/sec — enough headroom for the dashboard's polling fan-out
     # (~7 endpoints/refresh) while still capping abusive clients. Loopback hosts
@@ -159,6 +186,12 @@ class Settings(BaseSettings):
     slack_signing_secret: str = ""      # used to verify inbound events + interactivity
     slack_default_channel: str = ""     # fallback channel id when receive_id is empty
     slack_incoming_webhook: str = ""    # https://hooks.slack.com/services/...
+
+    # GitHub webhook secret — HMAC-SHA256 signature verification.
+    # Set this to the secret configured in your GitHub webhook settings.
+    # When empty, GitHub webhook endpoint returns 503 (disabled) to prevent
+    # unauthenticated task state manipulation.
+    github_webhook_secret: str = ""
 
     # Deploy platforms
     vercel_token: str = ""

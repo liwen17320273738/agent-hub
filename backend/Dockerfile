@@ -5,7 +5,13 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev \
+    build-essential libpq-dev curl gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (required for Ruflo MCP Bridge)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g ruflo@latest \
     && rm -rf /var/lib/apt/lists/*
 
 COPY packages/agent-hub-pipeline /packages/agent-hub-pipeline

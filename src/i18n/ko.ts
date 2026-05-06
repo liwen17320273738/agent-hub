@@ -88,6 +88,7 @@ export default {
       api: "API",
       selftest: "자체 점검",
       "selftest-real": "실제 환경 점검",
+      e2e: "E2E",
     },
   },
   status: {

@@ -1467,6 +1467,23 @@ async def execute_stage(
                     **payload,
                 })
 
+            # --- Layer: Ruflo memory enrichment (before LLM call) ---
+            if app_settings.ruflo_enabled:
+                try:
+                    system_prompt = await _ruflo_memory_enrich(
+                        task_id=task_id,
+                        stage_id=stage_id,
+                        system_prompt=system_prompt,
+                        stage_content=user_message,
+                    )
+                except Exception as ruflo_err:
+                    logger.warning("[ruflo] Enrichment skipped: %s", ruflo_err)
+            # Rebuild messages with enriched system prompt
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ]
+
             _reasoning_keywords = ("reasoning", "distilled", "thinking", "o1", "o3")
             _is_reasoning_model = any(k in model.lower() for k in _reasoning_keywords)
             stage_max_tokens = 16384 if _is_reasoning_model else 8192
@@ -1665,6 +1682,19 @@ async def execute_stage(
     # Store stage output in working memory for subsequent stages
     await set_working_context(task_id, f"stage_{stage_id}_output", content[:2000])
     await set_working_context(task_id, f"stage_{stage_id}_model", model)
+
+    # --- Layer 9.5: Ruflo — store output in cross-session memory ---
+    if app_settings.ruflo_enabled:
+        try:
+            await _ruflo_memory_enrich(
+                task_id=task_id,
+                stage_id=stage_id,
+                system_prompt="",
+                store_output=True,
+                output_text=content,
+            )
+        except Exception as ruflo_err:
+            logger.debug("[ruflo] Post-stage store skipped: %s", ruflo_err)
 
     # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
     try:
@@ -2586,3 +2616,91 @@ def _build_user_message(
                 parts.append(f"## {label}\n{trimmed}")
 
     return "\n\n".join(parts)
+
+
+# ── Ruflo MCP Bridge Integration ──────────────────────────────────────
+
+
+async def _ruflo_memory_enrich(
+    task_id: str,
+    stage_id: str,
+    system_prompt: str,
+    stage_content: str = "",
+    store_output: bool = False,
+    output_text: str = "",
+) -> str:
+    """Enrich the system prompt with Ruflo memory context.
+
+    Called just before the LLM call to inject cross-session learnings.
+    After successful stage completion, call again with ``store_output=True``
+    to persist the output for future tasks.
+
+    Returns the (possibly enriched) ``system_prompt``.
+    """
+    from ..config import settings as _s
+    if not _s.ruflo_enabled:
+        return system_prompt
+
+    enriched = system_prompt
+    try:
+        from .mcp_bridge import get_bridge
+
+        bridge = await get_bridge()
+
+        # ── Store stage output for cross-session learning ──
+        if store_output and output_text:
+            mem_key = f"pipeline:{task_id}:{stage_id}:output"
+            await bridge.memory_store(
+                key=mem_key,
+                value=output_text[:50_000],
+                namespace="agent-hub-pipeline",
+                metadata={"taskId": str(task_id), "stageId": stage_id},
+            )
+            logger.info("[ruflo] Stored memory: %s (%d chars)", mem_key, len(output_text))
+
+        # ── Retrieve relevant prior memories ──
+        if _s.ruflo_memory_enrich and stage_content:
+            similar = await bridge.memory_search(
+                query=stage_content[:500],
+                namespace="agent-hub-pipeline",
+                limit=5,
+            )
+            if similar:
+                # Filter to relevant memories (different task)
+                prior = [
+                    s for s in similar
+                    if isinstance(s, dict)
+                    and s.get("namespace") == "agent-hub-pipeline"
+                    and str(s.get("metadata", {}).get("taskId", "")) != str(task_id)
+                ]
+                if prior:
+                    memories_text = "\n\n".join(
+                        f"【历史任务参考】\n{s.get('value', '')[:2000]}"
+                        for s in prior[:3]
+                    )
+                    enriched = system_prompt + (
+                        f"\n\n<!-- ruflo memory-enrich stage={stage_id} -->\n"
+                        f"## 🔄 同类历史任务参考\n"
+                        f"以下是从 Ruflo 记忆中检索到的相似阶段产出，"
+                        f"请参考其结构和质量水平：\n\n"
+                        f"{memories_text}\n"
+                    )
+                    logger.info(
+                        "[ruflo] Injected %d prior memories into %s prompt",
+                        len(prior), stage_id,
+                    )
+
+        # ── Auto-init swarm if configured ──
+        if _s.ruflo_auto_swarm:
+            try:
+                status = await bridge.swarm_status()
+                if status.get("content") and "no_swarm" in str(status):
+                    await bridge.swarm_init(topology="hierarchical-mesh", max_agents=15)
+                    logger.info("[ruflo] Auto-initialized swarm")
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.warning("[ruflo] Memory enrichment failed (non-fatal): %s", e)
+
+    return enriched

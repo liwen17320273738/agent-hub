@@ -37,6 +37,8 @@ const router = useRouter()
 const auth = useAuthStore()
 const { t } = useI18n()
 
+const LOGIN_REDIRECT_KEY = 'agent-hub-login-redirect'
+
 const form = reactive({ email: '', password: '' })
 const loading = ref(false)
 const error = ref('')
@@ -50,7 +52,21 @@ async function onSubmit() {
   loading.value = true
   try {
     await auth.login(form.email.trim(), form.password)
-    let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+    if (redirect.startsWith('/') && !redirect.startsWith('//')) {
+      try {
+        sessionStorage.removeItem(LOGIN_REDIRECT_KEY)
+      } catch {
+        /* ignore */
+      }
+    } else {
+      try {
+        redirect = sessionStorage.getItem(LOGIN_REDIRECT_KEY) || '/'
+        sessionStorage.removeItem(LOGIN_REDIRECT_KEY)
+      } catch {
+        redirect = '/'
+      }
+    }
     if (!redirect.startsWith('/') || redirect.startsWith('//')) redirect = '/'
     await router.replace(redirect)
   } catch (e) {
