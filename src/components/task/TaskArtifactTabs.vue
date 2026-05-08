@@ -39,6 +39,14 @@
           v-if="tab.type === 'code_link'"
           :task-id="taskId"
         />
+        <UiMockupCard
+          v-else-if="tab.type === 'ui_mockup' || tab.type === 'ui_mockup_html'"
+          :task-id="taskId"
+        />
+        <TaskArchDiagram
+          v-else-if="tab.type === 'architecture_diagram'"
+          :task-id="taskId"
+        />
         <TaskDocTab
           v-else
           :task-id="taskId"
@@ -55,18 +63,23 @@
 import { ref, onMounted, watch } from 'vue'
 import TaskDocTab from './TaskDocTab.vue'
 import TaskCodeTab from './TaskCodeTab.vue'
+import UiMockupCard from '../design/UiMockupCard.vue'
+import TaskArchDiagram from './TaskArchDiagram.vue'
 import { getAuthToken } from '@/services/api'
 
 const TAB_DEFS = [
-  { type: 'brief',          icon: '📋', label: '需求',       short: '需求' },
-  { type: 'prd',            icon: '📝', label: 'PRD',        short: 'PRD' },
-  { type: 'ui_spec',        icon: '🎨', label: 'UI 规格',    short: 'UI' },
-  { type: 'architecture',   icon: '🏗️', label: '技术方案',   short: '架构' },
-  { type: 'implementation', icon: '💻', label: '实现说明',   short: '实现' },
-  { type: 'code_link',      icon: '📦', label: '代码',       short: '代码' },
-  { type: 'test_report',    icon: '🧪', label: '测试',       short: '测试' },
-  { type: 'acceptance',     icon: '✅', label: '验收',       short: '验收' },
-  { type: 'ops_runbook',    icon: '🔧', label: '运维',       short: '运维' },
+  { type: 'brief',               icon: '📋', label: '需求',         short: '需求' },
+  { type: 'prd',                 icon: '📝', label: 'PRD',          short: 'PRD' },
+  { type: 'ui_spec',             icon: '🎨', label: 'UI 规格',      short: 'UI' },
+  { type: 'ui_mockup',           icon: '🖼️', label: 'UI 设计稿',    short: '设计图' },
+  { type: 'ui_mockup_html',      icon: '🖌️', label: 'UI 原型',      short: '原型' },
+  { type: 'architecture',        icon: '🏗️', label: '技术方案',     short: '架构' },
+  { type: 'architecture_diagram',icon: '📐', label: '架构图',       short: '架构图' },
+  { type: 'implementation',      icon: '💻', label: '实现说明',     short: '实现' },
+  { type: 'code_link',           icon: '📦', label: '代码',         short: '代码' },
+  { type: 'test_report',         icon: '🧪', label: '测试',         short: '测试' },
+  { type: 'acceptance',          icon: '✅', label: '验收',         short: '验收' },
+  { type: 'ops_runbook',         icon: '🔧', label: '运维',         short: '运维' },
 ]
 
 const props = defineProps<{

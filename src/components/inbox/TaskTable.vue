@@ -84,6 +84,7 @@ const emit = defineEmits<{ clickTask: [task: PipelineTask] }>()
 function statusType(s: string) {
   if (s === 'done' || s === 'accepted') return 'success'
   if (s === 'failed' || s === 'rejected') return 'danger'
+  if (s === 'cancelled') return 'info'
   if (s === 'plan_pending' || s === 'awaiting_final_acceptance') return 'warning'
   return 'primary'
 }
@@ -160,6 +161,7 @@ function costClass(row: any): string {
 
 function rowClass({ row }: { row: any }) {
   if (row.status === 'failed' || row.status === 'rejected') return 'row-danger'
+  if (row.status === 'cancelled') return 'row-cancelled'
   if (row.status === 'plan_pending' || row.status === 'awaiting_final_acceptance') return 'row-pending'
   return ''
 }
@@ -250,4 +252,5 @@ function rowClass({ row }: { row: any }) {
 
 :deep(.row-danger)  { background-color: rgba(245, 108, 108, 0.04); }
 :deep(.row-pending) { background-color: rgba(230, 162, 60, 0.04); }
+:deep(.row-cancelled) { background-color: rgba(144, 147, 153, 0.06); }
 </style>

@@ -200,6 +200,7 @@ Markdown-first skill definitions (same format as deer-flow):
 - `skills/public/` — built-in skills (committed to git)
 - `skills/custom/` — user-created skills (gitignored)
 - Skills are loaded, validated, and injected into agent system prompts
+- **Design stage**: built-in `ui-visual-assets` skill + tool `generate_image_asset` (OpenAI Images, requires `OPENAI_API_KEY`) writes PNGs under `screenshots/generated/`; mount Figma/Design MCP on **Agent-designer** for vector handoff.
 
 ## Development Guidelines
 

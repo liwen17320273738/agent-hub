@@ -58,6 +58,9 @@ class Settings(BaseSettings):
 
     # Per-provider API keys (all optional)
     openai_api_key: str = ""
+    # OpenAI Images API (`generate_image_asset` tool for designer stage)
+    openai_image_model: str = "dall-e-3"
+    openai_image_timeout_seconds: float = 120.0
     anthropic_api_key: str = ""
     deepseek_api_key: str = ""
     google_api_key: str = ""

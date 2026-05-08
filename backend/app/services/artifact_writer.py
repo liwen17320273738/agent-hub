@@ -96,6 +96,7 @@ async def _write_one_artifact(
     content: str,
     storage_path: str,
     agent_name: Optional[str] = None,
+    metadata_json: Optional[dict] = None,
 ) -> TaskArtifact:
     tid = uuid.UUID(task_id) if isinstance(task_id, str) else task_id
 
@@ -123,6 +124,7 @@ async def _write_one_artifact(
         content=content,
         content_hash=_content_hash(content),
         storage_path=storage_path,
+        metadata_json=metadata_json or {},
         version=new_version,
         is_latest=True,
         status="active",

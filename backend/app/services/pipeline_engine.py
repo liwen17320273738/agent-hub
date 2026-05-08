@@ -410,6 +410,7 @@ STAGE_ROLE_PROMPTS = {
 5. **交互流程** — 主链路用户路径（如：登录 → 创建任务 → 完成）每步关键反馈
 6. **无障碍 (a11y)** — 对比度、键盘导航、ARIA 关键节点
 7. **资源与图标** — 需要的图标库（如 Element Plus / Lucide / Heroicons）、空态插画风格
+8. **视觉稿（强烈建议）** — 对 PRD 中 2–4 个核心界面，调用工具 `generate_image_asset`（需配置 OPENAI_API_KEY）生成 PNG，保存到任务目录 `screenshots/generated/`；在文档中用返回的 Markdown 片段嵌入图片。若组织挂载了 Figma/Design MCP，可同时产出 Frame 链接或导出说明。**禁止**仅用占位符省略视觉稿章节（若无 Key 且无 MCP，须在本节明确写明约束并向 Product 索要素材）。
 
 ⚠️ 你的产出会被开发 Agent 严格按字面执行。**不要"看情况调整"**，所有数值都给具体值。
 用 Markdown 输出，组件清单 / Token 必须用表格。""",
@@ -1232,15 +1233,24 @@ async def execute_stage(
                 pass
 
             # Inject workspace path into system prompt so the agent writes to the right place
-            _tool_stages = {"development", "testing", "deployment", "architecture"}
+            _tool_stages = {"design", "development", "testing", "deployment", "architecture"}
             if stage_id in _tool_stages:
-                system_prompt += (
-                    f"\n\n## 工作目录\n"
-                    f"你的工作目录是: `{task_worktree}`\n"
-                    f"所有文件操作请使用此目录的绝对路径。"
-                    f"代码文件写入 `{task_worktree}/src/` 目录。\n"
-                    f"配置文件写入 `{task_worktree}/config/` 目录。"
-                )
+                if stage_id == "design":
+                    system_prompt += (
+                        f"\n\n## 工作目录\n"
+                        f"任务根目录: `{task_worktree}`\n"
+                        f"- UI 规格 Markdown 通过工具写入 `{task_worktree}/docs/`（如已有 ui_spec 工件也可）。\n"
+                        f"- 概念视觉稿：优先调用 `generate_image_asset`，文件落在 `{task_worktree}/screenshots/generated/`。\n"
+                        f"- 文件读写请使用上述绝对路径。\n"
+                    )
+                else:
+                    system_prompt += (
+                        f"\n\n## 工作目录\n"
+                        f"你的工作目录是: `{task_worktree}`\n"
+                        f"所有文件操作请使用此目录的绝对路径。"
+                        f"代码文件写入 `{task_worktree}/src/` 目录。\n"
+                        f"配置文件写入 `{task_worktree}/config/` 目录。"
+                    )
 
         # Load MCP tools from DB for this agent
         mcp_defs: dict = {}
@@ -1695,6 +1705,64 @@ async def execute_stage(
             )
         except Exception as ruflo_err:
             logger.debug("[ruflo] Post-stage store skipped: %s", ruflo_err)
+
+    # --- Layer 9.6: Visual Generator → generate mockups/diagrams ---
+    if stage_id in ("design", "architecture") and content:
+        try:
+            from .ui_visualizer import UiVisualizer
+            from .artifact_writer import _write_one_artifact as _write_art_custom
+            viz = UiVisualizer(workspace_root=app_settings.workspace_root)
+
+            if stage_id == "design":
+                # Design stage → UI mockup
+                result = await viz.generate_mockup(
+                    task_id=task_id, stage_id=stage_id,
+                    design_spec=content,
+                    project_name=task_title,
+                )
+                if result.get("ok"):
+                    if result["imagePath"]:
+                        await _write_art_custom(
+                            db, task_id=str(task_id), stage_id=stage_id,
+                            artifact_type="ui_mockup",
+                            content=f"![UI 设计稿]({result['imagePath']})",
+                            storage_path=result["imagePath"],
+                            agent_name=agent_name,
+                            metadata_json={"filePath": result["imagePath"], "prompt": result["prompt"]},
+                        )
+                    if result["htmlPath"]:
+                        await _write_art_custom(
+                            db, task_id=str(task_id), stage_id=stage_id,
+                            artifact_type="ui_mockup_html",
+                            content=f"UI 可交互原型:\n{result['htmlPath']}",
+                            storage_path=result["htmlPath"],
+                            agent_name=agent_name,
+                            metadata_json={"filePath": result["htmlPath"]},
+                        )
+                    logger.info("[ui-visualizer] Generated UI mockups for %s", task_id[:12])
+            elif stage_id == "architecture":
+                # Architecture stage → architecture diagrams
+                result = await viz.generate_architecture_diagram(
+                    task_id=task_id, stage_id=stage_id,
+                    arch_spec=content,
+                    project_name=task_title,
+                )
+                if result.get("ok") and result.get("htmlPath"):
+                    await _write_art_custom(
+                        db, task_id=str(task_id), stage_id=stage_id,
+                        artifact_type="architecture_diagram",
+                        content=f"架构图:\n{result['htmlPath']}",
+                        storage_path=result["htmlPath"],
+                        agent_name=agent_name,
+                        metadata_json={
+                            "filePath": result["htmlPath"],
+                            "componentCount": result.get("componentCount", 0),
+                            "flowCount": result.get("flowCount", 0),
+                        },
+                    )
+                    logger.info("[ui-visualizer] Generated architecture diagrams for %s", task_id[:12])
+        except Exception as viz_err:
+            logger.warning("[ui-visualizer] Visual generation skipped: %s", viz_err)
 
     # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
     try:

@@ -199,8 +199,13 @@ const doneTasks = computed(() =>
 const failedTasks = computed(() =>
   tasks.value.filter(t => t.status === 'failed' || t.status === 'rejected')
 )
+const cancelledTasks = computed(() =>
+  tasks.value.filter(t => t.status === 'cancelled')
+)
+/** Pending / awaiting acceptance are listed in「待办任务」— keep「最近任务」from duplicating them. */
 const recentTasks = computed(() =>
   [...tasks.value]
+    .filter(t => t.status !== 'plan_pending' && t.status !== 'awaiting_final_acceptance')
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .slice(0, 10)
 )
@@ -214,6 +219,7 @@ const statCards = computed(() => [
   { tab: 'running', label: t('dashboard.stats.running'), value: runningTasks.value.length, color: '#409eff' },
   { tab: 'done',    label: t('dashboard.stats.done'),    value: doneTasks.value.length,    color: '#67c23a' },
   { tab: 'failed',  label: t('dashboard.stats.failed'),  value: failedTasks.value.length,  color: '#f56c6c' },
+  { tab: 'cancelled', label: t('dashboard.stats.cancelled'), value: cancelledTasks.value.length, color: '#909399' },
 ])
 
 function goInbox(tab: string) {
@@ -223,6 +229,7 @@ function goInbox(tab: string) {
 function statusType(s: string) {
   if (s === 'done' || s === 'accepted') return 'success'
   if (s === 'failed' || s === 'rejected') return 'danger'
+  if (s === 'cancelled') return 'info'
   if (s === 'plan_pending' || s === 'awaiting_final_acceptance') return 'warning'
   return 'primary'
 }
@@ -308,6 +315,11 @@ async function submitTask(planMode: boolean) {
   border: 1px solid rgba(99, 102, 241, 0.15);
 }
 
+.hero-content {
+  flex: 1;
+  min-width: 0;
+}
+
 .hero h1 {
   font-size: 28px;
   font-weight: 800;
@@ -370,14 +382,21 @@ async function submitTask(planMode: boolean) {
 
 .hero-stats {
   display: flex;
-  gap: 20px;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
   flex-shrink: 0;
+  justify-content: flex-end;
+  max-width: none;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .stat {
   text-align: center;
-  min-width: 64px;
-  padding: 8px 12px;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
@@ -397,14 +416,15 @@ async function submitTask(planMode: boolean) {
 
 .stat-num {
   display: block;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.2;
 }
 
 .stat-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--el-text-color-secondary);
+  white-space: nowrap;
 }
 
 /* ── Config ── */
@@ -461,6 +481,11 @@ async function submitTask(planMode: boolean) {
   border-left: 3px solid #f56c6c;
 }
 
+.task-card.cancelled {
+  border-left: 3px solid var(--el-border-color-dark);
+  opacity: 0.92;
+}
+
 .task-card-header {
   display: flex;
   justify-content: space-between;
@@ -491,7 +516,9 @@ async function submitTask(planMode: boolean) {
   }
   .hero-stats {
     width: 100%;
-    justify-content: space-around;
+    max-width: none;
+    justify-content: flex-start;
+    padding-bottom: 4px;
   }
 }
 </style>

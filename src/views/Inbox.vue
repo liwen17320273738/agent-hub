@@ -40,6 +40,9 @@
       <el-tab-pane :label="t('inbox.failed')" name="failed">
         <TaskTable :tasks="failed" :empty-text="t('inbox.emptyFailed')" @click-task="goTask" />
       </el-tab-pane>
+      <el-tab-pane :label="t('inbox.cancelled')" name="cancelled">
+        <TaskTable :tasks="cancelled" :empty-text="t('inbox.emptyCancelled')" @click-task="goTask" />
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -57,11 +60,11 @@ const router = useRouter()
 const route = useRoute()
 const tasks = ref<PipelineTask[]>([])
 const backendOffline = ref(false)
-type InboxTab = 'pending' | 'running' | 'done' | 'failed'
+type InboxTab = 'pending' | 'running' | 'done' | 'failed' | 'cancelled'
 
 function tabFromQuery(): InboxTab {
   const q = String(route.query.tab || '')
-  return (['pending', 'running', 'done', 'failed'] as InboxTab[]).includes(q as InboxTab)
+  return (['pending', 'running', 'done', 'failed', 'cancelled'] as InboxTab[]).includes(q as InboxTab)
     ? (q as InboxTab)
     : 'pending'
 }
@@ -79,6 +82,7 @@ const statCards = computed<{ tab: InboxTab; label: string }[]>(() => [
   { tab: 'running', label: t('inbox.running') },
   { tab: 'done',    label: t('inbox.done') },
   { tab: 'failed',  label: t('inbox.failed') },
+  { tab: 'cancelled', label: t('inbox.cancelled') },
 ])
 
 onMounted(async () => {
@@ -103,12 +107,14 @@ const done = computed(() => tasks.value.filter(t =>
 const failed = computed(() => tasks.value.filter(t =>
   t.status === 'failed' || t.status === 'rejected'
 ))
+const cancelled = computed(() => tasks.value.filter(t => t.status === 'cancelled'))
 
 const stats = computed(() => ({
   pending: pending.value.length,
   running: running.value.length,
   done: done.value.length,
   failed: failed.value.length,
+  cancelled: cancelled.value.length,
 }))
 
 function goTask(task: PipelineTask) {
@@ -139,12 +145,13 @@ function goTask(task: PipelineTask) {
 
 .stat-cards {
   display: flex;
+  flex-wrap: wrap;
   gap: 16px;
   margin-bottom: 24px;
 }
 
 .stat-card {
-  flex: 1;
+  flex: 1 1 140px;
   padding: 16px 20px;
   border-radius: 10px;
   text-align: center;
@@ -184,4 +191,5 @@ function goTask(task: PipelineTask) {
 .stat-card.running { background: #ecf5ff; color: #409eff; }
 .stat-card.done    { background: #f0f9eb; color: #67c23a; }
 .stat-card.failed  { background: #fef0f0; color: #f56c6c; }
+.stat-card.cancelled { background: var(--el-fill-color-light); color: var(--el-text-color-secondary); }
 </style>

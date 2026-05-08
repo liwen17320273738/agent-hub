@@ -21,6 +21,11 @@ from .test_runner import (
     format_test_report,
 )
 from .deerflow_tool import deerflow_delegate, deerflow_list_skills, deerflow_list_models
+try:
+    from .image_gen_tool import generate_image_asset
+except Exception as _ige:
+    logging.getLogger(__name__).info("[tools] image_gen_tool not available: %s", _ige)
+    generate_image_asset = None
 from .codebase_index import repo_map as _codebase_map, search_repo as _codebase_search, read_chunk as _codebase_read_chunk
 
 logger = logging.getLogger(__name__)
@@ -463,6 +468,37 @@ if _BROWSER_LOADED:
         "handler": browser_click_flow,
     }
 
+# Conditional: image_gen_tool (may be missing if OpenAI key not configured)
+if generate_image_asset is not None:
+    TOOL_REGISTRY["generate_image_asset"] = {
+        "name": "generate_image_asset",
+        "description": (
+            "Generate a UI/visual mock image via OpenAI Images API and save it under the task "
+            "worktree screenshots/generated/. Requires OPENAI_API_KEY. After success, embed the "
+            "returned relative_path or markdown snippet in your UI spec deliverable."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed English prompt: layout, palette, typography, device frame",
+                },
+                "filename": {
+                    "type": "string",
+                    "description": "Optional file basename, e.g. dashboard-mock.png",
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Image size (OpenAI-supported), default 1024x1024",
+                },
+            },
+            "required": ["prompt"],
+        },
+        "permissions": ["network"],
+        "handler": generate_image_asset,
+    }
+
 
 def _make_git_handler(tool_name: str) -> ToolFunc:
     """Create a registry-compatible handler that wraps execute_git_tool."""
@@ -651,6 +687,7 @@ ROLE_TOOL_WHITELIST: Dict[str, set] = {
     "designer": {
         "file_read", "file_write", "file_list", "str_replace",
         "web_search", "browser_open", "browser_screenshot", "browser_extract",
+        "generate_image_asset",
     },
     "architect": {
         "file_read", "file_write", "file_list", "str_replace",
@@ -1058,8 +1095,11 @@ async def execute_tool(
         return f"Error: unknown tool '{tool_name}'"
 
     handler: ToolFunc = tool["handler"]
+    exec_params = dict(params)
+    if task_id:
+        exec_params.setdefault("pipeline_task_id", task_id)
     try:
-        result = await handler(params)
+        result = await handler(exec_params)
         logger.info(f"Tool {tool_name} executed: {len(result)} chars output")
         return result
     except Exception as e:

@@ -66,6 +66,7 @@ AGENT_TOOLS = {
     "Agent-designer": [
         "web_search", "browser_open", "browser_screenshot", "browser_extract",
         "file_read", "file_write", "file_list",
+        "generate_image_asset",
         "deerflow_delegate",
     ],
     "Agent-devops": [
@@ -123,7 +124,7 @@ AGENT_SKILL_BINDINGS = {
     "Agent-product": ["prd-writing", "deep-research", "data-analysis"],
     "Agent-developer": ["code-review", "api-design"],
     "Agent-qa": ["test-strategy", "code-review"],
-    "Agent-designer": ["deep-research"],
+    "Agent-designer": ["deep-research", "ui-visual-assets"],
     "Agent-devops": ["deploy-checklist", "security-audit"],
     "Agent-security": ["security-audit", "code-review"],
     "Agent-acceptance": ["prd-writing", "test-strategy"],
@@ -1116,6 +1117,31 @@ DEFAULT_AGENTS: list[dict] = [
             "汇总监督报告",
         ],
     },
+    {
+        "id": "ui-visual-designer",
+        "name": "UI 视觉设计师",
+        "title": "视觉设计",
+        "category": "design",
+        "description": "根据设计规范生成视觉 UI 设计稿（截图 + 可交互 HTML 原型）",
+        "version": "1.0.0",
+        "is_builtin": True,
+        "tags": ["design", "ui", "visual", "mockup"],
+        "prompt_template": "你是高级 UI 视觉设计师。将设计规范转化为视觉可交付物：UI 截图和可交互 HTML 原型。",
+        "rules": [
+            "设计稿必须符合设计规范中定义的主题色和字体",
+            "可交互原型需在浏览器中完整预览",
+            "产出物包括 mockup 图片 + HTML 原型两个文件",
+        ],
+        "trigger_stages": ["design", "architecture"],
+        "completion_criteria": [
+            "生成 UI 设计稿截图",
+            "生成可交互 HTML 原型",
+            "设计符合规范定义的主题和布局",
+        ],
+        "allowed_tools": ["file_read", "file_write", "image_gen"],
+        "execution_mode": "post_stage",
+        "sort_order": 17,
+    },
 ]
 
 DEFAULT_SKILLS: list[dict] = [
@@ -1341,6 +1367,18 @@ async def seed_agents(db: AsyncSession) -> None:
                 existing.role_card = new_card
                 logger.info(f"[seed] Updated role_card for agent: {agent_data['id']}")
             continue
+        agent_data.pop("version", None)
+        agent_data.pop("is_builtin", None)
+        agent_data.pop("tags", None)
+        agent_data.pop("prompt_template", None)
+        agent_data.pop("trigger_stages", None)
+        agent_data.pop("completion_criteria", None)
+        agent_data.pop("skills", None)
+        agent_data.pop("rules", None)
+        agent_data.pop("hooks", None)
+        agent_data.pop("mcp_tools", None)
+        agent_data.pop("allowed_tools", None)
+        agent_data.pop("execution_mode", None)
         agent = AgentDefinition(**agent_data)
         db.add(agent)
         logger.info(f"[seed] Created agent: {agent_data['id']}")

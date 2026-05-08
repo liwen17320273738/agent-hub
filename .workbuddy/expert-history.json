@@ -19,8 +19,17 @@
         "profession": "高级开发工程师",
         "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/SeniorDeveloper/SeniorDeveloper.png",
         "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/SeniorDeveloper/SeniorDeveloper_zh.md",
-        "usedAt": 1778030295803,
+        "usedAt": 1778138633095,
         "industryId": "02-Engineering"
+      },
+      {
+        "expertId": "GameDesigner",
+        "name": "玩法师",
+        "profession": "游戏设计师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/12-GameDevelopment/GameDesigner/GameDesigner.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/12-GameDevelopment/GameDesigner/GameDesigner_zh.md",
+        "usedAt": 1778138625086,
+        "industryId": "12-GameDevelopment"
       },
       {
         "expertId": "CrossBorderEcommerceExpert",
@@ -30,15 +39,6 @@
         "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/03-Marketing/CrossBorderEcommerceExpert/CrossBorderEcommerceExpert_zh.md",
         "usedAt": 1778028582475,
         "industryId": "all"
-      },
-      {
-        "expertId": "BackendArchitect",
-        "name": "磐石石",
-        "profession": "后端架构师",
-        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/BackendArchitect/BackendArchitect.png",
-        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/BackendArchitect/BackendArchitect_zh.md",
-        "usedAt": 1778028568624,
-        "industryId": "02-Engineering"
       }
     ],
     "009a49d48c7e4b798d68e2474afa63a3": [
@@ -64,5 +64,5 @@
       }
     ]
   },
-  "lastUpdated": 1778058617136
+  "lastUpdated": 1778144866563
 }
