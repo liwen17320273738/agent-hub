@@ -1,4 +1,5 @@
 from .user import Org, User
+from .relay import RelayApiKey
 from .conversation import Conversation
 from .agent import AgentDefinition, AgentSkill, AgentRule, AgentHook, AgentPlugin, AgentMcp
 from .skill import Skill, SkillRating
@@ -20,6 +21,7 @@ __all__ = [
     "AgentMessage",
     "CodeChunk",
     "Org",
+    "RelayApiKey",
     "User",
     "Workflow",
     "Conversation",

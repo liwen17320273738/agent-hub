@@ -460,6 +460,35 @@ export async function smartRunPipeline(
   })
 }
 
+/** Matches ``TaskScheduler.status()`` — used to restore pipeline run flags after navigation. */
+export interface PipelineSchedulerJobMeta {
+  submission_id: string
+  task_id: string
+  label: string
+  kind?: string
+  queued_at?: string
+  started_at?: string | null
+  finished_at?: string | null
+}
+
+export interface PipelineSchedulerStatus {
+  maxConcurrent: number
+  runningCount: number
+  queueDepth: number
+  running: PipelineSchedulerJobMeta[]
+  queued: PipelineSchedulerJobMeta[]
+  lifetime: {
+    submitted: number
+    finished: number
+    failed: number
+    resumed_from_restart?: number
+  }
+}
+
+export async function fetchPipelineSchedulerStatus(): Promise<PipelineSchedulerStatus> {
+  return apiFetch<PipelineSchedulerStatus>('/scheduler/status')
+}
+
 export async function analyzeTask(
   taskId: string,
 ): Promise<{ ok: boolean; taskId: string }> {

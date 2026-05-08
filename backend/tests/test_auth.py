@@ -7,19 +7,19 @@ import pytest
 @pytest.mark.asyncio
 async def test_login_success(client, db, test_user):
     res = await client.post("/api/auth/login", json={
-        "email": "testuser@test.com",
+        "email": test_user.email,
         "password": "testpass123",
     })
     assert res.status_code == 200
     data = res.json()
     assert "access_token" in data
-    assert data["user"]["email"] == "testuser@test.com"
+    assert data["user"]["email"] == test_user.email
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(client, db, test_user):
     res = await client.post("/api/auth/login", json={
-        "email": "testuser@test.com",
+        "email": test_user.email,
         "password": "wrongpassword",
     })
     assert res.status_code == 401
@@ -32,8 +32,8 @@ async def test_me_unauthenticated(client):
 
 
 @pytest.mark.asyncio
-async def test_me_authenticated(client, db, auth_headers):
+async def test_me_authenticated(client, db, test_user, auth_headers):
     res = await client.get("/api/auth/me", headers=auth_headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["email"] == "testuser@test.com"
+    assert data["email"] == test_user.email

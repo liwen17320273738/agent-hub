@@ -396,7 +396,7 @@ async def _apply_feedback_in_background(
 
 async def _run_one_iteration(task_id: str, payloads: List[Dict[str, Any]]) -> None:
     """Run a single e2e pass, merging all queued feedback payloads."""
-    from ..e2e_orchestrator import run_full_e2e
+    from ..e2e_orchestrator import DEFAULT_GATEWAY_E2E_DAG_TEMPLATE, run_full_e2e
     from ..notify import notify_task_event
 
     primary = payloads[0]
@@ -453,7 +453,7 @@ async def _run_one_iteration(task_id: str, payloads: List[Dict[str, Any]]) -> No
                 task_title=task.title or "",
                 task_description=merged_description,
                 auto_deploy=True,
-                dag_template="full",
+                dag_template=DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
                 existing_project_dir=project_path or None,
             )
 

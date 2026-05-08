@@ -20,6 +20,12 @@ from app.services.llm_router import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _disable_llm_circuit_breaker_for_fallback_tests(monkeypatch):
+    """Circuit state is shared via Redis across the suite; these tests model routing only."""
+    monkeypatch.setattr(llm_router.settings, "llm_circuit_breaker_enabled", False)
+
+
 # ── Retriable detection ─────────────────────────────────────────────
 
 @pytest.mark.parametrize("payload, expected", [

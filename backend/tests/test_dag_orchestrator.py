@@ -48,6 +48,19 @@ def test_parallel_stages():
     assert len(ready) == 2
 
 
+def test_e2e_intake_plan_parallel_design_and_architecture():
+    """Gateway ``e2e_intake`` runs planning then design ∥ architecture (two batches)."""
+    tmpl = PIPELINE_TEMPLATES["e2e_intake"]
+    stages = [
+        DAGStage(s.stage_id, s.label, s.role, list(s.depends_on), s.skip_condition)
+        for s in tmpl
+    ]
+    batches = resolve_execution_plan(stages)
+    assert len(batches) == 2
+    assert len(batches[0]) == 1 and batches[0][0].stage_id == "planning"
+    assert {s.stage_id for s in batches[1]} == {"design", "architecture"}
+
+
 def test_resolve_execution_plan():
     """Execution plan should produce correct batches."""
     stages = [

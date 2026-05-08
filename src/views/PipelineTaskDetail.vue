@@ -764,7 +764,7 @@ import { ElMessage } from 'element-plus'
 import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
-  smartRunPipeline, subscribePipelineEvents,
+  smartRunPipeline, subscribePipelineEvents, fetchPipelineSchedulerStatus,
   approveStage as apiApproveStage, resumePipeline, resumeDagPipeline, resolvePlanPending,
   compileDeliverables, fetchQualityReport, overrideQualityGate,
   uploadTaskAttachment, downloadTaskAttachment,
@@ -1855,6 +1855,20 @@ function goToAgent() {
   })
 }
 
+async function syncRunFlagsFromScheduler() {
+  if (!task.value) return
+  const tid = task.value.id
+  try {
+    const st = await fetchPipelineSchedulerStatus()
+    const jobs = [...st.running, ...st.queued].filter((j) => j.task_id === tid)
+    if (jobs.some((j) => j.kind === 'smart-run')) smartRunning.value = true
+    if (jobs.some((j) => j.kind === 'auto-run')) autoRunning.value = true
+    if (jobs.some((j) => j.kind === 'run-stage')) stageRunning.value = true
+  } catch {
+    /* offline / auth — leave flags unchanged */
+  }
+}
+
 async function loadTask() {
   const id = route.params.id as string
   if (!id) return
@@ -1873,6 +1887,7 @@ async function loadTask() {
       smartRunning.value = false
       stageRunning.value = false
     }
+    await syncRunFlagsFromScheduler()
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('pipelineTaskDetail.elMessage_31')
     console.error(t('pipelineTaskDetail.elMessage_31'), e)

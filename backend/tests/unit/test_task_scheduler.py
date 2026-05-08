@@ -24,6 +24,26 @@ import pytest_asyncio
 from app.services import task_scheduler as ts_mod
 
 
+async def _clear_scheduler_redis_queue():
+    """Avoid resume-from-stale-keys across tests sharing one Redis (memory stub)."""
+    from app.redis_client import get_redis
+
+    r = get_redis()
+    try:
+        ids = await r.zrange(ts_mod._QUEUE_ZSET, 0, -1)
+    except Exception:
+        ids = []
+    for sid in ids:
+        try:
+            await r.delete(ts_mod._META_KEY_FMT.format(sid))
+        except Exception:
+            pass
+    try:
+        await r.delete(ts_mod._QUEUE_ZSET)
+    except Exception:
+        pass
+
+
 @pytest.fixture(autouse=True)
 def _reset_registry():
     """Each test starts with a clean registry — these tests register
@@ -44,6 +64,7 @@ async def fresh_scheduler():
     ``asyncio.Semaphore`` binds to the test's event loop (Python 3.9
     captures the loop at construction time).
     """
+    await _clear_scheduler_redis_queue()
     return ts_mod.TaskScheduler(max_concurrent=2)
 
 

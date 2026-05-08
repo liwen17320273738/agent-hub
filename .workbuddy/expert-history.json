@@ -14,6 +14,15 @@
     ],
     "1fddf70d1fbb4554976ef75992b4e2ac": [
       {
+        "expertId": "TripStarAgent",
+        "name": "路小鲜",
+        "profession": "美团生活助手",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/09-Operations/TripStarAgent/TripStarAgent.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/09-Operations/TripStarAgent/TripStarAgent_zh.md",
+        "usedAt": 1778230216235,
+        "industryId": "all"
+      },
+      {
         "expertId": "SeniorDeveloper",
         "name": "吴八哥",
         "profession": "高级开发工程师",
@@ -30,15 +39,6 @@
         "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/12-GameDevelopment/GameDesigner/GameDesigner_zh.md",
         "usedAt": 1778138625086,
         "industryId": "12-GameDevelopment"
-      },
-      {
-        "expertId": "CrossBorderEcommerceExpert",
-        "name": "出海海",
-        "profession": "跨境电商专家",
-        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/03-Marketing/CrossBorderEcommerceExpert/CrossBorderEcommerceExpert.png",
-        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/03-Marketing/CrossBorderEcommerceExpert/CrossBorderEcommerceExpert_zh.md",
-        "usedAt": 1778028582475,
-        "industryId": "all"
       }
     ],
     "009a49d48c7e4b798d68e2474afa63a3": [
@@ -64,5 +64,5 @@
       }
     ]
   },
-  "lastUpdated": 1778144866563
+  "lastUpdated": 1778230315854
 }

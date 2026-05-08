@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
@@ -89,6 +89,15 @@ class Settings(BaseSettings):
     pipeline_api_key: str = ""
     pipeline_upload_dir: str = ""
     pipeline_upload_max_mb: int = 15
+
+    # Customer relay gateway (OpenAI-compatible /v1 with per-org API keys)
+    relay_markup_multiplier: float = 1.0
+    relay_min_balance_usd: float = 0.0
+    # When PRICING_PER_1K has no match (e.g. local OpenAI-compat / Gemma), bill relay
+    # customers using total_tokens × this rate (USD per 1k tokens). Set 0 to disable.
+    relay_fallback_usd_per_1k_total: float = 0.00015
+    # Sliding window cap per relay API key (``ahrelay_*``) on ``/v1/*``. When unset, uses ``rate_limit_per_minute``.
+    relay_rate_limit_per_minute: Optional[int] = None
 
     # OpenClaw gateway authentication — separate from pipeline_api_key to
     # avoid conflating internal pipeline auth with external API access.

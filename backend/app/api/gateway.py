@@ -141,7 +141,10 @@ async def _run_pipeline_background(
     (or ``OpenClawIntakeRequest.auto_final_accept=True``) to keep the old
     auto-publish behaviour for trusted automation.
     """
-    from ..services.e2e_orchestrator import run_full_e2e
+    from ..services.e2e_orchestrator import (
+        DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
+        run_full_e2e,
+    )
 
     try:
         async with async_session_factory() as db:
@@ -151,7 +154,7 @@ async def _run_pipeline_background(
                 task_title=title,
                 task_description=description,
                 auto_deploy=True,
-                dag_template="full",
+                dag_template=DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
                 pause_for_acceptance=pause_for_acceptance,
             )
             await db.commit()
@@ -2075,7 +2078,10 @@ async def _maybe_dispatch_vibevoice_task(
         f"{output['fullText']}"
     )
 
-    from ..services.e2e_orchestrator import run_full_e2e as _run_e2e
+    from ..services.e2e_orchestrator import (
+        DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
+        run_full_e2e as _run_e2e,
+    )
 
     async def _dispatch_vibevoice_task():
         async with async_session_factory() as _db:
@@ -2089,7 +2095,7 @@ async def _maybe_dispatch_vibevoice_task(
                 task_title=task_title,
                 task_description=task_description,
                 auto_deploy=False,
-                dag_template="full",
+                dag_template=DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
                 pause_for_acceptance=True,
             )
             await _db.commit()

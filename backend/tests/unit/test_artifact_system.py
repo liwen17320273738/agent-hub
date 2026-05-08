@@ -9,7 +9,7 @@ from app.services.artifact_writer import STAGE_TO_ARTIFACT
 
 class TestArtifactTypeRegistry:
     def test_builtin_types_count(self):
-        assert len(BUILTIN_ARTIFACT_TYPES) == 12
+        assert len(BUILTIN_ARTIFACT_TYPES) == 15
 
     def test_builtin_types_all_have_required_keys(self):
         required = {"type_key", "category", "display_name", "icon", "tab_group", "sort_order"}

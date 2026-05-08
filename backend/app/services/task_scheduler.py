@@ -215,11 +215,12 @@ class TaskScheduler:
         can't (or won't) be made resumable. New code should pass
         ``kind+params`` instead.
         """
-        # Lazy first-call resume — happens once per process. We can't run
-        # this in __init__ because there's no event loop yet.
+        # Lazy first-call resume — once per scheduler instance. Must finish
+        # before we persist the current submission; otherwise a background
+        # resume races enqueue and replays items still in Redis as "restart".
         if not self._resume_started:
             self._resume_started = True
-            asyncio.create_task(self._resume_pending())
+            await self._resume_pending()
 
         submission_id = str(uuid.uuid4())
         persistable = bool(params) and kind in _KIND_BUILDERS

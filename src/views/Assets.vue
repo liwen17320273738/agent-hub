@@ -4,6 +4,10 @@
     <p class="view-subtitle">{{ t('assets.subtitle') }}</p>
 
     <el-tabs v-model="activeTab">
+      <el-tab-pane :label="t('assets.tabs.relay')" name="relay" lazy>
+        <RelayGatewayPanel />
+      </el-tab-pane>
+
       <el-tab-pane :label="t('assets.tabs.models')" name="models">
         <div class="asset-action">
           <el-button type="primary" @click="$router.push('/model-lab')">{{ t('assets.buttons.modelLab') }}</el-button>
@@ -66,7 +70,9 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import AdminSkillReview from '@/views/AdminSkillReview.vue'
 
-const BASE_TABS = ['models', 'skills', 'mcp', 'eval', 'codebase', 'observability'] as const
+import RelayGatewayPanel from '@/components/assets/RelayGatewayPanel.vue'
+
+const BASE_TABS = ['models', 'skills', 'relay', 'mcp', 'eval', 'codebase', 'observability'] as const
 
 const { t } = useI18n()
 const route = useRoute()

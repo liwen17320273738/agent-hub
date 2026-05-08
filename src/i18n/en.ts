@@ -196,6 +196,7 @@ export default {
       eval: "Evaluation",
       codebase: "Codebase Index",
       observability: "Observability",
+      relay: "API relay",
     },
     buttons: {
       modelLab: "Model Lab",
@@ -215,6 +216,44 @@ export default {
     },
     skillReviewLead:
       "Admins only. Review crawler-discovered SKILL.md entries before publishing to the marketplace (alongside Skill Hub above).",
+    relay: {
+      lead:
+        "OpenAI-compatible /v1 gateway for external clients: issue keys, top up org balance, call POST /v1/chat/completions with Bearer ahrelay_…",
+      balanceUsd: "Relay balance (USD)",
+      refresh: "Refresh",
+      topup: "Top up (simulated)",
+      topupHint:
+        "Billing integration is not wired yet — this adjusts balance for demos. Production: connect payments and settle here.",
+      topupAdminOnly: "Only org admins and managers can top up balance.",
+      topupOk: "Balance updated.",
+      topupInvalid: "Enter a positive amount.",
+      curlTitle: "Example curl (dev: proxied from this origin)",
+      copySnippet: "Copy example",
+      createKey: "Create relay key",
+      keyNameOptional: "Label (optional)",
+      secretTitle: "Save this key now",
+      secretWarn: "The full secret is shown only once. Copy it to a password manager; you cannot retrieve it later.",
+      copyKey: "Copy key",
+      copied: "Copied.",
+      copyFailed: "Copy failed — select and copy manually.",
+      colName: "Name",
+      colPrefix: "Key prefix",
+      colCreated: "Created",
+      colLastUsed: "Last used",
+      colActions: "Actions",
+      revoke: "Revoke",
+      revokeConfirm: "Revoke this key? Clients using it will get 401.",
+      revoked: "Key revoked.",
+      policyTitle: "Relay billing (server)",
+      policyMarkup: "Markup multiplier",
+      policyFallback: "Fallback rate (no price-table match)",
+      policyPer1k: "USD per 1k total tokens",
+      policyRateLimit: "Per relay key: max requests/min on /v1 (public clients; loopback dev is exempt)",
+      policyPerMin: "req / min",
+      policyMinBalance: "Balance must exceed to call /v1/chat (402 if not)",
+      policyNote:
+        "Listed models use the internal price table; others use fallback × markup. See token usage under Models → usage for relay_openai rows.",
+    },
   },
   team: {
     title: "Team",
@@ -500,6 +539,11 @@ export default {
     handoffOpenRole: "Open role from console: {title}",
     handoffOrchestrator: "Console handoff: {title}. Task: {task}",
     taskUnset: "No task description",
+    fallbackNotice:
+      "⚠️ [Demo/Offline Mode] Backend runtime unavailable — using frontend light tools. Tool calls, MCP, and verification are disabled.",
+    runtimeNoAuth:
+      "Not logged in or invalid credentials — backend runtime unavailable; using local mode.",
+    runtimeNoMapping: "Streaming endpoint mapping is not configured — using local light mode.",
   },
   agentProfile: {
     text_1: "Loading...",

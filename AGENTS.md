@@ -128,6 +128,7 @@ make install    # Install all dependencies
 make dev        # Start all services (backend + frontend)
 make stop       # Stop all services
 make test       # Run all tests
+make test-relay # Backend relay gateway integration tests only
 make lint       # Lint all code
 ```
 
@@ -136,6 +137,7 @@ make lint       # Lint all code
 make install    # pip install -r requirements.txt
 make dev        # uvicorn with --reload
 make test       # pytest tests/ -v
+make test-relay # pytest tests/integration/test_relay_gateway.py (sets AGENTHUB_TEST_MINIMAL_LIFESPAN=1)
 make lint       # ruff check
 make format     # ruff format
 ```

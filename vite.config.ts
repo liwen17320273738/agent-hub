@@ -191,6 +191,7 @@ export default defineConfig(({ mode }) => {
     proxy: {
       ...apiProxy,
       '/api': { ...backendDevProxy },
+      '/v1': { ...backendDevProxy },
       '/health': { ...backendDevProxy },
     },
   },
@@ -199,6 +200,7 @@ export default defineConfig(({ mode }) => {
     proxy: {
       ...apiProxy,
       '/api': { ...backendDevProxy },
+      '/v1': { ...backendDevProxy },
     },
   },
   }

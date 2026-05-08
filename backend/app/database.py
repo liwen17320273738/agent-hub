@@ -7,8 +7,11 @@ The engine type is auto-detected from DATABASE_URL:
 """
 from __future__ import annotations
 
+import os
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import StaticPool
 
 from .config import settings
 
@@ -18,7 +21,13 @@ def _build_engine():
     is_sqlite = url.startswith("sqlite")
 
     kwargs = {"echo": settings.debug}
-    if not is_sqlite:
+    if is_sqlite:
+        if os.environ.get("AGENTHUB_SQLITE_STATIC_POOL"):
+            kwargs["poolclass"] = StaticPool
+            kwargs["connect_args"] = {"check_same_thread": False, "timeout": 60}
+        else:
+            kwargs["connect_args"] = {"timeout": 30}
+    else:
         kwargs.update(pool_size=20, max_overflow=10, pool_pre_ping=True)
 
     return create_async_engine(url, **kwargs)

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,9 +68,15 @@ async def record_usage(
     completion_tokens: int,
     latency_ms: int = 0,
     endpoint: str = "chat",
+    metadata_extra: Optional[Dict[str, Any]] = None,
+    cost_usd_override: Optional[float] = None,
 ) -> TokenUsage:
     total = prompt_tokens + completion_tokens
-    cost = estimate_cost(provider, model, prompt_tokens, completion_tokens)
+    cost = (
+        round(float(cost_usd_override), 6)
+        if cost_usd_override is not None
+        else estimate_cost(provider, model, prompt_tokens, completion_tokens)
+    )
 
     usage = TokenUsage(
         org_id=org_id,
@@ -84,6 +90,7 @@ async def record_usage(
         cost_usd=cost,
         latency_ms=latency_ms,
         endpoint=endpoint,
+        metadata_extra=dict(metadata_extra) if metadata_extra else {},
     )
     db.add(usage)
     await db.flush()

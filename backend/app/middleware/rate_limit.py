@@ -12,6 +12,7 @@ Notes on the 429-vs-500 trap:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from collections import defaultdict
@@ -22,6 +23,7 @@ from starlette.responses import JSONResponse
 
 from ..config import settings
 from ..redis_client import redis
+from ..services.relay_billing import RELAY_KEY_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,11 @@ _EXEMPT_HOSTS = {"127.0.0.1", "::1", "localhost", "0.0.0.0"}
 _local_counters: dict[str, list[float]] = defaultdict(list)
 
 
+def _relay_rate_limit_per_minute() -> int:
+    r = settings.relay_rate_limit_per_minute
+    return int(r) if r is not None else int(settings.rate_limit_per_minute)
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path in _EXEMPT_PATHS:
@@ -51,28 +58,38 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if client_ip in _EXEMPT_HOSTS:
             return await call_next(request)
 
-        key = f"ratelimit:{client_ip}"
+        path = request.url.path
+        auth = request.headers.get("authorization") or ""
+        limit = int(settings.rate_limit_per_minute)
+        bucket = f"ratelimit:{client_ip}"
+
+        if path.startswith("/v1") and auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            if token.startswith(RELAY_KEY_PREFIX):
+                digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:24]
+                bucket = f"ratelimit:relay:{digest}"
+                limit = _relay_rate_limit_per_minute()
+
         now = time.time()
         window = 60
 
         pipe = redis.pipeline()
-        pipe.zremrangebyscore(key, 0, now - window)
-        pipe.zadd(key, {str(now): now})
-        pipe.zcard(key)
-        pipe.expire(key, window)
+        pipe.zremrangebyscore(bucket, 0, now - window)
+        pipe.zadd(bucket, {str(now): now})
+        pipe.zcard(bucket)
+        pipe.expire(bucket, window)
 
         try:
             results = await pipe.execute()
             request_count = results[2]
         except Exception:
-            request_count = self._local_rate_check(client_ip, now, window)
+            request_count = self._local_rate_check(bucket, now, window)
 
-        limit = settings.rate_limit_per_minute
         if request_count > limit:
             retry_after = max(1, window)
             logger.warning(
                 "[ratelimit] %s exceeded %d/min (count=%d) on %s",
-                client_ip, limit, request_count, request.url.path,
+                bucket, limit, request_count, request.url.path,
             )
             return JSONResponse(
                 status_code=429,
@@ -92,10 +109,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     @staticmethod
-    def _local_rate_check(client_ip: str, now: float, window: int) -> int:
+    def _local_rate_check(bucket: str, now: float, window: int) -> int:
         """In-memory fallback when Redis is unavailable."""
-        timestamps = _local_counters[client_ip]
+        timestamps = _local_counters[bucket]
         cutoff = now - window
-        _local_counters[client_ip] = [t for t in timestamps if t > cutoff]
-        _local_counters[client_ip].append(now)
-        return len(_local_counters[client_ip])
+        _local_counters[bucket] = [t for t in timestamps if t > cutoff]
+        _local_counters[bucket].append(now)
+        return len(_local_counters[bucket])

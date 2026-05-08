@@ -1,6 +1,6 @@
 # Agent Hub Backend
 
-.PHONY: install dev test lint format migrate
+.PHONY: install dev test test-relay lint format migrate
 
 PYTHON ?= python3
 
@@ -12,6 +12,9 @@ dev:
 
 test:
 	$(PYTHON) -m pytest tests/ -v
+
+test-relay:
+	AGENTHUB_TEST_MINIMAL_LIFESPAN=1 $(PYTHON) -m pytest tests/integration/test_relay_gateway.py -v --tb=short
 
 test-unit:
 	$(PYTHON) -m pytest tests/unit/ -v

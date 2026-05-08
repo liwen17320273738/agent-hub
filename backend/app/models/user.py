@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String, ForeignKey, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -15,6 +15,7 @@ class Org(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), default="默认组织")
+    relay_balance_usd: Mapped[float] = mapped_column(Float, default=0.0)
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
 
     users: Mapped[list[User]] = relationship(back_populates="org", cascade="all, delete-orphan")

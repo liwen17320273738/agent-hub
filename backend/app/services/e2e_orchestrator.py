@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +20,10 @@ from .sse import emit_event
 from .notify import notify_task_event
 
 logger = logging.getLogger(__name__)
+
+# Gateway / IM 入口在 Phase 2+ 会执行 CodeGen、构建与部署；DAG 阶段若使用 ``full`` 会先完整跑
+# development（含再一次 CodeGen）与 testing/reviewing，与 Phase 2 重复且显著拉长耗时。
+DEFAULT_GATEWAY_E2E_DAG_TEMPLATE = "e2e_intake"
 
 
 def _detect_project_type(title: str, description: str, planning_output: str = "") -> str:
@@ -67,18 +72,19 @@ async def run_full_e2e(
     task_title: str,
     task_description: str,
     auto_deploy: bool = True,
-    dag_template: str = "full",
+    dag_template: str = DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
     existing_project_dir: Optional[str] = None,
     pause_for_acceptance: bool = False,
 ) -> Dict[str, Any]:
     """Execute the FULL end-to-end flow:
 
-    Phase 1: Design Pipeline (planning → architecture) — generates PRD + tech spec
+    Phase 1: DAG preamble — PRD / UI 规格 / 技术方案（默认 ``e2e_intake``：不含流水线内的 codegen，
+    避免与 Phase 2 重复）；可由 ``dag_template`` 改为 ``full`` 等模板。
     Phase 2: Code Generation via Claude Code — writes real files in projects/{slug}
-    Phase 3: Build + Test → Fix loop — build, run tests, auto-fix up to N times
-    Phase 4: Review Pipeline (testing → reviewing) — QA validates the real code
-    Phase 5: Deploy — Vercel / Cloudflare / miniprogram (preview/staging URL)
-    Phase 6: Preview + Notify — screenshot + channel notification
+    Phase 3: Build + Test → Fix loop — build, auto-fix up to N times
+    Phase 4: Deploy — Vercel / Cloudflare / miniprogram (preview/staging URL), optional via ``auto_deploy``
+    Phase 5: Preview + Notify — screenshot
+    Phase 5.5: Post-deploy acceptance — optional ``execute_stage(reviewing)`` when preview URL exists
 
     ``pause_for_acceptance`` (Wave 5 / G1):
         When True, instead of auto-marking the task ``done`` after Phase 5.5,
@@ -134,8 +140,9 @@ async def run_full_e2e(
         extras={"自动部署": "是" if auto_deploy else "否"},
     )
 
-    # ── Phase 1: Design Pipeline (planning + architecture only) ─────
+    # ── Phase 1: DAG preamble (default ``e2e_intake``: planning → design ∥ architecture) ─────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "running"})
+    _t_design = time.monotonic()
 
     from .dag_orchestrator import execute_dag_pipeline
 
@@ -156,6 +163,12 @@ async def run_full_e2e(
             task_description=effective_description,
             template=dag_template,
             project_path=existing_project_dir,
+        )
+        logger.info(
+            "[e2e] phase=dag-preamble template=%s wall_s=%.1f stages_completed=%s",
+            dag_template,
+            time.monotonic() - _t_design,
+            (pipeline_result.get("summary") or {}).get("stagesCompleted", "?"),
         )
     finally:
         if db_task is not None and not user_auto_final_accept:
@@ -193,6 +206,7 @@ async def run_full_e2e(
 
     # ── Phase 2: Code Generation via Claude Code ────────────────────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "codegen", "status": "running"})
+    _t_codegen = time.monotonic()
 
     template_id = _detect_project_type(
         task_title, task_description, outputs.get("planning", ""),
@@ -208,6 +222,13 @@ async def run_full_e2e(
         template_id=template_id if not existing_project_dir else None,
         use_claude_code=True,
         existing_project_dir=existing_project_dir,
+    )
+    logger.info(
+        "[e2e] phase=codegen wall_s=%.1f ok=%s engine=%s files=%s",
+        time.monotonic() - _t_codegen,
+        codegen_result.get("ok"),
+        codegen_result.get("engine"),
+        codegen_result.get("total_files", 0),
     )
 
     e2e_result["phases"]["codegen"] = {
@@ -242,6 +263,7 @@ async def run_full_e2e(
 
     # ── Phase 3: Build + Test → Fix Loop ────────────────────────────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "build-test", "status": "running"})
+    _t_build = time.monotonic()
 
     from .codegen.templates import get_template
     template = get_template(template_id)
@@ -291,6 +313,13 @@ async def run_full_e2e(
                 break
 
     e2e_result["phases"]["build_test"] = build_test_result
+    logger.info(
+        "[e2e] phase=build-test wall_s=%.1f ok=%s attempts=%s skipped=%s",
+        time.monotonic() - _t_build,
+        build_test_result.get("ok"),
+        build_test_result.get("attempts"),
+        build_test_result.get("skipped"),
+    )
 
     if not build_test_result.get("ok") and not build_test_result.get("skipped"):
         e2e_result["ok"] = False

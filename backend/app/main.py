@@ -9,6 +9,7 @@ Architecture follows deer-flow gateway pattern:
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -56,6 +57,7 @@ from .api import (
     worktree as worktree_api,
     translate as translate_api,
     specs as specs_api,
+    relay as relay_api,
 )
 
 logging.basicConfig(
@@ -70,6 +72,7 @@ logger = logging.getLogger("agent-hub")
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup checks, DB init, seed data."""
     logger.info("Starting Agent Hub backend...")
+    _test_minimal_lifespan = os.environ.get("AGENTHUB_TEST_MINIMAL_LIFESPAN") == "1"
 
     if not settings.jwt_secret or len(settings.jwt_secret) < 32:
         if settings.debug:
@@ -155,26 +158,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _bootstrap_admin(db)
         await db.commit()
 
-    async with async_session() as db:
-        from .agents.seed import seed_all
+    if not _test_minimal_lifespan:
+        async with async_session() as db:
+            from .agents.seed import seed_all
 
-        await seed_all(db)
-        await db.commit()
-    logger.info("Seed data loaded.")
+            await seed_all(db)
+            await db.commit()
+        logger.info("Seed data loaded.")
+    else:
+        logger.info("Skipping agent seed (AGENTHUB_TEST_MINIMAL_LIFESPAN=1).")
 
     async with async_session() as db:
         await _seed_artifact_types(db)
         await db.commit()
 
-    from .services.skill_loader import discover_skills, sync_skills_to_db
-    skills_found = discover_skills()
-    logger.info(f"Loaded {len(skills_found)} filesystem skills.")
+    if not _test_minimal_lifespan:
+        from .services.skill_loader import discover_skills, sync_skills_to_db
 
-    async with async_session() as db:
-        synced = await sync_skills_to_db(db)
-        await db.commit()
-    if synced:
-        logger.info(f"Synced {synced} filesystem skills to database.")
+        skills_found = discover_skills()
+        logger.info(f"Loaded {len(skills_found)} filesystem skills.")
+
+        async with async_session() as db:
+            synced = await sync_skills_to_db(db)
+            await db.commit()
+        if synced:
+            logger.info(f"Synced {synced} filesystem skills to database.")
+    else:
+        logger.info("Skipping filesystem skill sync (AGENTHUB_TEST_MINIMAL_LIFESPAN=1).")
 
     # Physical workspace (data/workspace) — must exist before code extraction
     try:
@@ -194,71 +204,75 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.warning(f"Failed to register stage hooks: {exc}")
 
     # Probe LLM providers in background (local models can be slow, don't block startup)
-    try:
-        from .services.llm_router import probe_all_providers
+    if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+        try:
+            from .services.llm_router import probe_all_providers
 
-        async def _background_probe():
+            async def _background_probe():
+                try:
+                    health = await probe_all_providers()
+                    healthy = [p for p, ok in health.items() if ok]
+                    unhealthy = [p for p, ok in health.items() if not ok]
+                    if healthy:
+                        logger.info(f"LLM providers healthy: {', '.join(healthy)}")
+                    if unhealthy:
+                        logger.warning(f"LLM providers unhealthy: {', '.join(unhealthy)}")
+                    if not healthy:
+                        logger.error("No healthy LLM providers! Pipeline will not work.")
+                except Exception as exc:
+                    logger.warning(f"LLM provider probe failed: {exc}")
+
+            import asyncio
+            asyncio.create_task(_background_probe())
+            logger.info("LLM provider probe started in background...")
+        except Exception as exc:
+            logger.warning(f"LLM provider probe skipped: {exc}")
+
+    if not _test_minimal_lifespan:
+        # Eager-load DB-backed sandbox overrides into the in-memory cache so
+        # the FIRST tool call doesn't pay the table-scan cost. Failures here
+        # are logged and ignored — empty cache simply means "use in-code
+        # defaults", which is the same behaviour as before this feature.
+        try:
+            from .services.sandbox_overrides import (
+                preload_overrides,
+                start_invalidation_listener,
+            )
+            async with async_session() as db:
+                n_rules = await preload_overrides(db)
+            logger.info(f"Sandbox overrides preloaded: {n_rules} rules.")
+            if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+                await start_invalidation_listener()
+        except Exception as exc:
+            logger.warning(f"Sandbox preload skipped: {exc}")
+
+        # Opt-in background task that periodically re-crawls GitHub for
+        # new SKILL.md files. Controlled by SKILL_CRAWLER_ENABLED=1; see
+        # services/skill_crawler_scheduler.py for the full env surface.
+        if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
             try:
-                health = await probe_all_providers()
-                healthy = [p for p, ok in health.items() if ok]
-                unhealthy = [p for p, ok in health.items() if not ok]
-                if healthy:
-                    logger.info(f"LLM providers healthy: {', '.join(healthy)}")
-                if unhealthy:
-                    logger.warning(f"LLM providers unhealthy: {', '.join(unhealthy)}")
-                if not healthy:
-                    logger.error("No healthy LLM providers! Pipeline will not work.")
+                from .services import skill_crawler_scheduler
+                skill_crawler_scheduler.start()
             except Exception as exc:
-                logger.warning(f"LLM provider probe failed: {exc}")
+                logger.warning(f"Skill crawler scheduler not started: {exc}")
+    else:
+        logger.info("Skipping sandbox invalidation listener + skill crawler (AGENTHUB_TEST_MINIMAL_LIFESPAN=1).")
 
-        import asyncio
-        asyncio.create_task(_background_probe())
-        logger.info("LLM provider probe started in background...")
-    except Exception as exc:
-        logger.warning(f"LLM provider probe skipped: {exc}")
+    if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+        try:
+            import asyncio
 
-    # Eager-load DB-backed sandbox overrides into the in-memory cache so
-    # the FIRST tool call doesn't pay the table-scan cost. Failures here
-    # are logged and ignored — empty cache simply means "use in-code
-    # defaults", which is the same behaviour as before this feature.
-    try:
-        from .services.sandbox_overrides import (
-            preload_overrides,
-            start_invalidation_listener,
-        )
-        async with async_session() as db:
-            n_rules = await preload_overrides(db)
-        logger.info(f"Sandbox overrides preloaded: {n_rules} rules.")
-        # Start the cross-process pubsub listener AFTER preload so the
-        # cache has a baseline before peers can mutate it. Idempotent
-        # — safe to call again on hot reload.
-        await start_invalidation_listener()
-    except Exception as exc:
-        logger.warning(f"Sandbox preload skipped: {exc}")
+            from .services.translator import prewarm_from_recent_task_titles
 
-    # Opt-in background task that periodically re-crawls GitHub for
-    # new SKILL.md files. Controlled by SKILL_CRAWLER_ENABLED=1; see
-    # services/skill_crawler_scheduler.py for the full env surface.
-    try:
-        from .services import skill_crawler_scheduler
-        skill_crawler_scheduler.start()
-    except Exception as exc:
-        logger.warning(f"Skill crawler scheduler not started: {exc}")
+            async def _pregen() -> None:
+                try:
+                    await prewarm_from_recent_task_titles()
+                except Exception as e:
+                    logger.warning("translate pregen background task failed: %s", e)
 
-    try:
-        import asyncio
-
-        from .services.translator import prewarm_from_recent_task_titles
-
-        async def _pregen() -> None:
-            try:
-                await prewarm_from_recent_task_titles()
-            except Exception as e:
-                logger.warning("translate pregen background task failed: %s", e)
-
-        asyncio.create_task(_pregen())
-    except Exception as exc:
-        logger.warning("translate pregen not scheduled: %s", exc)
+            asyncio.create_task(_pregen())
+        except Exception as exc:
+            logger.warning("translate pregen not scheduled: %s", exc)
 
     yield
 
@@ -274,7 +288,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         pass
 
-    await engine.dispose()
+    if os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+        logger.debug("Skipping engine.dispose() (pytest ASGI client shares engine with fixtures)")
+    else:
+        await engine.dispose()
     logger.info("Agent Hub backend stopped.")
 
 
@@ -439,6 +456,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(worktree_api.router, prefix="/api")
     application.include_router(specs_api.router, prefix="/api")
     application.include_router(translate_api.router)
+    application.include_router(relay_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)

@@ -252,6 +252,13 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
         DAGStage("deployment", "灰度部署", "devops", depends_on=["reviewing"]),
     ],
     "spec_driven": _SPEC_KIT_STAGES,
+    # IM / gateway 全链路专用：后续 Phase 2 会跑 CodeGen + 构建 + 部署，
+    # 若此处再用 full 会重复跑 development（又一次 CodeGen）+ testing/reviewing，耗时翻倍。
+    "e2e_intake": [
+        DAGStage("planning", "需求规划", "product-manager"),
+        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
+        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
+    ],
 }
 
 TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
@@ -271,6 +278,11 @@ TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
     "growth_product": {"label": "增长型产品", "description": "在常规链路上追加数据指标设计与上线营销包", "icon": "📈"},
     "fintech": {"label": "金融 / 支付", "description": "金融级合规：财务评估 + 安全审计 + 法务审查 + 灰度部署", "icon": "💳"},
     "spec_driven": {"label": "规范驱动（Spec-Driven）", "description": "Spec-Kit 格式：原则→规格→技术计划→任务分解→实现，适合需求先行团队", "icon": "📋"},
+    "e2e_intake": {
+        "label": "Gateway 全链路（设计前置）",
+        "description": "仅规划→设计+架构（并行）；开发/验收留给后续 CodeGen 与上线验收，避免重复跑流水线",
+        "icon": "🚀",
+    },
 }
 
 

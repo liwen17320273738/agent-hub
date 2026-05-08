@@ -1910,6 +1910,10 @@ async def execute_full_pipeline(
 
     for stage_id in stages:
         logger.info(f"[pipeline] Executing stage: {stage_id}")
+        # Layer-11 peer review runs twice below (early gate + retry loop). When the early
+        # review approves, skip the duplicate LLM call in the retry section — halves reviewer
+        # latency/cost per stage on the happy path.
+        early_peer_review_ok: Optional[Dict[str, Any]] = None
 
         # Mark current stage as active in DB
         if db_task:
@@ -2052,6 +2056,8 @@ async def execute_full_pipeline(
                             "results": results,
                             "trace_id": trace.trace_id,
                         }
+                else:
+                    early_peer_review_ok = review_result
             except Exception as review_err:
                 logger.warning("[pipeline] Peer review failed for %s: %s", stage_id, review_err)
 
@@ -2228,8 +2234,16 @@ async def execute_full_pipeline(
             db, stage_id=stage_id, template=_task_tpl, complexity=complexity,
         )
         if review_conf.get("reviewer_agent") and not force_continue:
+            if early_peer_review_ok is not None and early_peer_review_ok.get("approved"):
+                results[-1]["review"] = early_peer_review_ok
+                logger.info(
+                    "[pipeline] Stage %s peer review: skipping duplicate post-gate reviewer call",
+                    stage_id,
+                )
             retries = 0
-            while retries < MAX_REVIEW_RETRIES:
+            while (
+                early_peer_review_ok is None or not early_peer_review_ok.get("approved")
+            ) and retries < MAX_REVIEW_RETRIES:
                 if stage_id in db_stages:
                     db_stages[stage_id].status = "reviewing"
                 await db.flush()

@@ -90,4 +90,45 @@ test.describe('回归电池（API + 关键集成）', () => {
     await expect(p2.locator('.share-header h1')).toContainText(title.slice(0, 16), { timeout: 20_000 })
     await anon.close()
   })
+
+  test('10 relay API：balance + keys 列表', async ({ request }) => {
+    const jwt = await loginGetJwt(request, email, password)
+    const bal = await request.get('/api/relay/balance', {
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
+    expect(bal.ok(), await bal.text()).toBeTruthy()
+    const body = (await bal.json()) as { relay_balance_usd?: number }
+    expect(typeof body.relay_balance_usd).toBe('number')
+    const keysRes = await request.get('/api/relay/keys', {
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
+    expect(keysRes.ok(), await keysRes.text()).toBeTruthy()
+    const keysBody = await keysRes.json()
+    expect(Array.isArray(keysBody)).toBeTruthy()
+  })
+
+  test('11 relay API：GET /api/relay/policy 计费字段', async ({ request }) => {
+    const jwt = await loginGetJwt(request, email, password)
+    const res = await request.get('/api/relay/policy', {
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
+    expect(res.ok(), await res.text()).toBeTruthy()
+    const body = (await res.json()) as Record<string, unknown>
+    expect(typeof body.markup_multiplier).toBe('number')
+    expect(typeof body.fallback_usd_per_1k_total).toBe('number')
+    expect(typeof body.min_balance_usd).toBe('number')
+    expect(typeof body.rate_limit_per_minute).toBe('number')
+  })
+
+  test('12 资产中心 · API 中转面板', async ({ page }) => {
+    await loginThroughUi(page, email, password)
+    await page.goto('/#/assets?tab=relay')
+    await expect(page.locator('.relay-panel')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('.relay-panel').getByRole('button', { name: /创建/ })).toBeVisible()
+  })
+
+  test('13 未授权 GET /api/relay/policy → 401', async ({ request }) => {
+    const res = await request.get('/api/relay/policy')
+    expect(res.status()).toBe(401)
+  })
 })
