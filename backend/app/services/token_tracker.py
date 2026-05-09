@@ -16,10 +16,14 @@ PRICING_PER_1K: Dict[str, Dict[str, Tuple[float, float]]] = {
         "gpt-4o-mini": (0.00015, 0.0006),
         "gpt-4.5": (0.075, 0.15),
         "gpt-4.1-mini": (0.0004, 0.0016),
+        "o1": (0.015, 0.06),
+        "o3-mini": (0.0011, 0.0044),
     },
     "anthropic": {
         "claude-sonnet-4-20250514": (0.003, 0.015),
         "claude-opus-4-20250514": (0.015, 0.075),
+        "claude-3-5-sonnet": (0.003, 0.015),
+        "claude-3-5-haiku": (0.0008, 0.004),
     },
     "deepseek": {
         "deepseek-chat": (0.00014, 0.00028),
@@ -28,17 +32,37 @@ PRICING_PER_1K: Dict[str, Dict[str, Tuple[float, float]]] = {
     "google": {
         "gemini-2.5-pro": (0.00125, 0.01),
         "gemini-2.5-flash": (0.00015, 0.0006),
+        "gemini-2.0-flash": (0.0001, 0.0004),
     },
     "zhipu": {
         "glm-4-plus": (0.0007, 0.0007),
         "glm-4-flash": (0.0001, 0.0001),
+        "glm-4.5": (0.0007, 0.0007),
+        "glm-4.6": (0.0007, 0.0007),
+        "glm-4.7": (0.0007, 0.0007),
+        "glm-5": (0.0007, 0.0007),
     },
     "qwen": {
         "qwen-turbo": (0.00003, 0.00006),
         "qwen-plus": (0.00056, 0.00168),
         "qwen-max": (0.0016, 0.0064),
     },
+    # Gateway / local LLM — 使用 relay fallback 价格或本地零成本标记
+    "gateway": {},
+    "local": {},
 }
+
+# Relay fallback price (USD per 1k total tokens) — used when no provider-specific pricing matches
+_RELAY_FALLBACK_USD_PER_1K = 0.00015
+
+
+def _token_estimate_from_chars(text: str) -> int:
+    """粗略 token 估算: 英文约 4 chars/token, 中文约 1.5 chars/token."""
+    if not text:
+        return 0
+    chinese = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+    other = len(text) - chinese
+    return max(1, int(chinese / 1.5 + other / 4))
 
 
 def estimate_cost(provider: str, model: str, prompt_tokens: int, completion_tokens: int) -> float:
@@ -48,6 +72,19 @@ def estimate_cost(provider: str, model: str, prompt_tokens: int, completion_toke
         if model_key in model:
             matched = prices[model_key]
             break
+    if not matched:
+        # 对 gateway/local 使用 settings 中配置的 relay fallback 价格
+        if provider in ("gateway", "local", "unknown"):
+            from ..config import settings
+            fb = float(getattr(settings, "relay_fallback_usd_per_1k_total", 0.0) or 0.0)
+            if fb > 0:
+                return round((prompt_tokens + completion_tokens) / 1000 * fb, 6)
+            return round((prompt_tokens + completion_tokens) / 1000 * _RELAY_FALLBACK_USD_PER_1K, 6)
+        # 尝试模糊匹配
+        for model_key in prices:
+            if any(part in model for part in model_key.split("-") if len(part) > 2):
+                matched = prices[model_key]
+                break
     if not matched:
         return 0.0
 

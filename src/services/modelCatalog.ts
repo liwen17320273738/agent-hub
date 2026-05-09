@@ -1,10 +1,8 @@
 /**
- * Model lab catalog: API ids, scores, and short marketing blurbs. Copy is **data for comparison UIs**,
- * often written in Chinese for this product. It is not duplicated in `src/i18n` as hundreds of
- * parallel strings. For locale-aware UI, either keep technical labels from here as-is, or add
- * i18n keys that map from `id` to translated short labels when we support full i18n for this screen.
- *
- * 模型对比维度（1–5 分，主观参考行业常见评价，非实时榜单；实测以「模型实验室」为准）。
+ * Model lab catalog: API ids, scores, and short marketing blurbs.
+ * 
+ * 模型版本保持与各厂商最新公开 API 一致。每行带 `liveCheckModel` 用于
+ * 对接后端 `/api/models/live` 实时状态校验。
  */
 export interface ModelScores {
   /** 相对性价比：5=极省，1=很贵 */
@@ -39,6 +37,8 @@ export interface ModelCatalogEntry {
   contextK: number
   /** 选用时注意 */
   caution?: string
+  /** 用于与 /api/models/live 结果匹配的 model ID（可能不同于调用 id） */
+  liveCheckModel?: string
 }
 
 const S = (partial: Partial<ModelScores> & Pick<ModelScores, 'cost' | 'speed'>): ModelScores => ({
@@ -76,109 +76,168 @@ export function liveModelProviderLabel(providerKey: string): string {
   return providerKey
 }
 
-/** 与当前项目默认集成的常见模型（按厂商） */
+/** 与各厂商最新公开 API 对应的模型目录（版本以 2026-05 为准） */
 export const MODEL_CATALOG: ModelCatalogEntry[] = [
+  // ===== Anthropic =====
   {
-    id: 'claude-opus-4.6',
+    id: 'claude-sonnet-4-20250514',
     provider: 'anthropic',
-    label: 'Opus 4.6',
-    recommendedRole: '总控 / 架构裁决',
+    label: 'Claude Sonnet 4',
+    recommendedRole: '开发工程师 / 主力施工',
     isCore: true,
-    blurb: '负责高价值判断、架构收口、复杂取舍和发布前 go/no-go。',
-    scores: S({ cost: 1, speed: 2, reasoning: 5, chinese: 4, coding: 5, instruction: 5 }),
-    contextK: 200,
-    caution: '当前界面更适合通过兼容网关或服务端统一代理接入后再实测。',
-  },
-  {
-    id: 'claude-sonnet-4.6',
-    provider: 'anthropic',
-    label: 'Sonnet 4.6',
-    recommendedRole: '开发工程师',
-    isCore: true,
-    blurb: '主力施工模型，适合连续编码、修复和仓库级执行。',
+    blurb: '主力施工模型，适合连续编码、修复和仓库级执行。平衡速度与质量。',
     scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 5, instruction: 5 }),
     contextK: 200,
-    caution: '推荐作为 build 主力；实测建议通过兼容网关或服务端统一路由接入。',
+    caution: '需 Anthropic API Key。当前环境通过兼容网关代理接入。',
+    liveCheckModel: 'claude-sonnet-4-20250514',
   },
   {
-    id: 'gpt-4.5',
-    provider: 'openai',
-    label: 'GPT-4.5',
-    recommendedRole: '产品经理',
+    id: 'claude-opus-4-20250514',
+    provider: 'anthropic',
+    label: 'Claude Opus 4',
+    recommendedRole: '总控 / 架构裁决',
     isCore: true,
-    blurb: '适合 PRD、结构化输出、文档归纳和面向人的高质量表达。',
-    scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 4, coding: 4, instruction: 5 }),
-    contextK: 128,
-    caution: '价格通常高于 mini 档，建议聚焦在 PRD、总结和评审等高价值环节。',
+    blurb: '最高能力模型，负责高价值判断、架构收口、复杂取舍和发布前 go/no-go。',
+    scores: S({ cost: 1, speed: 2, reasoning: 5, chinese: 4, coding: 5, instruction: 5 }),
+    contextK: 200,
+    caution: '成本最高；适合关键决策，不建议用于批量任务。',
+    liveCheckModel: 'claude-opus-4-20250514',
   },
   {
-    id: 'gemini-4',
-    provider: 'google',
-    label: 'Gemini 4',
-    recommendedRole: 'QA / 研究挑战者',
-    isCore: true,
-    blurb: '适合长上下文研究、方案对比、风险挑战和 QA 补充视角。',
-    scores: S({ cost: 3, speed: 4, reasoning: 4, chinese: 4, coding: 4, instruction: 4 }),
-    contextK: 256,
-    caution: '若要在当前界面直接实测，建议经兼容层统一到 OpenAI 风格接口。',
+    id: 'claude-3-5-haiku-20241022',
+    provider: 'anthropic',
+    label: 'Claude 3.5 Haiku',
+    recommendedRole: '轻量任务 / 快速响应',
+    blurb: 'Anthropic 最快最便宜的模型，适合简单问答、分类和路由。',
+    scores: S({ cost: 5, speed: 5, reasoning: 3, chinese: 3, coding: 3, instruction: 4 }),
+    contextK: 200,
+    liveCheckModel: 'claude-3-5-haiku-20241022',
   },
-  {
-    id: 'glm-4.5',
-    provider: 'zhipu',
-    label: '智谱 GLM-4.5',
-    recommendedRole: '中文策略 / 本土化',
-    isCore: true,
-    blurb: '适合中文表达、本土化内容、市场语境适配和中文业务沟通。',
-    scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 3, instruction: 4 }),
-    contextK: 128,
-    caution: '当前模型实验室对智谱更适合做静态参考；实测建议通过兼容代理接入。',
-  },
-  {
-    id: 'deepseek-chat',
-    provider: 'deepseek',
-    label: 'DeepSeek Chat',
-    recommendedRole: '日常默认主力 / 成本敏感任务',
-    blurb: '日常对话、营销文案、中文场景性价比高，适合作为默认主力。',
-    scores: S({ cost: 5, speed: 4, reasoning: 3, chinese: 5, coding: 4, instruction: 4 }),
-    contextK: 64,
-  },
-  {
-    id: 'deepseek-reasoner',
-    provider: 'deepseek',
-    label: 'DeepSeek Reasoner',
-    recommendedRole: '低成本推理备选',
-    blurb: '推理向任务（数学题、链式分析）；更慢、更贵，不适合高频短问答。',
-    scores: S({ cost: 3, speed: 2, reasoning: 5, chinese: 5, coding: 4, instruction: 4 }),
-    contextK: 64,
-    caution: '响应延迟明显高于 chat；按 token 计费通常更高。',
-  },
-  {
-    id: 'gpt-4o-mini',
-    provider: 'openai',
-    label: 'GPT-4o mini',
-    recommendedRole: '轻量任务 / 低成本英文与工具流',
-    blurb: '低成本英文/简单任务、接口稳定；中文略弱于国产一线。',
-    scores: S({ cost: 4, speed: 5, reasoning: 3, chinese: 3, coding: 4, instruction: 4 }),
-    contextK: 128,
-  },
+
+  // ===== OpenAI =====
   {
     id: 'gpt-4o',
     provider: 'openai',
     label: 'GPT-4o',
     recommendedRole: '综合交付 / 多模态',
+    isCore: true,
     blurb: '多模态与综合能力强，适合高质量交付与复杂指令；成本较高。',
     scores: S({ cost: 2, speed: 4, reasoning: 4, chinese: 4, coding: 5, instruction: 5 }),
     contextK: 128,
+    liveCheckModel: 'gpt-4o',
   },
   {
-    id: 'gpt-4.1-mini',
+    id: 'gpt-4o-mini',
     provider: 'openai',
-    label: 'GPT-4.1 mini',
-    recommendedRole: '4o mini 同级备选',
-    blurb: '若账号已开通新系列，可作 4o-mini 同级备选（以控制台为准）。',
+    label: 'GPT-4o mini',
+    recommendedRole: '轻量任务 / 低成本',
+    blurb: '低成本英文/简单任务、接口稳定；中文略弱于国产一线。',
     scores: S({ cost: 4, speed: 5, reasoning: 3, chinese: 3, coding: 4, instruction: 4 }),
     contextK: 128,
-    caution: '名称与可用性以 OpenAI 控制台为准，不可用则换 4o-mini。',
+    liveCheckModel: 'gpt-4o-mini',
+  },
+  {
+    id: 'o3-mini',
+    provider: 'openai',
+    label: 'o3-mini',
+    recommendedRole: '推理密集型任务',
+    blurb: 'OpenAI 推理系列，适合数学、逻辑链、代码分析等需要深度思考的任务。',
+    scores: S({ cost: 3, speed: 3, reasoning: 5, chinese: 3, coding: 5, instruction: 4 }),
+    contextK: 200,
+    liveCheckModel: 'o3-mini',
+  },
+
+  // ===== DeepSeek =====
+  {
+    id: 'deepseek-chat',
+    provider: 'deepseek',
+    label: 'DeepSeek V3',
+    recommendedRole: '日常默认主力 / 成本敏感任务',
+    blurb: 'DeepSeek 最新旗舰，中文场景性价比极高，适合作为默认主力。',
+    scores: S({ cost: 5, speed: 4, reasoning: 4, chinese: 5, coding: 4, instruction: 4 }),
+    contextK: 64,
+    liveCheckModel: 'deepseek-chat',
+  },
+  {
+    id: 'deepseek-reasoner',
+    provider: 'deepseek',
+    label: 'DeepSeek R1',
+    recommendedRole: '低成本推理备选',
+    blurb: '推理向任务（数学题、链式分析）；更慢但推理深度高。',
+    scores: S({ cost: 3, speed: 2, reasoning: 5, chinese: 5, coding: 5, instruction: 4 }),
+    contextK: 64,
+    caution: '响应延迟明显高于 V3；按 token 计费通常更高。',
+    liveCheckModel: 'deepseek-reasoner',
+  },
+
+  // ===== Google =====
+  {
+    id: 'gemini-2.5-pro',
+    provider: 'google',
+    label: 'Gemini 2.5 Pro',
+    recommendedRole: '研究 / 长上下文分析',
+    isCore: true,
+    blurb: 'Google 最强模型，适合长上下文研究、方案对比、多模态分析。',
+    scores: S({ cost: 3, speed: 3, reasoning: 5, chinese: 4, coding: 5, instruction: 5 }),
+    contextK: 1048,
+    liveCheckModel: 'gemini-2.5-pro',
+  },
+  {
+    id: 'gemini-2.5-flash',
+    provider: 'google',
+    label: 'Gemini 2.5 Flash',
+    recommendedRole: '高速 / 低成本',
+    blurb: 'Gemini 家族最快模型，适合高吞吐、低延迟场景。',
+    scores: S({ cost: 4, speed: 5, reasoning: 3, chinese: 4, coding: 4, instruction: 4 }),
+    contextK: 1048,
+    liveCheckModel: 'gemini-2.5-flash',
+  },
+
+  // ===== Zhipu (智谱) =====
+  {
+    id: 'glm-4.7',
+    provider: 'zhipu',
+    label: 'GLM-4.7',
+    recommendedRole: '中文策略 / 本土化',
+    isCore: true,
+    blurb: '智谱最新旗舰，中文表达优秀，适合本土化内容和中文业务沟通。',
+    scores: S({ cost: 4, speed: 4, reasoning: 4, chinese: 5, coding: 4, instruction: 5 }),
+    contextK: 128,
+    caution: '当前已有 API Key 接入，可直接使用。',
+    liveCheckModel: 'glm-4.7',
+  },
+  {
+    id: 'glm-4.7-flash',
+    provider: 'zhipu',
+    label: 'GLM-4.7 Flash',
+    recommendedRole: '中文轻量任务',
+    blurb: 'GLM 家族快速版本，适合高频中文对话和轻量生成。',
+    scores: S({ cost: 5, speed: 5, reasoning: 3, chinese: 5, coding: 3, instruction: 4 }),
+    contextK: 128,
+    liveCheckModel: 'glm-4-flash',
+  },
+
+  // ===== Qwen (通义千问) =====
+  {
+    id: 'qwen-plus',
+    provider: 'qwen',
+    label: 'Qwen Plus',
+    recommendedRole: '国内业务平衡档',
+    blurb: '平衡成本与效果，适合日常业务文案与国内合规场景。',
+    scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 4, instruction: 4 }),
+    contextK: 131072,
+    liveCheckModel: 'qwen-plus',
+  },
+  {
+    id: 'qwen-max',
+    provider: 'qwen',
+    label: 'Qwen Max',
+    recommendedRole: '千问高阶复杂任务',
+    blurb: '千问系列顶配，复杂任务与长上下文。',
+    scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 5, coding: 4, instruction: 5 }),
+    contextK: 32768,
+    caution: '单价高，建议配合摘要与窗口限制使用。',
+    liveCheckModel: 'qwen-max',
   },
   {
     id: 'qwen-turbo',
@@ -187,27 +246,9 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
     recommendedRole: '海量轻量中文生成',
     blurb: '阿里云兼容接口下最便宜档位，适合大批量轻量生成。',
     scores: S({ cost: 5, speed: 5, reasoning: 2, chinese: 5, coding: 3, instruction: 3 }),
-    contextK: 8,
+    contextK: 8192,
     caution: '上下文与能力弱于 Plus/Max，长文请换型号。',
-  },
-  {
-    id: 'qwen-plus',
-    provider: 'qwen',
-    label: 'Qwen Plus',
-    recommendedRole: '国内业务平衡档',
-    blurb: '平衡成本与效果，适合日常业务文案与国内合规场景。',
-    scores: S({ cost: 4, speed: 4, reasoning: 3, chinese: 5, coding: 4, instruction: 4 }),
-    contextK: 32,
-  },
-  {
-    id: 'qwen-max',
-    provider: 'qwen',
-    label: 'Qwen Max',
-    recommendedRole: '千问高阶复杂任务',
-    blurb: '千问系列顶配之一，复杂任务与长上下文（以官方为准）。',
-    scores: S({ cost: 2, speed: 3, reasoning: 4, chinese: 5, coding: 4, instruction: 5 }),
-    contextK: 32,
-    caution: '单价高，建议配合摘要与窗口限制使用。',
+    liveCheckModel: 'qwen-turbo',
   },
 ]
 

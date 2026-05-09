@@ -203,5 +203,44 @@ export default defineConfig(({ mode }) => {
       '/v1': { ...backendDevProxy },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          // Vue 生态 —— 核心框架
+          if (id.includes('node_modules/vue') || id.includes('node_modules/@vue/')
+            || id.includes('node_modules/pinia') || id.includes('node_modules/vue-router')
+            || id.includes('node_modules/vue-i18n')) {
+            return 'vendor-vue'
+          }
+          // Element Plus —— UI 组件库（最大依赖）
+          if (id.includes('node_modules/element-plus') || id.includes('node_modules/@element-plus/')
+            || id.includes('node_modules/@popperjs/') || id.includes('node_modules/@floating-ui/')) {
+            return 'vendor-element'
+          }
+          // Vue Flow —— 工作流画布
+          if (id.includes('node_modules/@vue-flow/')) {
+            return 'vendor-vueflow'
+          }
+          // Markdown / 代码高亮
+          if (id.includes('node_modules/markdown-it') || id.includes('node_modules/highlight.js')
+            || id.includes('node_modules/entities') || id.includes('node_modules/linkify-it')
+            || id.includes('node_modules/mdurl') || id.includes('node_modules/uc.micro')) {
+            return 'vendor-markdown'
+          }
+          // Auth / Crypto
+          if (id.includes('node_modules/bcryptjs') || id.includes('node_modules/cookie-session')) {
+            return 'vendor-auth'
+          }
+          // 其他 node_modules 归入通用 vendor
+          if (id.includes('node_modules/')) {
+            return 'vendor-common'
+          }
+        },
+      },
+    },
+    // 提高警告阈值，避免大量 vendor 拆分后仍有警告
+    chunkSizeWarningLimit: 800,
+  },
   }
 })

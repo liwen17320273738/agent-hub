@@ -57,3 +57,7 @@ docker/provisioner/
 # aiosqlite in-memory DB artifacts (cwd-relative names under backend/)
 backend/file::memory:
 backend/file::memory:-journal
+
+# aiosqlite artifacts at root level (should not exist; ignore if they do)
+/file::memory:
+/file::memory:-journal

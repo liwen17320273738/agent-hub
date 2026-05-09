@@ -1356,9 +1356,11 @@ async def execute_stage(
         # --- Layer 4.5: AgentRuntime / LLM (skipped for development if Claude Code wrote files) ---
         if _skip_llm_for_dev:
             # Real code already written by Claude Code; skip LLM to avoid markdown overwrite.
-            # Still record minimal metrics so cost/trace accounting works.
-            prompt_tokens = 0
-            completion_tokens = 0
+            # Estimate tokens from the file count and approximate content
+            from .token_tracker import _token_estimate_from_chars as _est_tok
+            prompt_tokens = _est_tok(system_prompt or "") if system_prompt else 100
+            # Rough estimate: ~200 tokens per code file
+            completion_tokens = len(cc_written_files) * 200 if cc_written_files else 0
             logger.info("[pipeline] development stage skipped LLM/AgentRuntime because Claude Code wrote %d files", len(cc_written_files))
 
         # --- Layer 4.6: Testing stage build verification ---
@@ -1439,8 +1441,10 @@ async def execute_stage(
             if not runtime_result.get("ok"):
                 raise RuntimeError(runtime_result.get("error", "AgentRuntime failed"))
             content = runtime_result.get("content", "")
-            prompt_tokens = 0
-            completion_tokens = 0
+            # AgentRuntime 不返回精确 token 数，用内容长度估算
+            from .token_tracker import _token_estimate_from_chars as _est_tok
+            completion_tokens = _est_tok(content) if content else 0
+            prompt_tokens = _est_tok(system_prompt or "") if system_prompt else max(1, completion_tokens // 2)
 
             # --- Testing stage: auto-backtrack on explicit NEEDS WORK ---
             if stage_id == "testing" and content:
@@ -1523,6 +1527,15 @@ async def execute_stage(
             token_usage = llm_result.get("usage") or {}
             prompt_tokens = token_usage.get("prompt_tokens", 0)
             completion_tokens = token_usage.get("completion_tokens", 0)
+            # 当 LLM 不返回 token 数时（如本地 LM Studio），用内容长度估算
+            if not prompt_tokens and not completion_tokens and content:
+                from .token_tracker import _token_estimate_from_chars as _est_tok
+                completion_tokens = _est_tok(content)
+                # 估算 prompt token（假设输入约为输出的 2-3 倍）
+                prompt = system_prompt + "\n".join(
+                    m.get("content", "") for m in (messages or []) if isinstance(m, dict)
+                )
+                prompt_tokens = _est_tok(prompt) if prompt else max(1, completion_tokens // 2)
             # If a fallback succeeded, replace the active model name so cost
             # accounting and the trace span credit the actual provider used.
             if llm_result.get("fell_back") and llm_result.get("model"):
