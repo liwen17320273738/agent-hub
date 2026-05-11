@@ -89,26 +89,28 @@ def _is_local_model(model_id: str) -> bool:
 
 TIER_MODELS: Dict[ModelTier, list] = {
     ModelTier.PLANNING: [
-        {"id": _LOCAL_STRONG, "provider": "local", "cost_per_1k": 0.0},
-        {"id": "glm-4-plus", "provider": "zhipu", "cost_per_1k": 0.0071},
-        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
-        {"id": "claude-opus-4-20250514", "provider": "anthropic", "cost_per_1k": 0.045},
-        {"id": "gpt-4.5", "provider": "openai", "cost_per_1k": 0.1125},
-        {"id": "gemini-2.5-pro", "provider": "google", "cost_per_1k": 0.00575},
-    ],
-    ModelTier.EXECUTION: [
-        {"id": _LOCAL_BASE, "provider": "local", "cost_per_1k": 0.0},
-        {"id": "glm-4-flash", "provider": "zhipu", "cost_per_1k": 0.0001},
+        # 🥇 DeepSeek first — reliable JSON mode + low cost
         {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "claude-sonnet-4-20250514", "provider": "anthropic", "cost_per_1k": 0.009},
         {"id": "gpt-4o", "provider": "openai", "cost_per_1k": 0.00625},
+        {"id": "gemini-2.5-pro", "provider": "google", "cost_per_1k": 0.00575},
+        # Local/cheap models as fallback (JSON support varies)
+        {"id": _LOCAL_STRONG, "provider": "local", "cost_per_1k": 0.0},
+        {"id": "glm-4-plus", "provider": "zhipu", "cost_per_1k": 0.0071},
     ],
-    ModelTier.ROUTINE: [
+    ModelTier.EXECUTION: [
+        {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
+        {"id": "claude-sonnet-4-20250514", "provider": "anthropic", "cost_per_1k": 0.009},
+        {"id": "gpt-4o", "provider": "openai", "cost_per_1k": 0.00625},
         {"id": _LOCAL_BASE, "provider": "local", "cost_per_1k": 0.0},
         {"id": "glm-4-flash", "provider": "zhipu", "cost_per_1k": 0.0001},
+    ],
+    ModelTier.ROUTINE: [
         {"id": "deepseek-chat", "provider": "deepseek", "cost_per_1k": 0.00021},
         {"id": "gpt-4o-mini", "provider": "openai", "cost_per_1k": 0.000375},
         {"id": "qwen-plus", "provider": "qwen", "cost_per_1k": 0.00112},
+        {"id": _LOCAL_BASE, "provider": "local", "cost_per_1k": 0.0},
+        {"id": "glm-4-flash", "provider": "zhipu", "cost_per_1k": 0.0001},
     ],
 }
 

@@ -92,6 +92,16 @@ class ArtifactRequest(BaseModel):
     stage_id: str = ""
 
 
+class RunStageRequest(BaseModel):
+    """Request body for POST /tasks/{task_id}/run-stage"""
+    stageId: Optional[str] = None
+
+
+class ToggleSkillRequest(BaseModel):
+    """Request body for PUT /skills/{skill_name}"""
+    enabled: bool = True
+
+
 def _default_stages() -> List[Dict[str, object]]:
     return [
         {"stage_id": s["id"], "label": s["label"], "owner_role": s["role"], "sort_order": i}
@@ -852,14 +862,14 @@ async def analyze_task(
 @router.post("/tasks/{task_id}/run-stage")
 async def run_single_stage(
     task_id: str,
-    body: dict,
+    body: RunStageRequest,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     """Execute a single pipeline stage as a background task (returns immediately)."""
     task = await _get_task_or_404(db, task_id, user)
 
-    stage_id = body.get("stageId") or task.current_stage_id
+    stage_id = body.stageId or task.current_stage_id
     tid = str(task.id)
 
     submission_id = await _submit_task(
@@ -1238,7 +1248,7 @@ async def rate_pipeline_skill(
 @router.put("/skills/{skill_name}")
 async def toggle_pipeline_skill(
     skill_name: str,
-    body: dict,
+    body: ToggleSkillRequest,
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
@@ -1257,7 +1267,7 @@ async def toggle_pipeline_skill(
         skill = result.scalar_one_or_none()
     if not skill:
         raise HTTPException(status_code=404, detail="技能不存在")
-    skill.enabled = body.get("enabled", True)
+    skill.enabled = body.enabled
     await db.flush()
     return {"ok": True}
 

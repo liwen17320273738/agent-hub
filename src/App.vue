@@ -97,7 +97,9 @@
     </aside>
 
     <main class="app-main" :class="{ 'app-main--full': isLoginRoute }">
-      <router-view />
+      <ErrorBoundary>
+        <router-view />
+      </ErrorBoundary>
     </main>
   </div>
 </template>
@@ -105,6 +107,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
 import { SwitchButton } from '@element-plus/icons-vue'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useAgentStore } from '@/stores/agents'

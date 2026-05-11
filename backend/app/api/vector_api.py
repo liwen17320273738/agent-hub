@@ -3,11 +3,9 @@ Vector Search API Router
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import async_session
 from app.services.vector.gateway import get_vector_gateway
 
 router = APIRouter(prefix="/vector", tags=["vector"])

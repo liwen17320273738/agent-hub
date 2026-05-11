@@ -4,7 +4,7 @@ Crawl4AI Service - FastAPI Router
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
 
 from ..services.crawl.models import (

@@ -13,6 +13,25 @@ export default tseslint.config(
       parserOptions: {
         parser: tseslint.parser,
       },
+      globals: {
+        // Element Plus 全局组件
+        ElMessage: 'readonly',
+        ElMessageBox: 'readonly',
+        ElNotification: 'readonly',
+        ElLoading: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['**/*.ts', '**/*.tsx'],
+    languageOptions: {
+      globals: {
+        // Element Plus 全局组件
+        ElMessage: 'readonly',
+        ElMessageBox: 'readonly',
+        ElNotification: 'readonly',
+        ElLoading: 'readonly',
+      },
     },
   },
   {

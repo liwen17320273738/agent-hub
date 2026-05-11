@@ -8,7 +8,6 @@ Architecture follows deer-flow gateway pattern:
 """
 from __future__ import annotations
 
-import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -520,6 +519,20 @@ AI Agent Hub — 全栈智能体协作平台
         from .services.llm_router import get_provider_health
         provider_health = get_provider_health()
 
+        # Database connection pool stats (PostgreSQL only)
+        db_pool = None
+        if db_type == "postgresql":
+            try:
+                pool = engine.pool  # type: ignore[attr-defined]
+                db_pool = {
+                    "size": pool.size(),
+                    "checked_in": pool.checkedin(),
+                    "checked_out": pool.checkedout(),
+                    "overflow": pool.overflow(),
+                }
+            except Exception:
+                db_pool = None
+
         from .services.task_workspace import ensure_global_workspace_dirs
 
         workspace_root = str(ensure_global_workspace_dirs())
@@ -538,6 +551,7 @@ AI Agent Hub — 全栈智能体协作平台
             "service": "agent-hub",
             "version": "2.0.0",
             "database": db_type,
+            "db_pool": db_pool,
             "cache": cache_type,
             "redis": {
                 "connected": redis_ok,
