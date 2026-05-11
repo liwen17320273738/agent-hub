@@ -22,7 +22,7 @@ from ..security import get_pipeline_auth
 router = APIRouter(tags=["deliverables"])
 
 
-@router.get("/api/tasks/{task_id}/deliverables.zip")
+@router.get("/tasks/{task_id}/deliverables.zip")
 async def download_deliverables_zip(
     task_id: str,
     db: AsyncSession = Depends(get_db),
@@ -38,7 +38,7 @@ async def download_deliverables_zip(
     return _build_zip(task_id, task.title or "untitled", task.title)
 
 
-@router.get("/api/share/{token}/deliverables.zip")
+@router.get("/share/{token}/deliverables.zip")
 async def download_shared_deliverables_zip(
     token: str,
     db: AsyncSession = Depends(get_db),

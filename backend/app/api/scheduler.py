@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from ..security import get_current_user
 from ..services.task_scheduler import get_scheduler
 
-router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
 
 @router.get("/status")

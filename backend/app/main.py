@@ -21,6 +21,12 @@ from .database import async_session, engine, Base
 from .models import *  # noqa: F401,F403  — ensure all models are registered
 from .security import hash_password
 from .middleware.rate_limit import RateLimitMiddleware
+from .middleware.request_logging import RequestLoggingMiddleware
+from .logging_config import setup_logging
+
+# ── Structured logging ─────────────────────────────────────────────
+setup_logging(debug=settings.debug)
+logger = __import__("structlog").get_logger("agent-hub")
 
 from .api import (
     auth,
@@ -58,20 +64,32 @@ from .api import (
     translate as translate_api,
     specs as specs_api,
     relay as relay_api,
+    crawl,
+    vector_api,
 )
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.debug else logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger("agent-hub")
+logger = __import__("structlog").get_logger("agent-hub")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: startup checks, DB init, seed data."""
     logger.info("Starting Agent Hub backend...")
+
+    # Sentry — initialise before any other startup logic so that errors
+    # during DB init / seed are captured.
+    if settings.sentry_dsn:
+        import sentry_sdk
+        sentry_sdk.init(
+            dsn=settings.sentry_dsn,
+            environment=settings.sentry_environment,
+            traces_sample_rate=settings.sentry_traces_sample_rate,
+            profiles_sample_rate=settings.sentry_profiles_sample_rate,
+        )
+        logger.info("Sentry initialized (env=%s)", settings.sentry_environment)
+    else:
+        logger.info("Sentry disabled (no DSN configured)")
+
     _test_minimal_lifespan = os.environ.get("AGENTHUB_TEST_MINIMAL_LIFESPAN") == "1"
 
     if not settings.jwt_secret or len(settings.jwt_secret) < 32:
@@ -288,6 +306,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         pass
 
+    # Shutdown crawl4ai service
+    try:
+        from .services.crawl.service import shutdown_crawl4ai_service
+        await shutdown_crawl4ai_service()
+        logger.info("Crawl4AI service stopped.")
+    except Exception:
+        pass
+
     if os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
         logger.debug("Skipping engine.dispose() (pytest ASGI client shares engine with fixtures)")
     else:
@@ -389,17 +415,20 @@ AI Agent Hub — 全栈智能体协作平台
         ],
     )
 
-    # CORS
+    # CORS — restrict methods to what the frontend actually uses
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
 
     # Rate limiting
     application.add_middleware(RateLimitMiddleware)
+
+    # Request logging + request-id
+    application.add_middleware(RequestLoggingMiddleware)
 
     # ── Global Exception Handlers ────────────────────────────────────────
     from fastapi.responses import JSONResponse
@@ -434,7 +463,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(events.router, prefix="/api")
     application.include_router(gateway.router, prefix="/api")
     application.include_router(models.router, prefix="/api")
-    application.include_router(observability.router)
+    application.include_router(observability.router, prefix="/api")
     application.include_router(deploy.router, prefix="/api")
     application.include_router(interaction.router, prefix="/api")
     application.include_router(delivery_docs.router, prefix="/api")
@@ -443,20 +472,22 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(plans_api.router, prefix="/api")
     application.include_router(codebase_api.router, prefix="/api")
     application.include_router(agent_bus_api.router, prefix="/api")
-    application.include_router(learning_api.router)
-    application.include_router(sandbox_api.router)
-    application.include_router(scheduler_api.router)
-    application.include_router(integrations_api.router)
+    application.include_router(learning_api.router, prefix="/api")
+    application.include_router(sandbox_api.router, prefix="/api")
+    application.include_router(scheduler_api.router, prefix="/api")
+    application.include_router(integrations_api.router, prefix="/api")
     application.include_router(workflows_api.router, prefix="/api")
     application.include_router(share_api.router, prefix="/api")
     application.include_router(workspaces_api.router, prefix="/api")
     application.include_router(credentials_api.router, prefix="/api")
-    application.include_router(deliverables_api.router)
+    application.include_router(deliverables_api.router, prefix="/api")
     application.include_router(task_artifacts_api.router, prefix="/api")
     application.include_router(worktree_api.router, prefix="/api")
     application.include_router(specs_api.router, prefix="/api")
-    application.include_router(translate_api.router)
+    application.include_router(translate_api.router, prefix="/api")
     application.include_router(relay_api.router, prefix="/api")
+    application.include_router(crawl.router, prefix="/api")
+    application.include_router(vector_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)
@@ -471,6 +502,20 @@ AI Agent Hub — 全栈智能体协作平台
 
         from .redis_client import _fallback_mode
         cache_type = "memory-fallback" if _fallback_mode else "redis"
+
+        # Check Redis connectivity
+        redis_ok = False
+        redis_error: str | None = None
+        if not _fallback_mode:
+            try:
+                from .redis_client import redis as redis_client
+                await redis_client.ping()
+                redis_ok = True
+            except Exception as rexc:
+                redis_error = str(rexc)
+        else:
+            redis_ok = False
+            redis_error = "using in-memory fallback"
 
         from .services.llm_router import get_provider_health
         provider_health = get_provider_health()
@@ -489,11 +534,15 @@ AI Agent Hub — 全栈智能体协作平台
             workspace_error = str(wexc)
 
         return {
-            "status": "healthy",
+            "status": "healthy" if redis_ok or _fallback_mode else "degraded",
             "service": "agent-hub",
             "version": "2.0.0",
             "database": db_type,
             "cache": cache_type,
+            "redis": {
+                "connected": redis_ok,
+                "error": redis_error,
+            },
             "providers_count": len(provider_keys),
             "providers_healthy": [p for p, ok in provider_health.items() if ok],
             "providers_unhealthy": [p for p, ok in provider_health.items() if not ok],
@@ -529,6 +578,10 @@ AI Agent Hub — 全栈智能体协作平台
                 "observability": True,
             },
         }
+
+    # Prometheus metrics
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(application).expose(application, endpoint="/metrics")
 
     return application
 

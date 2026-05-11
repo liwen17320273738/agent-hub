@@ -325,7 +325,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import {
   getAgentCostModeMeta,
   tryApplyRecommendedModel,

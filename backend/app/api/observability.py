@@ -38,7 +38,7 @@ from ..services.planner_worker import (
     estimate_pipeline_cost,
 )
 
-router = APIRouter(prefix="/api/observability", tags=["observability"])
+router = APIRouter(prefix="/observability", tags=["observability"])
 
 
 # --- Traces ---

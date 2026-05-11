@@ -8,7 +8,7 @@
 #   - Nginx (port 80): Reverse proxy (Docker only)
 
 .PHONY: help check config install dev dev-daemon start stop clean test test-relay lint format-backend \
-        docker-start docker-stop docker-logs docker-build
+        docker-start docker-stop docker-logs docker-build backup
 
 PYTHON ?= python3
 
@@ -32,6 +32,9 @@ help:
 	@echo "  make docker-start    - Start Docker services"
 	@echo "  make docker-stop     - Stop Docker services"
 	@echo "  make docker-logs     - View Docker logs"
+	@echo ""
+	@echo "Maintenance:"
+	@echo "  make backup          - Backup PostgreSQL database"
 
 # ── Check Dependencies ──────────────────────────────────────────────────────
 
@@ -109,3 +112,8 @@ docker-stop:
 
 docker-logs:
 	@docker compose -f docker/docker-compose.yml logs -f
+
+# ── Maintenance ─────────────────────────────────────────────────────────────
+
+backup:
+	@./scripts/backup-db.sh

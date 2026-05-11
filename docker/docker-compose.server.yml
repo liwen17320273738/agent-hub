@@ -13,11 +13,11 @@ services:
       dockerfile: backend/Dockerfile
     container_name: agent-hub-backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://agenthub:agenthub@host.docker.internal:5432/agenthub
-      REDIS_URL: redis://host.docker.internal:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agenthub}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@host.docker.internal:5432/${POSTGRES_DB:-agenthub}
+      REDIS_URL: redis://${REDIS_HOST:-host.docker.internal}:${REDIS_PORT:-6379}/0
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set a strong ADMIN_PASSWORD (min 12 chars)}
       CORS_ORIGINS: ${CORS_ORIGINS:-'["http://localhost","http://47.95.254.24","http://47.95.254.24:80"]'}
     env_file:
       - ../.env

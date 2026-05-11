@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # either GitHub or Jira will use in practice.
 _WEBHOOK_DEDUP_TTL = 24 * 3600
 
-router = APIRouter(prefix="/api/integrations", tags=["integrations"])
+router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 
 # ─────────────────────────────────────────────────────────────────────

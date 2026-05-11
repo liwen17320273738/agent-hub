@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, Float, ForeignKey
+from sqlalchemy import String, Text, Integer, Float, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
@@ -87,6 +87,13 @@ class PipelineTask(Base):
         back_populates="task", cascade="all, delete-orphan"
     )
 
+    __table_args__ = (
+        Index("ix_pipeline_tasks_org_status", "org_id", "status"),
+        Index("ix_pipeline_tasks_status_created", "status", "created_at"),
+        Index("ix_pipeline_tasks_workspace", "workspace_id"),
+        Index("ix_pipeline_tasks_created_by", "created_by"),
+    )
+
 
 class PipelineStage(Base):
     __tablename__ = "pipeline_stages"
@@ -138,6 +145,11 @@ class PipelineStage(Base):
     human_gate: Mapped[bool] = mapped_column(default=False)
 
     task: Mapped[PipelineTask] = relationship(back_populates="stages")
+
+    __table_args__ = (
+        Index("ix_pipeline_stages_task_stage", "task_id", "stage_id"),
+        Index("ix_pipeline_stages_task_status", "task_id", "status"),
+    )
 
 
 class PipelineArtifact(Base):

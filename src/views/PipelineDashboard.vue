@@ -396,7 +396,6 @@ import { useRouter } from 'vue-router'
 import { Delete, Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
 import AutoTranslated from '@/components/AutoTranslated.vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchPipelineHealth, autoRunPipeline, smartRunPipeline,
   fetchTraces, fetchApprovals, resolveApproval as apiResolveApproval, fetchAuditLog,

@@ -112,7 +112,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import { Check, Close } from '@element-plus/icons-vue'
 import { finalAcceptTask, finalRejectTask } from '@/services/pipelineApi'
 import type { PipelineTask } from '@/agents/types'

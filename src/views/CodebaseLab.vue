@@ -14,7 +14,6 @@
  * the project_id so the dropdown stays useful across sessions.
  */
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Delete, Plus } from '@element-plus/icons-vue'
 import {
   dropProject,

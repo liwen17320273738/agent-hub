@@ -293,7 +293,6 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, DocumentCopy, Folder, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { useVueFlow, VueFlow, type Edge, type Node } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'

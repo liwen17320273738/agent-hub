@@ -368,7 +368,6 @@
 
 <script setup lang="ts">
 import { reactive, ref, computed, watch, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { apiUrl, isEnterpriseBuild } from '@/services/enterpriseApi'

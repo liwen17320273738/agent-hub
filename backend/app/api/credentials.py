@@ -48,11 +48,17 @@ def _cred_dict(c: Credential) -> dict:
 async def list_credentials(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    offset: int = 0,
+    limit: int = 50,
 ):
+    offset = max(0, offset)
+    limit = max(1, min(limit, 200))
     result = await db.execute(
         select(Credential)
         .where(Credential.org_id == user.org_id)
         .order_by(Credential.created_at)
+        .offset(offset)
+        .limit(limit)
     )
     return [_cred_dict(c) for c in result.scalars().all()]
 

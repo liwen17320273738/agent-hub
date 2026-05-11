@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { useI18n } from 'vue-i18n'
 import { ref, computed, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
 import type { ChatMessage, Conversation, ConversationSearchHit } from '@/agents/types'
 import { apiUrl, isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useAuthStore } from '@/stores/auth'

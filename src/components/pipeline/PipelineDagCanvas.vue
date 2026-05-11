@@ -161,7 +161,6 @@ import { computed, markRaw, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useVueFlow, VueFlow, type Edge, type Node } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
-import { ElButton, ElButtonGroup, ElDrawer, ElIcon, ElTag } from 'element-plus'
 import { ArrowLeft, ArrowRight, Connection, FullScreen } from '@element-plus/icons-vue'
 
 import AgentStageNode from '@/components/builder/AgentStageNode.vue'

@@ -373,7 +373,6 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Connection, Promotion, ArrowDown, VideoPause, Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
 import { useSettingsStore } from '@/stores/settings'

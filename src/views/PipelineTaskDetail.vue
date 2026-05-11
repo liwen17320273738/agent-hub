@@ -760,7 +760,6 @@ import {
   ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Share, Unlock,
   VideoPlay, View, Warning, WarningFilled,
 } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,

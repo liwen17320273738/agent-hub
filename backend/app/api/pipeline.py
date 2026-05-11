@@ -159,7 +159,12 @@ async def list_tasks(
     user: Annotated[Optional[User], Depends(get_pipeline_auth)],
     db: Annotated[AsyncSession, Depends(get_db)],
     status: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50,
 ):
+    offset = max(0, offset)
+    limit = max(1, min(limit, 200))
+
     stmt = select(PipelineTask).options(
         selectinload(PipelineTask.stages),
         selectinload(PipelineTask.artifacts),
@@ -170,9 +175,18 @@ async def list_tasks(
     if status:
         stmt = stmt.where(PipelineTask.status == status)
 
-    result = await db.execute(stmt)
+    # Count total
+    count_stmt = select(PipelineTask.id)
+    count_stmt = _apply_org_filter(count_stmt, user)
+    if status:
+        count_stmt = count_stmt.where(PipelineTask.status == status)
+    total_result = await db.execute(count_stmt)
+    total = len(total_result.scalars().all())
+
+    # Paginated results
+    result = await db.execute(stmt.offset(offset).limit(limit))
     tasks = result.scalars().all()
-    return {"tasks": tasks}
+    return {"tasks": tasks, "total": total, "offset": offset, "limit": limit}
 
 
 async def _get_task_or_404(

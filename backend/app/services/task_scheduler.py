@@ -276,7 +276,13 @@ class TaskScheduler:
             persisted = await _persist_load_all()
         except Exception as exc:
             logger.warning("[scheduler] resume scan failed: %s", exc)
+            # Even if Redis is broken, still scan for orphan tasks
+            await self._scan_orphan_tasks()
             return
+
+        # Always scan for orphan tasks — they exist in the database,
+        # not in Redis, so a clean Redis doesn't mean no orphans.
+        await self._scan_orphan_tasks()
 
         if not persisted:
             return
@@ -323,6 +329,153 @@ class TaskScheduler:
                     "[scheduler] failed to resume submission %s: %s",
                     p.get("submission_id"), exc,
                 )
+
+    async def _scan_orphan_tasks(self) -> None:
+        """Scan DB for tasks stuck in active/paused without a scheduler entry.
+
+        Called once at startup via _resume_pending. Paused tasks are
+        auto-recovered (safe — they were blocked by a quality gate, not mid-LLM).
+        Active tasks are only reported via SSE to avoid double-spending LLM budget.
+        """
+        from ..database import async_session as session_factory
+        from ..models.pipeline import PipelineTask
+        from sqlalchemy import select
+
+        try:
+            async with session_factory() as db:
+                result = await db.execute(
+                    select(PipelineTask).where(
+                        PipelineTask.status.in_(["active", "paused"])
+                    )
+                )
+                db_tasks = result.scalars().all()
+        except Exception as exc:
+            logger.warning("[scheduler] orphan scan DB query failed: %s", exc)
+            return
+
+        if not db_tasks:
+            return
+
+        known_ids = {m["task_id"] for m in self._running.values()}
+        known_ids.update({m["task_id"] for m in self._queue})
+
+        orphans = [t for t in db_tasks if str(t.id) not in known_ids]
+        if not orphans:
+            return
+
+        active_orphans = [t for t in orphans if t.status == "active"]
+        paused_orphans = [t for t in orphans if t.status == "paused"]
+
+        logger.info(
+            "[scheduler] found %d orphan tasks (%d active, %d paused)",
+            len(orphans), len(active_orphans), len(paused_orphans),
+        )
+
+        recovered = 0
+        for task in paused_orphans:
+            try:
+                await self._recover_paused_task(str(task.id))
+                recovered += 1
+            except Exception as exc:
+                logger.exception(
+                    "[scheduler] failed to recover paused task %s: %s",
+                    task.id, exc,
+                )
+
+        await self._emit("scheduler:orphans", {
+            "count": len(orphans),
+            "activeOrphans": len(active_orphans),
+            "pausedRecovered": recovered,
+            "activeTaskIds": [str(t.id) for t in active_orphans],
+        })
+
+    async def _recover_paused_task(self, task_id: str) -> None:
+        """Auto-recover a paused task: advance past blocked stage + re-submit dag-run.
+
+        Paused tasks were blocked by a quality gate, so advancing and re-running
+        is safe — no double-spend risk.
+        """
+        from ..database import async_session as session_factory
+        from ..models.pipeline import PipelineTask, PipelineStage
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from datetime import datetime as dt
+        import uuid as uuid_mod
+
+        tid = uuid_mod.UUID(task_id)
+        async with session_factory() as db:
+            result = await db.execute(
+                select(PipelineTask)
+                .options(selectinload(PipelineTask.stages))
+                .where(PipelineTask.id == tid)
+            )
+            task = result.scalar_one_or_none()
+            if not task or task.status != "paused":
+                logger.warning(
+                    "[scheduler] skip orphan recovery for %s — not paused (status=%s)",
+                    task_id, getattr(task, "status", None),
+                )
+                return
+
+            sorted_stages = sorted(task.stages, key=lambda s: s.sort_order)
+            current_idx = next(
+                (i for i, s in enumerate(sorted_stages)
+                 if s.stage_id == task.current_stage_id), -1,
+            )
+            if current_idx < 0:
+                logger.warning(
+                    "[scheduler] skip orphan recovery for %s — invalid stage %s",
+                    task_id, task.current_stage_id,
+                )
+                return
+
+            current_stage = sorted_stages[current_idx]
+            current_stage.status = "done"
+            current_stage.completed_at = dt.utcnow()
+
+            if current_idx + 1 < len(sorted_stages):
+                next_stage = sorted_stages[current_idx + 1]
+                next_stage.status = "active"
+                next_stage.started_at = dt.utcnow()
+                task.current_stage_id = next_stage.stage_id
+                task.status = "active"
+            else:
+                # All stages done — no more work
+                task.status = "done"
+                task.current_stage_id = "done"
+
+            # Snapshot values before session closes
+            next_stage_id = task.current_stage_id
+            title = task.title or ""
+            description = task.description or ""
+            template_val = getattr(task, "template", None) or "full"
+            project_path = getattr(task, "project_path", None)
+            custom_stages = getattr(task, "custom_stages", None)
+
+            await db.commit()
+            logger.info(
+                "[scheduler] advanced orphan task %s to stage %s",
+                task_id, next_stage_id,
+            )
+
+        # Schedule dag-run for the next stage (only if not already done)
+        if next_stage_id != "done":
+            await self.submit(
+                task_id=task_id,
+                label=f"dag-run:{task_id[:8]}/recovered",
+                kind="dag-run",
+                params={
+                    "task_id": task_id,
+                    "task_title": title,
+                    "task_description": description,
+                    "template": template_val,
+                    "complexity": None,
+                    "project_path": project_path,
+                    "resume": True,
+                    "custom_stages": custom_stages,
+                },
+            )
+            logger.info("[scheduler] re-submitted orphan task %s to scheduler", task_id)
 
     async def _run(self, meta: Dict[str, Any], coro_factory: CoroFactory) -> None:
         try:

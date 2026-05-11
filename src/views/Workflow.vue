@@ -69,7 +69,6 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import { fetchTasks } from '@/services/pipelineApi'
 import { apiUrl } from '@/services/enterpriseApi'
 import { getAuthToken } from '@/services/api'

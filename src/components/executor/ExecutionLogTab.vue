@@ -98,7 +98,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
 import { Search, Monitor, Loading, CloseBold, Bottom } from '@element-plus/icons-vue'
 import { fetchJobLogs, fetchJobsByTask, type ExecutorJobLog } from '@/services/pipelineApi'
 import { subscribePipelineEvents } from '@/services/pipelineApi'

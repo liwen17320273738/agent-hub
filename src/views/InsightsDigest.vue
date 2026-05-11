@@ -154,7 +154,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { Loading, Refresh } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
 import { getWeeklyDigest } from '@/services/observabilityApi'
 import type { WeeklyDigest } from '@/services/observabilityApi'
 import { applyPromptRevision, optimizePrompt } from '@/services/agentApi'

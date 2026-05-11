@@ -41,7 +41,7 @@ from ..services.sandbox_overrides import (
     upsert_rule,
 )
 
-router = APIRouter(prefix="/api/sandbox", tags=["sandbox"])
+router = APIRouter(prefix="/sandbox", tags=["sandbox"])
 
 
 @router.get("/policy")

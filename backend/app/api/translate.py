@@ -27,7 +27,7 @@ from ..services.translator import (
     translate_text,
 )
 
-router = APIRouter(prefix="/api/translate", tags=["translate"])
+router = APIRouter(prefix="/translate", tags=["translate"])
 
 
 class TranslateReq(BaseModel):

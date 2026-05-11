@@ -34,7 +34,7 @@ from ..services.learning_loop import (
 )
 
 
-router = APIRouter(prefix="/api/learning", tags=["learning"])
+router = APIRouter(prefix="/learning", tags=["learning"])
 
 
 @router.get("/signals")

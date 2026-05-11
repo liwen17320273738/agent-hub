@@ -52,10 +52,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         client_ip = request.client.host if request.client else "unknown"
 
-        # Local development: bypass entirely. The frontend dashboard polls
-        # ~7 endpoints per refresh; capping at 60 req/min would make the UI
-        # unusable while providing zero protection (the host is already trusted).
-        if client_ip in _EXEMPT_HOSTS:
+        # Local development: bypass entirely in non-production environments.
+        # In production (Docker/K8s where nginx proxies through localhost),
+        # localhost exemption would bypass ALL rate-limiting.
+        if client_ip in _EXEMPT_HOSTS and not settings.is_production:
             return await call_next(request)
 
         path = request.url.path

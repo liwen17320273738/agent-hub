@@ -44,7 +44,6 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElMessage } from 'element-plus'
 import type { ChatMessage } from '@/agents/types'
 import type { AgentConfig } from '@/agents/types'
 import { resolveAgentIcon } from '@/utils/agentIcon'

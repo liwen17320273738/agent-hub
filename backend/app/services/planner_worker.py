@@ -7,15 +7,65 @@ Planner-Worker Separation — 强模型规划 + 便宜模型执行
 - 根据任务复杂度动态选择模型，在质量和成本之间取最优平衡
 
 模型分级:
-- Tier 1 (Planning): qwen-reasoning-distilled (local) / glm-4-plus (zhipu) — 用于需求分析、架构决策、验收评审
-- Tier 2 (Execution): gemma-4-26b (local) / glm-4-flash (zhipu) — 用于代码实现、文档撰写
-- Tier 3 (Routine): gemma-4-26b (local) / glm-4-flash (zhipu) — 用于格式化、翻译、简单生成
+- Tier 1 (Planning): deepseek-chat / claude-sonnet / gpt-4o — 用于需求分析、架构决策、验收评审
+- Tier 2 (Execution): deepseek-chat / glm-4-flash / gpt-4o-mini — 用于代码实现、文档撰写
+- Tier 3 (Routine): deepseek-chat / gpt-4o-mini / glm-4-flash — 用于格式化、翻译、简单生成
+
+⚠️ zhipu (glm-4) 模型不支持 response_format/json_mode 结构化输出
+   当任务需要结构化输出时，自动跳过 zhipu 模型
+
+模型能力标记:
+- supports_json_mode: 是否支持 response_format={"type": "json_object"}
+- supports_tool_calling: 是否支持原生 function calling
 """
 from __future__ import annotations
 
 import logging
 from enum import Enum
 from typing import Optional, Dict, Any
+
+from ..config import settings
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# Model capability flags
+# ─────────────────────────────────────────────────────────────
+
+MODEL_CAPABILITIES = {
+    # OpenAI models — full capabilities
+    "gpt-4.5": {"supports_json_mode": True, "supports_tool_calling": True},
+    "gpt-4o": {"supports_json_mode": True, "supports_tool_calling": True},
+    "gpt-4o-mini": {"supports_json_mode": True, "supports_tool_calling": True},
+    
+    # Anthropic models — supports structured output natively
+    "claude-opus-4-20250514": {"supports_json_mode": True, "supports_tool_calling": True},
+    "claude-sonnet-4-20250514": {"supports_json_mode": True, "supports_tool_calling": True},
+    "claude-haiku-3.5": {"supports_json_mode": True, "supports_tool_calling": True},
+    
+    # DeepSeek — supports JSON mode
+    "deepseek-chat": {"supports_json_mode": True, "supports_tool_calling": True},
+    "deepseek-reasoner": {"supports_json_mode": False, "supports_tool_calling": False},
+    
+    # ⚠️ Zhipu GLM — does NOT reliably support JSON mode
+    "glm-4-plus": {"supports_json_mode": False, "supports_tool_calling": False},
+    "glm-4-flash": {"supports_json_mode": False, "supports_tool_calling": False},
+    
+    # Google
+    "gemini-2.5-pro": {"supports_json_mode": True, "supports_tool_calling": True},
+    "gemini-2.5-flash": {"supports_json_mode": True, "supports_tool_calling": True},
+}
+
+# Stages that require structured output (JSON mode)
+STRUCTURED_OUTPUT_STAGES = {
+    "planning",      # Must produce structured task list
+    "architecture",  # Must produce structured architecture spec
+    "development",   # Must produce structured code artifacts
+    "testing",       # Must produce structured test reports
+    "reviewing",     # Must produce structured review
+    "acceptance",    # Must produce structured acceptance doc
+    "deployment",    # Must produce structured deploy manifest
+}
 
 from ..config import settings
 
@@ -118,6 +168,7 @@ def resolve_model(
     available_providers: Optional[list] = None,
     complexity: Optional[str] = None,
     preferred_model: Optional[str] = None,
+    requires_structured_output: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Resolve the optimal model for a given role + stage combination.
@@ -127,7 +178,8 @@ def resolve_model(
     2. Complexity override (high → planning tier)
     3. Stage-specific tier
     4. Role-based tier
-    5. Fallback to cheapest available
+    5. Structured output filtering (skip zhipu if JSON mode needed)
+    6. Fallback to cheapest available
     """
     if preferred_model:
         prov = "local" if _is_local_model(preferred_model) else "unknown"
@@ -146,6 +198,11 @@ def resolve_model(
         tier = ModelTier.ROUTINE
         reason = "default fallback"
 
+    # Auto-detect structured output requirement
+    needs_structured = requires_structured_output
+    if needs_structured is None and stage_id:
+        needs_structured = stage_id in STRUCTURED_OUTPUT_STAGES
+
     candidates = TIER_MODELS.get(tier, TIER_MODELS[ModelTier.ROUTINE])
 
     if available_providers:
@@ -153,8 +210,29 @@ def resolve_model(
         if filtered:
             candidates = filtered
 
+    # ⚠️ Filter: skip zhipu models when structured output is needed
+    if needs_structured and candidates:
+        json_aware = [
+            m for m in candidates
+            if MODEL_CAPABILITIES.get(m["id"], {}).get("supports_json_mode", True)
+        ]
+        if json_aware:
+            skipped = [m["id"] for m in candidates if m not in json_aware]
+            logger.info(
+                f"Structured output required for {stage_id}: "
+                f"skipping {skipped}, using {[m['id'] for m in json_aware]}"
+            )
+            candidates = json_aware
+            reason += " + structured_output_filter"
+
     if not candidates:
-        return {"model": "deepseek-chat", "tier": tier.value, "reason": "no candidates, ultimate fallback"}
+        # Ultimate fallback — deepseek is most reliable for JSON mode
+        return {
+            "model": "deepseek-chat",
+            "provider": "openai",  # deepseek via OpenAI-compatible
+            "tier": tier.value,
+            "reason": "no candidates, ultimate fallback to deepseek",
+        }
 
     selected = candidates[0]
     return {
@@ -163,6 +241,7 @@ def resolve_model(
         "tier": tier.value,
         "reason": reason,
         "cost_per_1k": selected["cost_per_1k"],
+        "supports_json_mode": MODEL_CAPABILITIES.get(selected["id"], {}).get("supports_json_mode", False),
     }
 
 

@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     app_name: str = "Agent Hub"
     debug: bool = False
 
+    @property
+    def is_production(self) -> bool:
+        """True when running in a non-debug (production / staging) environment."""
+        return not self.debug
+
     database_url: str = _default_db_url()
     redis_url: str = "redis://localhost:6379/0"
 
@@ -155,6 +160,12 @@ class Settings(BaseSettings):
     vibevoice_enabled: bool = True              # enable VibeVoice ASR (mock mode if no HF_API_KEY)
     vibevoice_force_local: bool = False         # force local model (needs GPU)
     hf_api_key: str = ""                        # HuggingFace Inference API key
+
+    # Sentry error tracking
+    sentry_dsn: str = ""                         # empty = disabled
+    sentry_environment: str = "production"
+    sentry_traces_sample_rate: float = 0.1
+    sentry_profiles_sample_rate: float = 0.1
 
     # Rate limiting (per-IP, sliding 60s window).
     # 600/min ≈ 10 req/sec — enough headroom for the dashboard's polling fan-out

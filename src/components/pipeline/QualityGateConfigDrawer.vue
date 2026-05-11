@@ -179,7 +179,6 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Setting, RefreshLeft } from '@element-plus/icons-vue'
 import {
   fetchQualityGateConfig,

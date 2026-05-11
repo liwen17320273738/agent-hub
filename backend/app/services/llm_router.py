@@ -539,12 +539,15 @@ async def chat_completion(
     tool_choice: Optional[str] = None,
     image_attachments: Optional[List[Tuple[str, str]]] = None,
     anthropic_image_attachments: Optional[List[Tuple[str, str]]] = None,
+    response_format: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Non-streaming chat completion (aggregates full response).
 
     image_attachments: list of (mime_type, base64_raw) for the last user turn.
     Supported: anthropic (native), google (inlineData), openai-compatible (image_url data URLs).
     anthropic_image_attachments is deprecated; use image_attachments.
+    response_format: dict like {"type": "json_object"} for structured output.
+        Not supported by zhipu GLM models — use deepseek/anthropic/openai instead.
     """
     imgs = image_attachments if image_attachments is not None else anthropic_image_attachments
     try:
@@ -639,6 +642,10 @@ async def chat_completion(
                 body["tools"] = [{"type": "function", "function": t} for t in tools]
                 if tool_choice:
                     body["tool_choice"] = tool_choice
+            # ⚠️ structured output — skip zhipu (GLM) as it doesn't support json_object
+            if response_format and provider not in ("zhipu", "local"):
+                body["response_format"] = response_format
+                logger.debug(f"[llm] Using response_format={response_format} for {model}")
             resp = await client.post(url, headers=headers, json=body)
             latency_ms = int((time.monotonic() - started) * 1000)
             if resp.status_code != 200 and imgs:

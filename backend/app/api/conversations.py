@@ -46,11 +46,17 @@ class ConversationOut(BaseModel):
 async def list_conversations(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    offset: int = 0,
+    limit: int = 50,
 ):
+    offset = max(0, offset)
+    limit = max(1, min(limit, 200))
     stmt = (
         select(Conversation)
         .where(Conversation.org_id == user.org_id)
         .order_by(Conversation.updated_at.desc())
+        .offset(offset)
+        .limit(limit)
     )
     result = await db.execute(stmt)
     convos = result.scalars().all()

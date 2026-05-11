@@ -2,6 +2,9 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import Components from 'unplugin-vue-components/vite'
+import AutoImport from 'unplugin-auto-import/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { DELIVERY_DOCS, ensureDeliveryTemplates, listDeliveryDocs, readDeliveryDoc, writeDeliveryDoc } from './server/deliveryDocs.mjs'
 
 type DevServerResponse = {
@@ -99,6 +102,15 @@ export default defineConfig(({ mode }) => {
   },
   plugins: [
     vue(),
+    // Element Plus auto on-demand import — replaces full import in main.ts
+    AutoImport({
+      resolvers: [ElementPlusResolver()],
+      dts: 'src/auto-imports.d.ts',
+    }),
+    Components({
+      resolvers: [ElementPlusResolver()],
+      dts: 'src/components.d.ts',
+    }),
     {
       name: 'Agent-delivery-docs-dev',
       configureServer(server) {
@@ -207,13 +219,16 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          // Vue 生态 —— 核心框架
-          if (id.includes('node_modules/vue') || id.includes('node_modules/@vue/')
-            || id.includes('node_modules/pinia') || id.includes('node_modules/vue-router')
-            || id.includes('node_modules/vue-i18n')) {
+          // Vue core —— just vue itself (avoid circular deps with pinia/router)
+          if (id.includes('node_modules/vue/') || id.includes('node_modules/@vue/')) {
             return 'vendor-vue'
           }
-          // Element Plus —— UI 组件库（最大依赖）
+          // Vue ecosystem (pinia, vue-router, vue-i18n) — keep together to avoid circulars
+          if (id.includes('node_modules/pinia') || id.includes('node_modules/vue-router')
+            || id.includes('node_modules/vue-i18n') || id.includes('node_modules/@intlify/')) {
+            return 'vendor-vue-eco'
+          }
+          // Element Plus —— UI 组件库
           if (id.includes('node_modules/element-plus') || id.includes('node_modules/@element-plus/')
             || id.includes('node_modules/@popperjs/') || id.includes('node_modules/@floating-ui/')) {
             return 'vendor-element'

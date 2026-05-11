@@ -156,8 +156,6 @@ import { openClawIntake } from '@/services/gatewayApi'
 import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import VoiceInput from '@/components/voice/VoiceInput.vue'
-import { ElMessage } from 'element-plus'
-
 const { t, locale } = useI18n()
 const router = useRouter()
 const settingsStore = useSettingsStore()

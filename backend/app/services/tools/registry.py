@@ -641,6 +641,88 @@ TOOL_REGISTRY["agent_wait_for"] = {
     "handler": _agent_wait_for_handler,
 }
 
+# ─────────────────────────────────────────────────────────────────
+# Crawl4AI Tools — LLM-friendly web crawler
+# ─────────────────────────────────────────────────────────────────
+
+try:
+    from .crawl4ai_tool import (
+        crawl4ai_execute,
+        crawl4ai_batch_execute,
+        crawl4ai_deep_execute,
+    )
+
+    TOOL_REGISTRY["crawl4ai"] = {
+        "name": "crawl4ai",
+        "description": (
+            "Crawl a URL and return LLM-friendly Markdown content. "
+            "Use this when you need to gather information from web pages "
+            "for research, analysis, or context gathering."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Target URL to crawl"},
+                "strategy": {
+                    "type": "string",
+                    "description": "Crawl strategy: bfs, dfs, best_first, smart",
+                    "enum": ["bfs", "dfs", "best_first", "smart"],
+                },
+                "max_depth": {"type": "integer", "description": "Max crawl depth"},
+                "max_pages": {"type": "integer", "description": "Max pages to crawl"},
+                "css_selector": {"type": "string", "description": "CSS selector for content extraction"},
+                "js_timeout": {"type": "integer", "description": "JavaScript render timeout in seconds"},
+            },
+            "required": ["url"],
+        },
+        "permissions": ["network"],
+        "handler": crawl4ai_execute,
+    }
+
+    TOOL_REGISTRY["crawl4ai_batch"] = {
+        "name": "crawl4ai_batch",
+        "description": "Crawl multiple URLs in batch and return LLM-friendly Markdown.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of URLs to crawl (max 20)",
+                },
+                "css_selector": {"type": "string", "description": "CSS selector for content extraction"},
+                "js_timeout": {"type": "integer", "description": "JavaScript render timeout in seconds"},
+            },
+            "required": ["urls"],
+        },
+        "permissions": ["network"],
+        "handler": crawl4ai_batch_execute,
+    }
+
+    TOOL_REGISTRY["crawl4ai_deep"] = {
+        "name": "crawl4ai_deep",
+        "description": "Deep crawl multiple pages from a starting URL using BFS/DFS strategies.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Starting URL for deep crawl"},
+                "strategy": {
+                    "type": "string",
+                    "description": "Crawl strategy: bfs, dfs, best_first",
+                    "enum": ["bfs", "dfs", "best_first"],
+                },
+                "max_depth": {"type": "integer", "description": "Maximum crawl depth"},
+                "max_pages": {"type": "integer", "description": "Maximum pages to crawl"},
+            },
+            "required": ["url"],
+        },
+        "permissions": ["network"],
+        "handler": crawl4ai_deep_execute,
+    }
+
+except ImportError as _e:
+    logger.warning(f"[tools] crawl4ai tools not available: {_e}")
+
 
 # ─────────────────────────────────────────────────────────────────
 # Role-based skill sandbox (least-privilege whitelist)
@@ -683,6 +765,7 @@ ROLE_TOOL_WHITELIST: Dict[str, set] = {
         "file_read", "file_write", "file_list", "str_replace",
         "web_search", "browser_open", "browser_extract", "browser_screenshot",
         "codebase_map", "codebase_search", "codebase_read_chunk",
+        "crawl4ai", "crawl4ai_batch",
     },
     "designer": {
         "file_read", "file_write", "file_list", "str_replace",
@@ -694,6 +777,7 @@ ROLE_TOOL_WHITELIST: Dict[str, set] = {
         "codebase_map", "codebase_search", "codebase_read_chunk", "code_semantic_search",
         "git_status", "git_diff", "git_log",
         "web_search", "browser_open", "browser_extract",
+        "crawl4ai", "crawl4ai_batch", "crawl4ai_deep",
     },
     # Engineering — full coding power, NO push / PR (devops owns release)
     "developer": {
