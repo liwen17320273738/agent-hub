@@ -9,7 +9,7 @@ from app.services.artifact_writer import STAGE_TO_ARTIFACT
 
 class TestArtifactTypeRegistry:
     def test_builtin_types_count(self):
-        assert len(BUILTIN_ARTIFACT_TYPES) == 15
+        assert len(BUILTIN_ARTIFACT_TYPES) == 19  # Phase 7: +1 (preview_url)
 
     def test_builtin_types_all_have_required_keys(self):
         required = {"type_key", "category", "display_name", "icon", "tab_group", "sort_order"}
@@ -78,6 +78,16 @@ class TestConfigFlag:
         from app.config import settings
         assert hasattr(settings, "artifact_store_v2")
         assert isinstance(settings.artifact_store_v2, bool)
+
+    def test_artifact_contract_enforce_default(self):
+        from app.config import settings
+        assert hasattr(settings, "artifact_contract_enforce")
+        assert isinstance(settings.artifact_contract_enforce, bool)
+
+    def test_artifact_contract_rules_strict_flag(self):
+        from app.config import settings
+        assert hasattr(settings, "artifact_contract_rules_strict")
+        assert isinstance(settings.artifact_contract_rules_strict, bool)
 
 
 class TestManifestSync:

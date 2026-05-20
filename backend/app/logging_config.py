@@ -28,6 +28,23 @@ def _add_request_id(
     return event_dict
 
 
+def _inject_trace_context(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Inject trace_id + span_id from the current trace context."""
+    try:
+        from app.core.context import get_current_span
+        span = get_current_span()
+        if span:
+            if "trace_id" not in event_dict and span.trace_id:
+                event_dict["trace_id"] = span.trace_id
+            if "span_id" not in event_dict and span.span_id:
+                event_dict["span_id"] = span.span_id
+    except Exception:
+        pass
+    return event_dict
+
+
 def setup_logging(*, debug: bool = False) -> None:
     """Configure structlog + stdlib logging.
 
@@ -41,6 +58,7 @@ def setup_logging(*, debug: bool = False) -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
         _add_request_id,
+        _inject_trace_context,
     ]
 
     if debug:

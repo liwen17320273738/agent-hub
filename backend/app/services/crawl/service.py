@@ -359,7 +359,12 @@ class Crawl4AIService:
         Returns:
             Dict containing all crawled pages
         """
-        from crawl4ai import BrowserConfig, CrawlerRunConfig, BFSDeepCrawlStrategy
+        from crawl4ai import (
+            AsyncWebCrawler,
+            BFSDeepCrawlStrategy,
+            BrowserConfig,
+            CrawlerRunConfig,
+        )
         
         start_time = time.time()
         results = []
@@ -434,3 +439,41 @@ async def shutdown_crawl4ai_service() -> None:
     if _crawl_service:
         await _crawl_service.close()
         _crawl_service = None
+
+
+async def get_crawl4ai_health() -> tuple:  # type: ignore[type-arg]
+    """Health-probe the Crawl4AI service.
+
+    Returns:
+        ``(status, error_or_none)`` where status is one of:
+        ``"healthy"``, ``"unavailable"``, ``"disabled"``, ``"error"``.
+    """
+    try:
+        svc = await get_crawl4ai_service()
+        if svc is None or not getattr(svc, "_initialized", False):
+            return ("unavailable", "service not initialized")
+
+        try:
+            import importlib.util
+            if importlib.util.find_spec("crawl4ai") is not None:
+                # Verify BrowserConfig can be constructed — indicates
+                # the package and its native deps are functional.
+                from crawl4ai import BrowserConfig
+                config = BrowserConfig(headless=True, verbose=False)
+                if config is not None:
+                    return ("healthy", None)
+                return ("unhealthy", "crawler config creation returned None")
+            return ("disabled", "crawl4ai package not installed")
+        except ImportError:
+            return ("disabled", "crawl4ai package not installed")
+    except Exception as e:
+        return ("unavailable", f"health check failed: {str(e)[:200]}")
+
+
+async def _check_crawl4ai_alive() -> bool:
+    """Lightweight Crawl4AI liveness check."""
+    import importlib.util
+    if importlib.util.find_spec("crawl4ai") is not None:
+        from crawl4ai import BrowserConfig
+        return BrowserConfig(headless=True, verbose=False) is not None
+    return False

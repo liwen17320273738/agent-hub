@@ -108,3 +108,26 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 """
     result = verify_stage_output("architecture", "developer", output)
     assert result.overall_status in (VerifyStatus.PASS, VerifyStatus.WARN)
+
+
+def test_verify_development_needs_code_blocks():
+    output = """# 项目结构
+/src
+  /components
+
+# 代码
+Here is some code but no code blocks.
+
+# 依赖
+None.
+""" + "x" * 1000
+    result = verify_stage_output("development", "developer", output)
+    checks = {c.check_name: c.status for c in result.checks}
+    assert checks.get("keywords") in (VerifyStatus.FAIL, VerifyStatus.WARN)
+
+
+def test_verify_placeholder_detection():
+    output = "# Plan\nThis is a TODO placeholder\n" + "x" * 600
+    result = verify_stage_output("planning", "product-manager", output)
+    checks = {c.check_name: c.status for c in result.checks}
+    assert checks.get("no_placeholder") == VerifyStatus.WARN

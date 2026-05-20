@@ -47,6 +47,13 @@ Submissions whose ``kind`` is registered + ``params`` is provided are
 automatically persisted; everything else falls back to the legacy
 ``coro_factory=`` path (in-memory only, lost on restart).
 
+Queue cancellation
+==================
+``cancel_queued_for_task`` drops matching ``task_id`` rows from the in-process
+queue **and** clears their Redis keys. Submissions waiting on the concurrency
+semaphore are flagged so that after ``acquire`` they exit without executing
+``coro_factory``. **Already-running work is not force-killed**.
+
 Running tasks are NOT persisted — if a worker dies mid-execution, the
 in-flight pipeline is gone and operators must re-trigger it. We surface
 the orphan count at startup via SSE so it's at least visible.
@@ -183,9 +190,11 @@ class TaskScheduler:
         self._running: Dict[str, Dict[str, Any]] = {}
         self._queue: List[Dict[str, Any]] = []
         self._lock = asyncio.Lock()
+        self._cancelled_submissions: set[str] = set()
         self._lifetime_submitted = 0
         self._lifetime_finished = 0
         self._lifetime_failed = 0
+        self._lifetime_cancelled = 0
         self._lifetime_resumed = 0
         self._resume_started = False
 
@@ -339,6 +348,7 @@ class TaskScheduler:
         """
         from ..database import async_session as session_factory
         from ..models.pipeline import PipelineTask
+        from .scheduler_task_state import mark_scheduler_orphaned
         from sqlalchemy import select
 
         try:
@@ -371,6 +381,18 @@ class TaskScheduler:
             len(orphans), len(active_orphans), len(paused_orphans),
         )
 
+        orphaned_scheduler_markers = 0
+        try:
+            async with session_factory() as db:
+                orphaned_scheduler_markers = await mark_scheduler_orphaned(
+                    db,
+                    [str(t.id) for t in orphans],
+                    error="Scheduler process restarted before this run finished; rerun or resume the task.",
+                )
+                await db.commit()
+        except Exception as exc:
+            logger.warning("[scheduler] orphan marker cleanup failed: %s", exc)
+
         recovered = 0
         for task in paused_orphans:
             try:
@@ -386,6 +408,7 @@ class TaskScheduler:
             "count": len(orphans),
             "activeOrphans": len(active_orphans),
             "pausedRecovered": recovered,
+            "schedulerMarkersCleared": orphaned_scheduler_markers,
             "activeTaskIds": [str(t.id) for t in active_orphans],
         })
 
@@ -396,7 +419,7 @@ class TaskScheduler:
         is safe — no double-spend risk.
         """
         from ..database import async_session as session_factory
-        from ..models.pipeline import PipelineTask, PipelineStage
+        from ..models.pipeline import PipelineTask
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
         from datetime import datetime as dt
@@ -477,6 +500,51 @@ class TaskScheduler:
             )
             logger.info("[scheduler] re-submitted orphan task %s to scheduler", task_id)
 
+    async def cancel_queued_for_task(self, task_id: str) -> Dict[str, Any]:
+        """Drop queued submissions for ``task_id`` and cooperatively cancel any
+        that are waiting on the semaphore slot (see ``_run``).
+        Already-running submissions are listed in ``still_running`` only.
+        """
+        tid = (task_id or "").strip()
+        if not tid:
+            return {"ok": True, "removed": 0, "submission_ids": [], "still_running": []}
+
+        removed: List[Dict[str, Any]] = []
+        async with self._lock:
+            keep: List[Dict[str, Any]] = []
+            for m in self._queue:
+                if m.get("task_id") == tid:
+                    removed.append(m)
+                    self._cancelled_submissions.add(m["submission_id"])
+                else:
+                    keep.append(m)
+            self._queue = keep
+            running_for_task = [
+                self._public_meta(m)
+                for m in self._running.values()
+                if (m.get("task_id") or "").strip() == tid
+            ]
+
+        for m in removed:
+            if m.get("persistent"):
+                await _persist_dequeue(m["submission_id"])
+
+        if removed:
+            await self._emit("scheduler:queue-cancelled", {
+                "taskId": tid,
+                "removed": len(removed),
+                "submissionIds": [m["submission_id"] for m in removed],
+                "queueDepth": len(self._queue),
+                "runningCount": len(self._running),
+            })
+
+        return {
+            "ok": True,
+            "removed": len(removed),
+            "submissionIds": [m["submission_id"] for m in removed],
+            "stillRunning": running_for_task,
+        }
+
     async def _run(self, meta: Dict[str, Any], coro_factory: CoroFactory) -> None:
         try:
             await self._sem.acquire()
@@ -485,16 +553,39 @@ class TaskScheduler:
                 self._queue = [q for q in self._queue if q["submission_id"] != meta["submission_id"]]
             return
 
-        async with self._lock:
-            self._queue = [q for q in self._queue if q["submission_id"] != meta["submission_id"]]
-            meta["started_at"] = datetime.utcnow().isoformat()
-            self._running[meta["submission_id"]] = meta
+        sid = meta["submission_id"]
 
-        # Once it leaves the queue, take it out of persistence too.
-        # Restart between this point and finish DOES drop the running task
-        # (documented in module docstring — re-running could double-spend).
+        coop_cancel = False
+        async with self._lock:
+            self._queue = [q for q in self._queue if q["submission_id"] != sid]
+            coop_cancel = sid in self._cancelled_submissions
+            if coop_cancel:
+                self._cancelled_submissions.discard(sid)
+
+        if coop_cancel:
+            if meta.get("persistent"):
+                await _persist_dequeue(sid)
+            self._lifetime_cancelled += 1
+            meta["finished_at"] = datetime.utcnow().isoformat()
+            self._sem.release()
+            await self._emit(
+                "scheduler:finished",
+                self._public_meta(meta, extra={
+                    "ok": False,
+                    "cancelled": True,
+                    "queueDepth": len(self._queue),
+                    "running": len(self._running),
+                }),
+            )
+            return
+
+        async with self._lock:
+            meta["started_at"] = datetime.utcnow().isoformat()
+            self._running[sid] = meta
+
+        # Once this submission starts executing, persistence must not replay it.
         if meta.get("persistent"):
-            await _persist_dequeue(meta["submission_id"])
+            await _persist_dequeue(sid)
 
         await self._emit("scheduler:started", self._public_meta(meta, extra={
             "queueDepth": len(self._queue),
@@ -503,28 +594,49 @@ class TaskScheduler:
 
         ok = True
         try:
-            await self._with_session(coro_factory, meta["label"])
+            await self._with_session(coro_factory, meta["label"], meta)
         except Exception as exc:
             ok = False
             logger.exception("[scheduler] task %s crashed: %s", meta["label"], exc)
         finally:
             async with self._lock:
-                self._running.pop(meta["submission_id"], None)
+                self._running.pop(sid, None)
                 meta["finished_at"] = datetime.utcnow().isoformat()
                 if ok:
                     self._lifetime_finished += 1
                 else:
                     self._lifetime_failed += 1
             self._sem.release()
-            await self._emit("scheduler:finished", self._public_meta(meta, extra={
-                "ok": ok,
-                "queueDepth": len(self._queue),
-                "running": len(self._running),
-            }))
+            await self._emit(
+                "scheduler:finished",
+                self._public_meta(meta, extra={
+                    "ok": ok,
+                    "queueDepth": len(self._queue),
+                    "running": len(self._running),
+                }),
+            )
 
-    async def _with_session(self, coro_factory: CoroFactory, label: str) -> None:
+    async def _with_session(
+        self, coro_factory: CoroFactory, label: str, meta: Dict[str, Any],
+    ) -> None:
         from ..database import async_session as session_factory
         from .sse import emit_event
+        from .scheduler_task_state import (
+            mark_scheduler_finished_failure,
+            mark_scheduler_finished_success,
+            mark_scheduler_started,
+        )
+
+        tid = (meta.get("task_id") or "").strip()
+        sid = meta.get("submission_id") or ""
+
+        if tid:
+            try:
+                async with session_factory() as db:
+                    await mark_scheduler_started(db, tid, meta=meta)
+                    await db.commit()
+            except Exception as exc:
+                logger.warning("[scheduler] persist run-start for %s: %s", tid, exc)
 
         try:
             async with session_factory() as db:
@@ -537,10 +649,28 @@ class TaskScheduler:
                     await emit_event("pipeline:auto-error", {
                         "error": str(exc),
                         "label": label,
+                        "task_id": tid,
                     })
                     raise
-        except Exception:
+        except Exception as run_exc:
+            if tid and sid:
+                try:
+                    async with session_factory() as db:
+                        await mark_scheduler_finished_failure(
+                            db, tid, submission_id=sid, error=str(run_exc),
+                        )
+                        await db.commit()
+                except Exception as exc_inner:
+                    logger.warning("[scheduler] persist run-failure for %s: %s", tid, exc_inner)
             raise
+
+        if tid and sid:
+            try:
+                async with session_factory() as db:
+                    await mark_scheduler_finished_success(db, tid, submission_id=sid)
+                    await db.commit()
+            except Exception as exc:
+                logger.warning("[scheduler] persist run-finish for %s: %s", tid, exc)
 
     @staticmethod
     def _public_meta(meta: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -580,6 +710,7 @@ class TaskScheduler:
                 "submitted": self._lifetime_submitted,
                 "finished": self._lifetime_finished,
                 "failed": self._lifetime_failed,
+                "cancelled": self._lifetime_cancelled,
                 "resumed_from_restart": self._lifetime_resumed,
             },
         }

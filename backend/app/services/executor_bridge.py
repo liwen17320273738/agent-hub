@@ -300,6 +300,30 @@ async def kill_job(job_id: str) -> bool:
         return False
 
 
+async def kill_job_by_task_id(task_id: str) -> int:
+    """Kill all running jobs associated with a given pipeline task.
+
+    Returns:
+        Number of jobs successfully terminated.
+    """
+    killed = 0
+    try:
+        r = get_redis()
+        key = f"executor:task:{task_id}"
+        job_ids = await r.smembers(key)
+        if not job_ids:
+            return 0
+        for jid in job_ids:
+            jid_str = jid.decode() if isinstance(jid, bytes) else jid
+            if await kill_job(jid_str):
+                killed += 1
+        # Clean up the task index after all jobs are killed
+        await r.delete(key)
+    except Exception as e:
+        logger.warning("[executor] kill_job_by_task_id failed for %s: %s", task_id[:12], e)
+    return killed
+
+
 def build_execution_prompt(title: str, description: str, prd: str = "", architecture: str = "") -> str:
     parts = [f"## 任务: {title}\n"]
     if description:

@@ -1,0 +1,78 @@
+# Agent Hub — Firecrawl Self-Hosted (standalone)
+#
+# 启动:  make docker-firecrawl
+# 停止:  make docker-firecrawl-down
+# 访问:  http://localhost:3002
+# 配置:  根目录 .env 中设置 FIRECRAWL_SELF_HOSTED_URL=http://localhost:3002
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: fc-redis
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
+
+  db:
+    image: postgres:16-alpine
+    container_name: fc-db
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawl
+      POSTGRES_DB: firecrawl
+    volumes:
+      - fc_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl -d firecrawl"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-alpine
+    container_name: fc-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: firecrawl
+      RABBITMQ_DEFAULT_PASS: firecrawl
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  firecrawl:
+    image: ghcr.io/firecrawl/firecrawl:latest
+    container_name: agent-hub-firecrawl
+    entrypoint: ["sh", "/app/firecrawl-start.sh"]
+    ports:
+      - "${FIRECRAWL_PORT:-3002}:3002"
+    volumes:
+      - ./firecrawl-start.sh:/app/firecrawl-start.sh:ro
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3002
+      - REDIS_URL=redis://fc-redis:6379/0
+      - REDIS_RATE_LIMIT_URL=redis://fc-redis:6379/1
+      - REDIS_EVICT_URL=redis://fc-redis:6379/2
+      - NUQ_DATABASE_URL=postgres://firecrawl:firecrawl@fc-db:5432/firecrawl
+      - NUQ_RABBITMQ_URL=amqp://firecrawl:firecrawl@fc-rabbitmq:5672
+      - ALLOW_LOCAL_WEBHOOKS=true
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - NUM_WORKERS_PER_QUEUE=${FIRECRAWL_WORKERS:-5}
+      - PLAYWRIGHT_MICRO_SERVICE_URL=http://fc-playwright:3000
+    depends_on:
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  playwright:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    container_name: fc-playwright
+    environment:
+      - PORT=3000
+      - BLOCK_MEDIA=true
+      - MAX_CONCURRENCY=10
+
+volumes:
+  fc_pg:

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tail -30 /tmp/backend.log)",
+      "Read(//private/tmp/**)",
+      "Bash(.venv/bin/python3 -c \"import uvicorn\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('success:', d['success']\\); print\\('markdown_len:', len\\(d.get\\('data',{}\\).get\\('markdown',''\\)\\)\\)\")",
+      "Bash(PGPASSWORD=agenthub psql -h localhost -U agenthub -d agenthub -c \"SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename\")",
+      "Bash(PGPASSWORD=agenthub psql -h localhost -U agenthub -d agenthub -c \"SELECT count\\(*\\) as tasks FROM pipeline_tasks; SELECT count\\(*\\) as artifacts FROM task_artifacts; SELECT count\\(*\\) as stages FROM pipeline_stages;\")",
+      "Bash(PGPASSWORD=agenthub psql -h localhost -U agenthub -d agenthub -c \"SELECT count\\(*\\) as artifacts FROM pipeline_artifacts; SELECT count\\(*\\) as stages FROM pipeline_stages;\")",
+      "Bash(redis-cli -n 0 DBSIZE)",
+      "Read(//Users/wayne/**)",
+      "Bash(gh auth *)",
+      "Bash(git config *)",
+      "Bash(security find-internet-password *)",
+      "Bash(redis-cli -n 0 FLUSHDB)",
+      "Bash(python3 -m pytest tests/test_hero_delivery_path.py -v)",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(ls -la venv/bin/python)",
+      "Bash(ls -la .venv/bin/python)",
+      "mcp__github__*"
+    ]
+  }
+}

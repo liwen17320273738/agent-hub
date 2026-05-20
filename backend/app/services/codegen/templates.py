@@ -6,11 +6,45 @@ Each template defines:
 - Boilerplate files
 - Build/run commands
 - Required dependencies
+
+Template loading priority:
+1. Inline ``files`` dict in ``PROJECT_TEMPLATES`` (overrides dir copy)
+2. On-disk directory under ``packages/agent-hub-pipeline/templates/`` (fallback)
 """
 from __future__ import annotations
 
 import os
 from typing import Any, Dict, List, Optional
+
+
+_HERE = os.path.abspath(os.path.dirname(__file__))
+# Resolve to packages/agent-hub-pipeline/templates/ (works in backend or root dev)
+_PACKAGE_TEMPLATE_DIR = os.path.abspath(
+    os.path.join(_HERE, "..", "..", "..", "..",
+                 "packages", "agent-hub-pipeline", "templates")
+)
+
+
+def _load_template_files(template_id: str) -> Optional[Dict[str, str]]:
+    """Load template files from on-disk directory.
+
+    Returns None if no directory exists for this template.
+    """
+    tmpl_dir = os.path.join(_PACKAGE_TEMPLATE_DIR, template_id)
+    if not os.path.isdir(tmpl_dir):
+        return None
+    files: Dict[str, str] = {}
+    for root, _dirs, filenames in os.walk(tmpl_dir):
+        for fn in filenames:
+            full_path = os.path.join(root, fn)
+            rel_path = os.path.relpath(full_path, tmpl_dir)
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    files[rel_path] = f.read()
+            except Exception:
+                # skip binary files (e.g. png placeholders)
+                pass
+    return files
 
 
 PROJECT_TEMPLATES: Dict[str, Dict[str, Any]] = {
@@ -19,103 +53,10 @@ PROJECT_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "description": "Vue 3 + Vite + TypeScript single-page application",
         "type": "web-app",
         "stack": ["vue3", "vite", "typescript", "pinia"],
-        "files": {
-            "package.json": """{
-  "name": "{{project_name}}",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "vue": "^3.4.0",
-    "vue-router": "^4.3.0",
-    "pinia": "^2.1.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-vue": "^5.0.0",
-    "typescript": "^5.4.0",
-    "vite": "^5.4.0",
-    "vue-tsc": "^2.0.0"
-  }
-}""",
-            "index.html": """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{project_name}}</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module" src="/src/main.ts"></script>
-</body>
-</html>""",
-            "src/main.ts": """import { createApp } from 'vue'
-import { createPinia } from 'pinia'
-import App from './App.vue'
-import router from './router'
-
-const app = createApp(App)
-app.use(createPinia())
-app.use(router)
-app.mount('#app')
-""",
-            "src/App.vue": """<template>
-  <router-view />
-</template>
-""",
-            "src/router/index.ts": """import { createRouter, createWebHistory } from 'vue-router'
-
-const router = createRouter({
-  history: createWebHistory(),
-  routes: [
-    { path: '/', component: () => import('../views/Home.vue') },
-  ],
-})
-export default router
-""",
-            "src/views/Home.vue": """<template>
-  <div class="home">
-    <h1>{{project_name}}</h1>
-    <p>Welcome to your new app.</p>
-  </div>
-</template>
-
-<style scoped>
-.home {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
-</style>
-""",
-            "vite.config.ts": """import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-
-export default defineConfig({
-  plugins: [vue()],
-  server: { port: 3000 },
-})
-""",
-            "tsconfig.json": """{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "jsx": "preserve",
-    "paths": { "@/*": ["./src/*"] }
-  },
-  "include": ["src/**/*.ts", "src/**/*.vue"]
-}""",
-        },
-        "build_cmd": "npm install && npm run build",
-        "dev_cmd": "npm run dev",
+        # files loaded from packages/agent-hub-pipeline/templates/vue-app/
+        "files": {},
+        "build_cmd": "pnpm install && pnpm build && pnpm test",
+        "dev_cmd": "pnpm dev",
         "dockerfile": """FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
@@ -213,74 +154,77 @@ export default function App() {
         "stack": ["python", "fastapi", "sqlalchemy", "postgresql"],
         "files": {
             "requirements.txt": """fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
+uvicorn[standard]>=0.29.0
 sqlalchemy[asyncio]>=2.0.30
 asyncpg>=0.29.0
+alembic>=1.13.0
 pydantic>=2.7.0
-python-dotenv>=1.0.0
+pydantic-settings>=2.3.0
 """,
-            "app/__init__.py": "",
             "app/main.py": """from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="{{project_name}}")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.get("/")
+async def root():
+    return {"message": "Hello from {{project_name}}"}
+""",
+            "app/database.py": """from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "service": "{{project_name}}"}
+DATABASE_URL = "postgresql+asyncpg://user:pass@localhost:5432/db"
+engine = create_async_engine(DATABASE_URL)
+async_session = async_sessionmaker(engine, expire_on_commit=False)
+""",
+            "app/models.py": """from sqlalchemy import Column, Integer, String
+from sqlalchemy.orm import declarative_base
 
-@app.get("/api/hello")
-async def hello():
-    return {"message": "Hello from {{project_name}}!"}
+Base = declarative_base()
 """,
         },
         "build_cmd": "pip install -r requirements.txt",
         "dev_cmd": "uvicorn app.main:app --reload --port 8000",
     },
-    "wechat-miniprogram": {
+    "wechat-miniapp": {
         "name": "WeChat Mini Program",
-        "description": "微信小程序项目模板",
-        "type": "miniprogram",
-        "stack": ["wechat", "javascript"],
+        "description": "WeChat mini-program with JavaScript + WXML + WXSS",
+        "type": "mini-app",
+        "stack": ["wechat", "javascript", "wxml", "wxss"],
         "files": {
+            "app.js": """App({
+  onLaunch() {
+    console.log('App launched: {{project_name}}')
+  }
+})
+""",
             "app.json": """{
   "pages": ["pages/index/index"],
   "window": {
-    "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#fff",
-    "navigationBarTitleText": "{{project_name}}",
-    "navigationBarTextStyle": "black"
+    "navigationBarTitleText": "{{project_name}}"
   }
-}""",
-            "app.js": """App({
-  onLaunch() {
-    console.log('App launched');
-  },
-  globalData: {}
-})
+}
 """,
-            "app.wxss": """page {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
-  color: #333;
+            "app.wxss": """.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+.title {
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 10px;
 }
 """,
             "pages/index/index.js": """Page({
   data: {
-    message: 'Hello {{project_name}}!'
-  },
-  onLoad() {}
+    message: 'Hello from {{project_name}}'
+  }
 })
 """,
             "pages/index/index.wxml": """<view class="container">
-  <text class="title">{{message}}</text>
+  <text class="title">{{project_name}}</text>
+  <text>{{message}}</text>
 </view>
 """,
             "pages/index/index.wxss": """.container {
@@ -291,31 +235,14 @@ async def hello():
   min-height: 100vh;
 }
 .title {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
+  margin-bottom: 10px;
 }
 """,
-            "project.config.json": """{
-  "description": "{{project_name}}",
-  "packOptions": { "ignore": [], "include": [] },
-  "setting": {
-    "urlCheck": true,
-    "es6": true,
-    "enhance": true,
-    "postcss": true,
-    "preloadBackgroundData": false,
-    "minified": true,
-    "newFeature": false,
-    "coverView": true,
-    "nodeModules": false,
-    "autoAudits": false,
-    "showShadowRootInWxmlPanel": true
-  },
-  "compileType": "miniprogram"
-}""",
         },
-        "build_cmd": "echo 'Use WeChat DevTools to build'",
-        "dev_cmd": "echo 'Open project in WeChat DevTools'",
+        "build_cmd": "",
+        "dev_cmd": "",
     },
 }
 
@@ -336,15 +263,29 @@ def scaffold_project(
     project_name: str,
     output_dir: str,
 ) -> Dict[str, Any]:
-    """Write template files to output_dir with variable substitution."""
+    """Write template files to output_dir with variable substitution.
+
+    Priority:
+    1. Inline ``files`` dict (if non-empty — used by react/fastapi/wechat templates)
+    2. On-disk ``packages/agent-hub-pipeline/templates/{template_id}/`` (used by vue-app)
+    """
     template = PROJECT_TEMPLATES.get(template_id)
     if not template:
         return {"ok": False, "error": f"Unknown template: {template_id}"}
 
+    source_files = template.get("files") or {}
+    if not source_files:
+        dir_files = _load_template_files(template_id)
+        if dir_files:
+            source_files = dir_files
+
+    if not source_files:
+        return {"ok": False, "error": f"Template {template_id} has no files (inline or directory)"}
+
     os.makedirs(output_dir, exist_ok=True)
     written = []
 
-    for rel_path, content in template["files"].items():
+    for rel_path, content in source_files.items():
         rendered = content.replace("{{project_name}}", project_name)
         full_path = os.path.join(output_dir, rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)

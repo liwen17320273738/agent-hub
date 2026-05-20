@@ -7,8 +7,11 @@ and triggers manifest refresh. Controlled by config.artifact_store_v2 flag.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import os
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select, and_
@@ -159,7 +162,7 @@ async def write_artifact_v2(
     )
     try:
         from .manifest_sync import trigger_manifest_refresh
-        await trigger_manifest_refresh(str(task_id))
+        await trigger_manifest_refresh(str(task_id), db=db)
     except Exception:
         pass
     return art
@@ -185,7 +188,7 @@ async def write_stage_artifacts_v2(
         ))
         try:
             from .manifest_sync import trigger_manifest_refresh
-            await trigger_manifest_refresh(str(task_id))
+            await trigger_manifest_refresh(str(task_id), db=db)
         except Exception:
             pass
         return written
@@ -219,7 +222,282 @@ async def write_stage_artifacts_v2(
 
     try:
         from .manifest_sync import trigger_manifest_refresh
-        await trigger_manifest_refresh(str(task_id))
+        await trigger_manifest_refresh(str(task_id), db=db)
     except Exception:
         pass
     return written
+
+
+async def write_code_artifacts(
+    db: AsyncSession,
+    task_id: str,
+    project_dir: str,
+    agent_name: Optional[str] = None,
+) -> list[TaskArtifact]:
+    """Write source_manifest.json and build.log from project_dir to v2 artifacts."""
+    import os
+
+    written: list[TaskArtifact] = []
+
+    manifest_path = os.path.join(project_dir, "source_manifest.json")
+    if os.path.isfile(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            raw_manifest = f.read()
+        art = await _write_one_artifact(
+            db, task_id, "development", "source_manifest", raw_manifest,
+            "source_manifest.json", agent_name,
+        )
+        written.append(art)
+
+    build_log_path = os.path.join(project_dir, "build.log")
+    if os.path.isfile(build_log_path):
+        with open(build_log_path, "r", encoding="utf-8") as f:
+            raw_log = f.read()
+        art = await _write_one_artifact(
+            db, task_id, "development", "build_log", raw_log,
+            "build.log", agent_name,
+        )
+        written.append(art)
+
+    if written:
+        try:
+            from .manifest_sync import trigger_manifest_refresh
+            await trigger_manifest_refresh(str(task_id), db=db)
+        except Exception:
+            pass
+
+    return written
+
+
+async def write_qa_artifacts(
+    db: AsyncSession,
+    task_id: str,
+    project_dir: str,
+    qa_result: dict,
+) -> list[TaskArtifact]:
+    """Write Phase 6 QA artifacts (test_report, build_log, test_log, screenshot) from QaExecutor output."""
+    if not settings.artifact_store_v2:
+        return []
+    written: list[TaskArtifact] = []
+
+    # --- report markdown ---
+    report_lines = [
+        "# QA 测试报告\n",
+        f"生成时间: {datetime.utcnow().isoformat()}Z\n",
+    ]
+
+    rc = qa_result.get("resource_check", {})
+    if rc:
+        report_lines.append("## 资源检查\n")
+        report_lines.append(f"- Node: {'✅' if rc.get('node_available') else '❌'}")
+        report_lines.append(f"- pnpm: {'✅' if rc.get('pnpm_available') else '❌'}")
+        report_lines.append(f"- Playwright: {'✅' if rc.get('playwright_available') else '❌'}")
+        report_lines.append(f"- source_manifest: {'✅' if rc.get('has_source_manifest') else '❌'}")
+
+    for step_name in ("install", "build", "test"):
+        step_result = qa_result.get(step_name)
+        if not step_result:
+            continue
+        report_lines.append(f"\n## {step_name.title()}\n")
+        report_lines.append(f"- 命令: `{step_result.get('command', '')}`")
+        report_lines.append(f"- 退出码: {step_result.get('exit_code', 'N/A')}")
+        report_lines.append(f"- 耗时: {step_result.get('duration_ms', 0):.0f}ms")
+        report_lines.append(f"- 状态: {'✅ 通过' if step_result.get('ok') else '❌ 失败'}")
+        stdout_sum = step_result.get("stdout_summary", "")
+        if stdout_sum:
+            report_lines.append(f"\nstdout:\n```\n{stdout_sum[:2000]}\n```\n")
+        stderr_sum = step_result.get("stderr_summary", "")
+        if stderr_sum:
+            report_lines.append(f"\nstderr:\n```\n{stderr_sum[:2000]}\n```\n")
+
+    browser = qa_result.get("browser", {})
+    if browser:
+        report_lines.append("\n## 浏览器 Smoke 测试\n")
+        report_lines.append(f"- 页面打开: {'✅' if browser.get('page_opened') else '❌'}")
+        report_lines.append(f"- HTTP 状态: {browser.get('status_code', 0)}")
+        screenshot_path = browser.get("screenshot_path", "")
+        if screenshot_path:
+            report_lines.append(f"- 截图: `{screenshot_path}`")
+        console_errors = browser.get("console_errors", [])
+        if console_errors:
+            report_lines.append(f"- Console errors: {len(console_errors)} 条")
+            for ce in console_errors[:5]:
+                report_lines.append(f"  - `{ce[:200]}`")
+        page_text = browser.get("page_text_preview", "")
+        if page_text:
+            report_lines.append(f"\n页面文本预览:\n> {page_text[:500].replace(chr(10), ' ')}\n")
+        error = browser.get("error", "")
+        if error:
+            report_lines.append(f"\n浏览器错误: {error}\n")
+
+    ok = qa_result.get("ok", False)
+    report_lines.append(f"\n## 总体结论\n")
+    report_lines.append(f"- 整体: {'✅ 通过' if ok else '❌ 失败'}")
+
+    report_content = "\n".join(report_lines)
+    written.append(await _write_one_artifact(
+        db, task_id, "testing", "test_report", report_content,
+        "docs/05-test-report.md", "Agent-qa",
+        metadata_json=qa_result if len(json.dumps(qa_result, default=str)) < 50000 else {"truncated": True},
+    ))
+
+    # --- build.log ---
+    build_log_path = os.path.join(project_dir, "build.log")
+    if os.path.isfile(build_log_path):
+        with open(build_log_path, "r", encoding="utf-8") as f:
+            raw_log = f.read()
+        written.append(await _write_one_artifact(
+            db, task_id, "testing", "build_log", raw_log,
+            "build.log", "Agent-qa",
+        ))
+
+    # --- test.log ---
+    test_log_path = os.path.join(project_dir, "test.log")
+    if os.path.isfile(test_log_path):
+        with open(test_log_path, "r", encoding="utf-8") as f:
+            raw_log = f.read()
+        written.append(await _write_one_artifact(
+            db, task_id, "testing", "test_log", raw_log,
+            "test.log", "Agent-qa",
+        ))
+
+    # --- browser_screenshot.png ---
+    ss_path = browser.get("screenshot_path", "") if browser else ""
+    if ss_path and os.path.isfile(ss_path):
+        with open(ss_path, "rb") as f:
+            import base64
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        written.append(await _write_one_artifact(
+            db, task_id, "testing", "screenshot", b64,
+            "screenshots/browser_screenshot.png", "Agent-qa",
+            metadata_json={"mime": "image/png", "original_path": ss_path},
+        ))
+
+    # --- console_errors.json ---
+    if browser:
+        console_errors = browser.get("console_errors", [])
+        if console_errors:
+            written.append(await _write_one_artifact(
+                db, task_id, "testing", "console_errors",
+                json.dumps({"console_errors": console_errors}),
+                "console_errors.json", "Agent-qa",
+            ))
+
+    if written:
+        try:
+            from .manifest_sync import trigger_manifest_refresh
+            await trigger_manifest_refresh(str(task_id), db=db)
+        except Exception:
+            pass
+
+    return written
+
+
+async def write_deploy_artifacts(
+    db: AsyncSession,
+    task_id: str,
+    project_dir: str,
+    deploy_result: dict,
+) -> list[TaskArtifact]:
+    """Write Phase 7 deploy artifacts (preview_url, deploy_manifest, screenshot, ops_runbook).
+
+    ``deploy_result`` is the structured dict from LocalPreview.deploy() or Vercel deploy_to_vercel().
+    """
+    if not settings.artifact_store_v2:
+        return []
+    written: list[TaskArtifact] = []
+
+    provider = deploy_result.get("provider", "local")
+    deploy_url = deploy_result.get("url", "")
+    health_status = deploy_result.get("health_status", "unknown")
+    deployed_at = deploy_result.get("deployed_at", datetime.utcnow().isoformat())
+    screenshot_path = deploy_result.get("screenshot_path", "")
+
+    # --- preview_url artifact (JSON) ---
+    preview_payload = {
+        "url": deploy_url,
+        "provider": provider,
+        "environment": deploy_result.get("environment", "preview"),
+        "health_status": health_status,
+        "screenshot_path": screenshot_path,
+        "deployed_at": deployed_at,
+    }
+    written.append(await _write_one_artifact(
+        db, task_id, "deployment", "preview_url",
+        json.dumps(preview_payload, ensure_ascii=False, indent=2),
+        "deploy/preview_url.json", "Agent-devops",
+        metadata_json=preview_payload,
+    ))
+
+    # --- deploy_manifest (existing type) ---
+    manifest_content = json.dumps({
+        "provider": provider,
+        "url": deploy_url,
+        "health_status": health_status,
+        "deployed_at": deployed_at,
+        "project_dir": project_dir,
+    }, ensure_ascii=False, indent=2)
+    written.append(await _write_one_artifact(
+        db, task_id, "deployment", "deploy_manifest",
+        manifest_content,
+        "deploy/manifest.json", "Agent-devops",
+    ))
+
+    # --- deployed_screenshot.png (screenshot type) ---
+    if screenshot_path and os.path.isfile(screenshot_path):
+        with open(screenshot_path, "rb") as f:
+            import base64
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        written.append(await _write_one_artifact(
+            db, task_id, "deployment", "screenshot",
+            b64,
+            "screenshots/deployed_screenshot.png", "Agent-devops",
+            metadata_json={"mime": "image/png", "original_path": screenshot_path},
+        ))
+
+    # --- ops_runbook (Markdown) ---
+    runbook = _format_ops_runbook(provider, deploy_url, health_status, deployed_at)
+    written.append(await _write_one_artifact(
+        db, task_id, "deployment", "ops_runbook",
+        runbook,
+        "docs/07-ops-runbook.md", "Agent-devops",
+    ))
+
+    if written:
+        try:
+            from .manifest_sync import trigger_manifest_refresh
+            await trigger_manifest_refresh(str(task_id), db=db)
+        except Exception:
+            pass
+
+    return written
+
+
+def _format_ops_runbook(provider: str, url: str, health: str, deployed_at: str) -> str:
+    return f"""# 部署运维手册
+
+## 部署摘要
+
+- **Provider**: {provider}
+- **URL**: {url if url else 'N/A'}
+- **健康状态**: {health}
+- **部署时间**: {deployed_at}
+
+## 访问方式
+
+| 环境 | URL |
+|------|-----|
+| Preview | {url if url else '不可用'} |
+
+## 回滚方案
+
+1. 本地 preview：重新运行 `pnpm preview`。
+2. Vercel：在 Vercel Dashboard 选择之前的 Deployment 点击 "Promote to Production"。
+3. 如使用 Docker：重新部署上一个镜像 Tag。
+
+## 健康检查
+
+- URL 返回 HTTP 200
+- 页面内容非空
+- Playwright 截图已保存
+"""

@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     workspace_root: str = ""
     # Artifact store v2 — when True, new tasks only write task-scoped dirs (issuse21 D8)
     artifact_store_v2: bool = True
+    # Phase 3: after each linear stage persists v2 artifacts, require registered types exist
+    artifact_contract_enforce: bool = True
+    # Phase 3: when True, markdown/JSON rules on required artifacts fail the stage (not only API/UI hints)
+    artifact_contract_rules_strict: bool = False
 
     # Git clone allowlist (comma-separated hostnames). Empty = use defaults.
     git_allowed_hosts: str = "github.com,gitee.com,gitlab.com,bitbucket.org,codeup.aliyun.com"
@@ -161,6 +165,11 @@ class Settings(BaseSettings):
     vibevoice_force_local: bool = False         # force local model (needs GPU)
     hf_api_key: str = ""                        # HuggingFace Inference API key
 
+    # ── Firecrawl — Web scraping for AI agents ─────────────────────────
+    firecrawl_api_key: str = ""                 # Firecrawl API key (cloud or self-hosted)
+    firecrawl_self_hosted_url: str = ""         # Self-hosted Firecrawl URL, e.g. http://localhost:3002
+    firecrawl_timeout: int = 120                # Scrape timeout in seconds
+
     # Sentry error tracking
     sentry_dsn: str = ""                         # empty = disabled
     sentry_environment: str = "production"
@@ -182,6 +191,8 @@ class Settings(BaseSettings):
     llm_circuit_failure_threshold: int = 3
     llm_circuit_open_seconds: int = 120
     llm_circuit_streak_ttl_seconds: int = 300
+    llm_fallback_chain_json: str = ""  # JSON array: [{"provider":"zhipu","model":"glm-4-flash"},...]
+    llm_error_excerpt_max_chars: int = 800  # Max error excerpt length in fallback logs
 
     # Runtime translation: optional DB pre-warm of cache (reduces first-paint
     # latency in Inbox for Chinese task titles). LLM may run at startup; keep

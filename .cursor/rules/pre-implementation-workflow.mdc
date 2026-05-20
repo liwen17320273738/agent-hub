@@ -1,0 +1,59 @@
+---
+description: Before implementing any feature, ensure a Linear tracking issue exists and verify uncertain documentation via Context7 before writing acceptance criteria.
+globs: 
+---
+# Linear-first + Context7-docs Pre-Implementation Workflow
+
+## When This Rule Activates
+
+This rule applies whenever the agent is about to start implementation work — writing code, modifying files, adding features, fixing bugs, or refactoring. It does NOT apply to purely conversational or research-only queries.
+
+## Two-Step Pre-Implementation Discipline
+
+### Step 1: Linear Issue Required
+
+Before writing any code:
+
+1. **Check if a Linear issue already exists** for this work via `list_issues`
+2. If an issue exists, note its ID
+3. If no issue exists, **create one** via `save_issue` with:
+   - Clear title describing the task
+   - Description with context from user's request
+   - Appropriate team, priority, and labels
+4. Report the issue ID back to the user
+
+### Step 2: Context7 Documentation Verification
+
+When writing acceptance criteria or implementing, if ANY uncertainty exists about API signatures, library behavior, configuration, best practices, or version-specific behavior:
+
+1. Use `resolve-library-id` + `query-docs` (Context7 MCP) to check official docs
+2. Base acceptance criteria on actual docs, not assumptions
+3. Update the Linear issue description with confirmed acceptance criteria
+
+## Linear Issue Template
+
+After docs verification, update the issue description with:
+
+```
+## Acceptance Criteria
+- [ ] Specific, testable requirement 1
+- [ ] Specific, testable requirement 2
+- [ ] Error handling for edge case
+- [ ] Tests cover scenario
+
+## Technical Notes
+- Key decisions with rationale
+- Documentation reference links
+```
+
+## Examples
+
+- User says "帮加个用户注册" → Create Linear issue, check Vue/Vite auth docs if uncertain, then implement
+- User says "pipeline_engine 加超时重试" → Create Linear issue, check asyncio/tenacity docs, then implement
+- User says "改一下这个 bug" → Check if Linear issue exists, create if not, then fix
+
+## Contract
+
+- Do NOT skip Step 1: every implementation needs a Linear issue
+- Do NOT guess on APIs — verify with Context7 when uncertain
+- Reference Linear issue ID in commit messages

@@ -2,6 +2,21 @@
 
 > 生成时间: 2026-04-27 13:15:13
 
+## Hero Path 程序化 E2E（pytest，无真实 LLM）
+
+**更新：2026-05-13**
+
+执行 `docs/analysis/ai-legion-execution/phase-1-hero-path-e2e.md` 的第一步：新增可重复运行的交付链路灯测试。
+
+| 项目 | 内容 |
+|---|---|
+| 测试文件 | `backend/tests/test_hero_delivery_path.py` |
+| 本地命令 | `cd backend && python3 -m pytest tests/test_hero_delivery_path.py -v` |
+| 行为说明 | 创建任务 → 用 `/api/pipeline/tasks/{id}/advance` 走完全部默认阶段 → 写入 12 类 v2 工件占位内容 → 生成分享 token 并匿名访问 → 下载 `deliverables.zip`。 |
+| 失败定位 | 断言会标出：`advance` 卡住、某类 artifact 未写入、`has_content` 为假、分享或 ZIP 失败。 |
+
+本节与下方手工自测明细独立；下文表格仍为历史一次跑通快照。
+
 ## 总览
 
 | 指标 | 数值 |

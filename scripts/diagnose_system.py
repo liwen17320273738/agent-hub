@@ -54,6 +54,7 @@ def check_config():
         
         checks = [
             ("artifact_store_v2", settings.artifact_store_v2, True),
+            ("artifact_contract_enforce", getattr(settings, "artifact_contract_enforce", True), True),
             ("gateway_plan_mode", settings.gateway_plan_mode, True),
             ("pipeline_force_local_llm", settings.pipeline_force_local_llm, False),
             ("browser_enabled", settings.browser_enabled, True),

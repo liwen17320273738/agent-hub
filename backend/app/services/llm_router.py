@@ -24,17 +24,35 @@ logger = logging.getLogger(__name__)
 # Fallback chain when the primary provider returns a retriable error
 # (rate-limit, insufficient balance, transient 5xx). Order = preference.
 # We pick the first whose API key is configured AND that we haven't already
-# attempted on the same call. Lives here (not cost_governor) to avoid an
-# import cycle between llm_router ↔ cost_governor.
-PROVIDER_FALLBACK_CHAIN: List[Dict[str, str]] = [
-    {"provider": "local",     "model": settings.llm_model or "default"},
-    {"provider": "zhipu",     "model": "glm-4-flash"},
-    {"provider": "deepseek",  "model": "deepseek-chat"},
-    {"provider": "openai",    "model": "gpt-4o-mini"},
-    {"provider": "anthropic", "model": "claude-3-5-haiku-20241022"},
-    {"provider": "qwen",      "model": "qwen-turbo"},
-    {"provider": "google",    "model": "gemini-2.5-flash"},
-]
+# attempted on the same call.
+#
+# Default can be overridden via LLM_FALLBACK_CHAIN in .env / config:
+#   LLM_FALLBACK_CHAIN='[{"provider":"zhipu","model":"glm-4-flash"},...]'
+def _load_fallback_chain() -> List[Dict[str, str]]:
+    raw = (getattr(settings, "llm_fallback_chain_json", "") or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list) and all(
+                isinstance(item, dict) and "provider" in item and "model" in item
+                for item in parsed
+            ):
+                return parsed  # type: ignore[return-value]
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(
+                "[llm-fallback] LLM_FALLBACK_CHAIN parse failed, using built-in defaults",
+            )
+    return [
+        {"provider": "local",     "model": settings.llm_model or "default"},
+        {"provider": "zhipu",     "model": "glm-4-flash"},
+        {"provider": "deepseek",  "model": "deepseek-chat"},
+        {"provider": "openai",    "model": "gpt-4o-mini"},
+        {"provider": "anthropic", "model": "claude-3-5-haiku-20241022"},
+        {"provider": "qwen",      "model": "qwen-turbo"},
+        {"provider": "google",    "model": "gemini-2.5-flash"},
+    ]
+
+PROVIDER_FALLBACK_CHAIN: List[Dict[str, str]] = _load_fallback_chain()
 
 # Status codes the caller probably wants us to retry on a different provider.
 # 401/403 are excluded — those mean "your key is wrong", not "this provider
@@ -527,6 +545,25 @@ def _extract_openai_message_text(message: Dict[str, Any]) -> str:
     return ""
 
 
+def _inject_trace_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach trace_id + span_id from the current contextvars trace span.
+
+    Called on every ``chat_completion`` return so that downstream callers
+    (pipeline engine, agent runtime, observability) can correlate LLM calls
+    without relying solely on structured-log side-channels.
+    """
+    try:
+        from ..core.context import get_current_span
+        span = get_current_span()
+        if span and span.trace_id:
+            result["trace_id"] = span.trace_id
+        if span and span.span_id:
+            result["span_id"] = span.span_id
+    except Exception:
+        pass
+    return result
+
+
 async def chat_completion(
     *,
     model: str,
@@ -601,7 +638,7 @@ async def chat_completion(
                 tool_calls = _extract_anthropic_tool_calls(data)
                 if tool_calls:
                     result["tool_calls"] = tool_calls
-                return result
+                return _inject_trace_metadata(result)
 
             if provider == "google":
                 base = (api_url or PROVIDER_ENDPOINTS["google"]).rstrip("/")
@@ -622,10 +659,10 @@ async def chat_completion(
                     return {"error": resp.text[:2000], "status": resp.status_code, "latency_ms": latency_ms}
                 data = resp.json()
                 content, usage = _parse_gemini_response(data)
-                return {
+                return _inject_trace_metadata({
                     "content": content, "usage": usage,
                     "provider": provider, "model": model, "latency_ms": latency_ms,
-                }
+                })
 
             # OpenAI-compatible (OpenAI, DeepSeek, Zhipu, Qwen, etc.)
             url = api_url or PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openai"])
@@ -688,7 +725,7 @@ async def chat_completion(
                     }
                     for i, tc in enumerate(openai_tool_calls)
                 ]
-            return result
+            return _inject_trace_metadata(result)
 
     except httpx.TimeoutException:
         latency_ms = int((time.monotonic() - started) * 1000)
@@ -827,6 +864,20 @@ async def probe_all_providers() -> Dict[str, bool]:
 
 def get_provider_health() -> Dict[str, bool]:
     return dict(_provider_health)
+
+
+async def get_circuit_status() -> List[tuple]:
+    """Return list of (fingerprint_prefix, provider, model, open_since) for all open circuits."""
+    result = []
+    try:
+        r = get_redis()
+        async for key in r.scan_iter(match="agenthub:llm:cb:open:*"):
+            fp = key.decode().split("open:")[-1] if isinstance(key, bytes) else key.split("open:")[-1]
+            ttl = await r.ttl(key)
+            result.append((fp[:12], "", "", ttl))
+    except Exception:
+        pass
+    return result
 
 
 async def chat_completion_stream(
@@ -1157,7 +1208,8 @@ async def chat_completion_with_fallback(
             image_attachments=image_attachments,
         )
         ok = _completion_ok(last_result)
-        excerpt = (last_result.get("error") or "")[:200] if not ok else ""
+        max_excerpt = max(200, getattr(settings, "llm_error_excerpt_max_chars", 800))
+        excerpt = (last_result.get("error") or "")[:max_excerpt] if not ok else ""
         tried.append({
             "provider": attempt["provider"],
             "model": attempt["model"],

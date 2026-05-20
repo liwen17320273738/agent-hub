@@ -1,17 +1,21 @@
-## Agent Hub — Visual Generator Architecture (2026-05-07)
+## Agent Hub — Stability & Observability Architecture (2026-05-11)
 
-### Design stage → UI Mockup
-- `UiVisualizer.generate_mockup()` for `design` stage
-- Artifacts: `ui_mockup` (image), `ui_mockup_html` (HTML prototype)
-- Tries Nano Banana Pro (Gemini 3 Pro Image), falls back to HTML only
+### Distributed Tracing
+- **Entry**: `app/core/context.py` — `TraceSpan` dataclass with `contextvars.ContextVar`
+- **Middleware**: `app/core/trace_middleware.py` — `TraceMiddleware` extracts/propagates `X-Agent-Trace-ID`
+- **Pipeline**: `execute_stage()` creates child spans with `{task_id, stage_id}` metadata
+- **LLM Router**: `_inject_trace_metadata()` injects trace_id/span_id into every `chat_completion` response
+- **Logs**: `logging_config.py` auto-injects `trace_id` + `span_id`
 
-### Architecture stage → Architecture Diagrams
-- `UiVisualizer.generate_architecture_diagram()` for `architecture` stage
-- Generates Mermaid.js diagrams: system overview (flowchart TD), sequence diagram, deployment view (flowchart LR)
-- Artifact: `architecture_diagram` (HTML with Mermaid.js CDN rendering)
-- Frontend: `TaskArchDiagram.vue` renders via iframe
+### Circuit Breaker
+- **Storage**: Redis keys `agenthub:llm:cb:open:{fingerprint}` with TTL
+- **Threshold**: 3 consecutive failures, 120s open, configurable via `config.py`
 
-### Pipeline Integration
-- Layer 9.6 in `execute_stage()` — after LLM output, before artifact writer
-- Custom artifact types bypass `STAGE_TO_ARTIFACT` mapping, use `_write_one_artifact` directly
-- `_write_one_artifact` now supports `metadata_json` parameter
+### Resource Lifecycle
+- `cleanup_cancelled_task()` — kill subprocesses + optional worktree removal
+- `cleanup_stale_tasks()` — auto-detect >72h stuck tasks
+- `cleanup_orphan_worktrees()` — remove leaked directories >48h
+- `schedule_periodic_cleanup(60min)` — background sweep
+- `kill_job_by_task_id()` — batch terminate executor jobs
+
+### Tests: 364 passed

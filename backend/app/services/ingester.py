@@ -81,18 +81,31 @@ def _chunk_markdown(text: str) -> List[str]:
 
 # ── Firecrawl API call ────────────────────────────────────────────────────
 
-FIRECRAWL_BASE = "https://api.firecrawl.dev/v1"
+FIRECRAWL_CLOUD_BASE = "https://api.firecrawl.dev/v1"
+
+
+def _get_firecrawl_base() -> str:
+    """Return the Firecrawl API base URL, preferring self-hosted."""
+    from ..config import settings
+    if settings.firecrawl_self_hosted_url:
+        return settings.firecrawl_self_hosted_url.rstrip("/") + "/v1"
+    return FIRECRAWL_CLOUD_BASE
 
 
 async def _firecrawl_scrape(url: str, api_key: str) -> Optional[str]:
     """Scrape a single URL via Firecrawl REST API.
 
+    Uses self-hosted endpoint when ``firecrawl_self_hosted_url`` is configured,
+    otherwise falls back to Firecrawl Cloud.
     Returns the markdown content, or None on failure.
     """
+    from ..config import settings
+
+    base = _get_firecrawl_base()
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=settings.firecrawl_timeout) as client:
             resp = await client.post(
-                f"{FIRECRAWL_BASE}/scrape",
+                f"{base}/scrape",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",

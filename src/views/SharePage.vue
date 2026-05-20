@@ -36,6 +36,34 @@
         </div>
       </section>
 
+      <section v-if="task" class="share-contract">
+        <ArtifactContractPanel :share-token="token" compact />
+      </section>
+
+      <!-- Phase 5: visual preview — UI mockup + architecture diagram on share page -->
+      <section v-if="task" class="share-visuals">
+        <div class="visuals-grid">
+          <div class="visual-card">
+            <h3 class="visual-title">🎨 UI 设计稿</h3>
+            <UiMockupCard :task-id="task.task_id" compact />
+          </div>
+          <div class="visual-card">
+            <h3 class="visual-title">📐 架构图</h3>
+            <TaskArchDiagram :task-id="task.task_id" compact />
+          </div>
+        </div>
+      </section>
+
+      <!-- Phase 6: QA evidence on share page -->
+      <section v-if="task" class="share-qa">
+        <TaskQATab :task-id="task.task_id" />
+      </section>
+
+      <!-- Phase 7: Deploy preview on share page -->
+      <section v-if="task" class="share-deploy">
+        <DeployPreviewCard :task-id="task.task_id" :share-token="token" />
+      </section>
+
       <section class="share-docs">
         <div class="share-docs-header">
           <el-button type="primary" @click="downloadZip">
@@ -78,6 +106,11 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Loading, Download } from '@element-plus/icons-vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
+import ArtifactContractPanel from '@/components/task/ArtifactContractPanel.vue'
+import UiMockupCard from '@/components/design/UiMockupCard.vue'
+import TaskArchDiagram from '@/components/task/TaskArchDiagram.vue'
+import TaskQATab from '@/components/task/TaskQATab.vue'
+import DeployPreviewCard from '@/components/task/DeployPreviewCard.vue'
 import { useI18n } from 'vue-i18n'
 import { appLocaleToBcp47 } from '@/i18n'
 
@@ -99,7 +132,7 @@ function getBaseUrl(): string {
   return import.meta.env.VITE_API_BASE || '/api'
 }
 
-async function shareFetch(path: string, options?: RequestInit) {
+async function shareFetch(path: string, options?: Parameters<typeof fetch>[1]) {
   const res = await fetch(`${getBaseUrl()}${path}`, options)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -267,6 +300,42 @@ function formatDate(iso: string) {
 .stage-chip.active .stage-dot,
 .stage-chip.running .stage-dot { background: #409eff; }
 .stage-chip.failed .stage-dot { background: #f56c6c; }
+
+.share-contract {
+  margin-bottom: 28px;
+}
+
+.share-visuals {
+  margin-bottom: 28px;
+}
+
+.visuals-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .visuals-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.visual-card {
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.visual-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 
 .share-docs {
   margin-bottom: 40px;

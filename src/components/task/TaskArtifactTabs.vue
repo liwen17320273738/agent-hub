@@ -1,5 +1,9 @@
 <template>
   <div class="task-artifact-tabs">
+    <ArtifactContractPanel
+      class="contract-above-bar"
+      :task-id="taskId"
+    />
     <!-- Completion bar: delivery artifact types (registry-aligned) -->
     <div class="completion-bar">
       <div
@@ -15,7 +19,11 @@
       </div>
     </div>
 
-    <el-tabs v-model="activeTab" type="border-card" class="artifact-tabs">
+    <el-tabs
+      v-model="activeTab"
+      type="border-card"
+      class="artifact-tabs"
+    >
       <el-tab-pane
         v-for="tab in TAB_DEFS"
         :key="tab.type"
@@ -47,6 +55,14 @@
           v-else-if="tab.type === 'architecture_diagram'"
           :task-id="taskId"
         />
+        <TaskQATab
+          v-else-if="tab.type === 'test_report'"
+          :task-id="taskId"
+        />
+        <DeployPreviewCard
+          v-else-if="tab.type === 'preview_url'"
+          :task-id="taskId"
+        />
         <TaskDocTab
           v-else
           :task-id="taskId"
@@ -63,8 +79,11 @@
 import { ref, onMounted, watch } from 'vue'
 import TaskDocTab from './TaskDocTab.vue'
 import TaskCodeTab from './TaskCodeTab.vue'
+import TaskQATab from './TaskQATab.vue'
+import DeployPreviewCard from './DeployPreviewCard.vue'
 import UiMockupCard from '../design/UiMockupCard.vue'
 import TaskArchDiagram from './TaskArchDiagram.vue'
+import ArtifactContractPanel from './ArtifactContractPanel.vue'
 import { getAuthToken } from '@/services/api'
 
 const TAB_DEFS = [
@@ -80,6 +99,7 @@ const TAB_DEFS = [
   { type: 'test_report',         icon: '🧪', label: '测试',         short: '测试' },
   { type: 'acceptance',          icon: '✅', label: '验收',         short: '验收' },
   { type: 'ops_runbook',         icon: '🔧', label: '运维',         short: '运维' },
+  { type: 'preview_url',         icon: '🔗', label: '预览',         short: '预览' },
 ]
 
 const props = defineProps<{
@@ -141,6 +161,10 @@ watch(() => props.taskId, () => loadSummary())
 
 <style scoped>
 .task-artifact-tabs { margin-bottom: 24px; }
+
+.contract-above-bar :deep(.el-card) {
+  border: 1px solid var(--el-border-color-lighter);
+}
 
 .completion-bar {
   display: flex;

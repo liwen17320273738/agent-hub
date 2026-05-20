@@ -81,6 +81,14 @@ ruflo_auto_swarm: true
 # For real transcription: set HF_API_KEY=<your key> or vibevoice_force_local=true (GPU)
 vibevoice_enabled: true
 
+# Firecrawl — Web scraping API for AI agents
+# Cloud mode: set FIRECRAWL_API_KEY=<your key>, leave self_hosted_url empty
+# Self-hosted mode: docker compose -f docker/docker-compose.yml -f docker/docker-compose.firecrawl.yml up -d
+#                   then set firecrawl_self_hosted_url: "http://localhost:3002"
+firecrawl_api_key: ""
+firecrawl_self_hosted_url: ""
+firecrawl_timeout: 120
+
 pipeline:
   default_stages:
     - planning

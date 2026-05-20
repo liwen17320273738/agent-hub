@@ -40,8 +40,15 @@ export const useAuthStore = defineStore('auth', () => {
       const { getAuthToken } = await import('@/services/api')
       const token = getAuthToken()
 
+      if (!token) {
+        user.value = null
+        llmConfigured.value = false
+        publicLlm.value = null
+        return
+      }
+
       // Enterprise mode: use session cookie; standalone mode: use localStorage JWT
-      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {}
+      const headers: HeadersInit = { Authorization: `Bearer ${token}` }
       const credentials: RequestCredentials = isEnterpriseBuild ? 'include' : 'same-origin'
 
       const r = await fetch(apiUrl('/auth/me'), { credentials, headers })

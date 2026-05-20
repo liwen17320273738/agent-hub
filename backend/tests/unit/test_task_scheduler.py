@@ -218,6 +218,46 @@ async def test_failed_task_increments_failed_counter(fresh_scheduler):
 
 
 @pytest.mark.asyncio
+async def test_cancel_queued_cooperatively_skips_starved_jobs():
+    await _clear_scheduler_redis_queue()
+    sched = ts_mod.TaskScheduler(max_concurrent=1)
+    blocker = asyncio.Event()
+    unblock = asyncio.Event()
+
+    async def job1(db):
+        blocker.set()
+        await unblock.wait()
+
+    asyncio.create_task(
+        sched.submit(task_id="t-shared", label="j1", coro_factory=job1),
+    )
+    await asyncio.wait_for(blocker.wait(), timeout=2.0)
+
+    ran_j2 = {"v": False}
+
+    async def job2(db):
+        ran_j2["v"] = True
+
+    asyncio.create_task(
+        sched.submit(task_id="t-shared", label="j2", coro_factory=job2),
+    )
+    await asyncio.sleep(0.08)
+
+    removed = await sched.cancel_queued_for_task("t-shared")
+    assert removed["removed"] >= 1
+
+    unblock.set()
+    for _ in range(80):
+        if sched.status()["lifetime"]["cancelled"] >= 1:
+            break
+        await asyncio.sleep(0.05)
+
+    await asyncio.sleep(0.08)
+    assert ran_j2["v"] is False
+    assert sched.status()["lifetime"]["cancelled"] >= 1
+
+
+@pytest.mark.asyncio
 async def test_status_shape_is_stable(fresh_scheduler):
     """The /api/scheduler/status endpoint contracts on these keys —
     breaking the shape would break the dashboard."""
@@ -225,5 +265,5 @@ async def test_status_shape_is_stable(fresh_scheduler):
     for key in ("maxConcurrent", "running", "queued",
                 "runningCount", "queueDepth", "registeredKinds", "lifetime"):
         assert key in st, f"missing key: {key}"
-    for key in ("submitted", "finished", "failed", "resumed_from_restart"):
+    for key in ("submitted", "finished", "failed", "cancelled", "resumed_from_restart"):
         assert key in st["lifetime"], f"missing lifetime.{key}"

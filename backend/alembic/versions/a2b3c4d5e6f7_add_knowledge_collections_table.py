@@ -6,7 +6,7 @@ an optional ``collection_id`` FK on ``task_memories`` so memory searches can
 be scoped to a named data source.
 
 Revision ID: a2b3c4d5e6f7
-Revises: f7b8c9d0e1f2
+Revises: m3n4o5p6q7r8
 Create Date: 2026-04-30
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision = "a2b3c4d5e6f7"
-down_revision = "00000000000001"
+down_revision = "m3n4o5p6q7r8"
 branch_labels = None
 depends_on = None
 

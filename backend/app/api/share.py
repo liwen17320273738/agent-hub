@@ -94,6 +94,26 @@ async def get_shared_task(
     }
 
 
+@router.get("/{token}/artifact-contract")
+async def get_shared_artifact_contract(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    task_id = verify_share_token(token)
+    if not task_id:
+        raise HTTPException(status_code=403, detail="分享链接无效或已过期")
+
+    row = await db.execute(
+        select(PipelineTask).where(PipelineTask.id == uuid.UUID(task_id)),
+    )
+    if row.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+
+    from ..services.artifact_contract import build_task_contract_report
+
+    return await build_task_contract_report(db, task_id)
+
+
 @router.get("/{token}/doc/{doc_name}")
 async def get_shared_doc(token: str, doc_name: str, db: AsyncSession = Depends(get_db)):
     task_id = verify_share_token(token)

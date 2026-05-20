@@ -223,6 +223,18 @@ async def get_task(
     return {"task": task}
 
 
+@router.get("/tasks/{task_id}/artifact-contract")
+async def get_task_artifact_contract(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    await _get_task_or_404(db, task_id, user)
+    from ..services.artifact_contract import build_task_contract_report
+
+    return await build_task_contract_report(db, task_id)
+
+
 @router.post("/tasks", status_code=201)
 async def create_task(
     body: CreateTaskRequest,
@@ -417,8 +429,17 @@ async def advance_task(
 
     if current_idx + 1 < len(sorted_stages):
         next_stage = sorted_stages[current_idx + 1]
+        entered_at = datetime.utcnow()
         next_stage.status = "active"
-        next_stage.started_at = datetime.utcnow()
+        next_stage.started_at = entered_at
+        next_stage.input_snapshot = {
+            "source": "advance",
+            "entered_at_iso": entered_at.isoformat(),
+            "after_stage_id": current_stage.stage_id,
+            "task_title_preview": (task.title or "")[:200],
+            "description_preview": (task.description or "")[:600],
+            "prior_output_chars": len(body.output or ""),
+        }
         task.current_stage_id = next_stage.stage_id
     else:
         task.status = "done"
@@ -841,6 +862,23 @@ async def smart_run(
         params={"task_id": tid, "task_title": title, "task_description": desc},
     )
     return {"ok": True, "started": True, "taskId": tid, "submissionId": submission_id}
+
+
+@router.post("/tasks/{task_id}/cancel-queue")
+async def cancel_task_scheduler_queue(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Remove queued scheduler submissions for this task (not yet executing).
+
+    Submissions blocked on concurrency also stop without running ``coro_factory``.
+    Entries already executing are listed under ``stillRunning`` — they cannot be
+    force-killed safely from the scheduler layer.
+    """
+    await _get_task_or_404(db, task_id, user, load_relations=False)
+    tid = str(_parse_task_id(task_id))
+    return await get_scheduler().cancel_queued_for_task(tid)
 
 
 @router.post("/tasks/{task_id}/analyze")
@@ -2576,8 +2614,12 @@ async def resume_pipeline(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if task.status not in ("paused", "active"):
-        raise HTTPException(status_code=400, detail=f"Task status is '{task.status}', cannot resume")
+    _resume_ok_statuses = ("paused", "active", "failed", "error")
+    if task.status not in _resume_ok_statuses:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task status is '{task.status}', cannot resume",
+        )
 
     all_stages = list(STAGE_ROLE_PROMPTS.keys())
 
@@ -2600,7 +2642,14 @@ async def resume_pipeline(
 
     task.status = "active"
     for s in sorted_stages:
-        if s.stage_id in remaining_stages and s.status in ("rejected", "awaiting_approval", "paused"):
+        if s.stage_id in remaining_stages and s.status in (
+            "rejected",
+            "awaiting_approval",
+            "paused",
+            "failed",
+            "error",
+            "blocked",
+        ):
             s.status = "pending"
     await db.flush()
     await db.commit()
@@ -2887,4 +2936,75 @@ async def retry_stage(
         "task_id": task_id,
         "stage_id": stage_id,
         "status": "retry_scheduled",
+    }
+
+
+@router.post("/tasks/{task_id}/retry-dag-stage/{stage_id}")
+async def retry_dag_stage(
+    task_id: str,
+    stage_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Reset one failed stage and queue a DAG resume (`dag-run`, ``resume=True``).
+
+    Mirrors ``retry_stage`` for the DAG scheduler path instead of the gateway
+    linear ``_run_pipeline_background`` runner.
+    """
+    task = await _get_task_or_404(db, task_id, user)
+
+    if task.status not in ("active", "error", "failed"):
+        raise HTTPException(status_code=400, detail=f"Task status is {task.status}, cannot retry")
+
+    result = await db.execute(
+        select(PipelineStage).where(
+            PipelineStage.task_id == _parse_task_id(task_id),
+            PipelineStage.stage_id == stage_id,
+        )
+    )
+    stage = result.scalar_one_or_none()
+    if not stage:
+        raise HTTPException(status_code=404, detail=f"Stage {stage_id} not found")
+
+    stage.status = "active"
+    stage.output = None
+    stage.last_error = None
+    stage.retry_count = 0
+    stage.started_at = None
+    stage.completed_at = None
+
+    task.status = "active"
+
+    await db.flush()
+
+    from ..services.pipeline_checkpoint import load_checkpoint
+
+    ckpt = await load_checkpoint(db, str(task.id))
+    template = (ckpt.get("template") if ckpt else None) or task.template or "full"
+
+    tid = str(task.id)
+    submission_id = await _submit_task(
+        tid,
+        f"retry-dag-stage:{tid[:8]}/{stage_id}",
+        kind="dag-run",
+        params={
+            "task_id": tid,
+            "task_title": task.title,
+            "task_description": task.description,
+            "template": template,
+            "project_path": task.project_path,
+            "resume": True,
+            "custom_stages": task.custom_stages if task.custom_stages else None,
+        },
+    )
+    await db.commit()
+    return {
+        "ok": True,
+        "queued": True,
+        "started": True,
+        "taskId": tid,
+        "stage_id": stage_id,
+        "submissionId": submission_id,
+        "status": "retry_dag_scheduled",
+        "message": "DAG 阶段重试已加入队列",
     }

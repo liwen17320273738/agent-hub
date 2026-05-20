@@ -37,8 +37,8 @@
     <!-- Empty state -->
     <div v-else class="arch-empty">
       <div class="empty-icon">📐</div>
-      <p class="empty-title">暂无架构图</p>
-      <p class="empty-desc">当前阶段还未生成架构图，Pipeline 执行 architecture 阶段后将自动生成</p>
+      <p class="empty-title">{{ compact ? '' : '暂无架构图' }}</p>
+      <p class="empty-desc">{{ compact ? '架构图尚未生成' : '当前阶段还未生成架构图，Pipeline 执行 architecture 阶段后将自动生成' }}</p>
     </div>
   </div>
 </template>
@@ -50,6 +50,7 @@ import { getAuthToken } from '@/services/api'
 
 const props = defineProps<{
   taskId: string
+  compact?: boolean
 }>()
 
 const loading = ref(true)

@@ -70,6 +70,8 @@ def test_localhost_is_exempt_from_rate_limit(monkeypatch):
     by reading the module-level constant)."""
     from app.middleware import rate_limit as rl_mod
     monkeypatch.setattr(rl_mod, "_EXEMPT_HOSTS", {"testclient", "127.0.0.1", "::1"})
+    # Host bypass only applies when ``not settings.is_production`` (see middleware).
+    monkeypatch.setattr(settings, "debug", True)
 
     app = _make_app(override_limit=2)
     with TestClient(app) as client:

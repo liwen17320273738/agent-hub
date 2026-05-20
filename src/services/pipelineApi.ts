@@ -114,9 +114,13 @@ export function mapTask(raw: any): PipelineTask {
       gateStatus: s.gate_status ?? s.gateStatus ?? null,
       gateScore: s.gate_score ?? s.gateScore ?? null,
       gateDetails: s.gate_details ?? s.gateDetails ?? null,
+      lastError: s.last_error ?? s.lastError ?? null,
+      retryCount: s.retry_count ?? s.retryCount ?? 0,
+      inputSnapshot: (s.input_snapshot ?? s.inputSnapshot ?? null) as Record<string, unknown> | null,
     })),
     artifacts: mapArtifacts(raw.artifacts),
     template: raw.template ?? null,
+    customStages: (raw.custom_stages ?? raw.customStages ?? null) as PipelineTask['customStages'],
     repoUrl: raw.repo_url ?? raw.repoUrl ?? null,
     projectPath: raw.project_path ?? raw.projectPath ?? null,
     qualityGateConfig: raw.quality_gate_config ?? raw.qualityGateConfig ?? null,
@@ -126,6 +130,12 @@ export function mapTask(raw: any): PipelineTask {
     finalAcceptanceAt: mapTs(raw.final_acceptance_at ?? raw.finalAcceptanceAt) ?? null,
     finalAcceptanceFeedback: raw.final_acceptance_feedback ?? raw.finalAcceptanceFeedback ?? null,
     autoFinalAccept: raw.auto_final_accept ?? raw.autoFinalAccept ?? null,
+    schedulerLastError: raw.scheduler_last_error ?? raw.schedulerLastError ?? undefined,
+    schedulerRunKind: raw.scheduler_run_kind ?? raw.schedulerRunKind ?? undefined,
+    schedulerRunStartedAt:
+      mapTs(raw.scheduler_run_started_at ?? raw.schedulerRunStartedAt),
+    schedulerRunFinishedAt:
+      mapTs(raw.scheduler_run_finished_at ?? raw.schedulerRunFinishedAt),
     createdBy: raw.created_by ?? raw.createdBy ?? '',
     createdAt: mapTs(raw.created_at ?? raw.createdAt) ?? Date.now(),
     updatedAt: mapTs(raw.updated_at ?? raw.updatedAt) ?? Date.now(),
@@ -171,6 +181,34 @@ export async function fetchTask(id: string): Promise<PipelineTask> {
 
   const data = await apiFetch<{ task: unknown }>(`/pipeline/tasks/${id}`)
   return mapTask(data.task)
+}
+
+/** Phase 3 artifact contract (JSON report for UI / share). */
+export type ArtifactContractReport = Record<string, unknown>
+
+export async function fetchTaskArtifactContract(taskId: string): Promise<ArtifactContractReport> {
+  if (!(await checkServer())) {
+    throw new Error('流水线后端不可用')
+  }
+  return apiFetch(`/pipeline/tasks/${encodeURIComponent(taskId)}/artifact-contract`)
+}
+
+/** Signed share token — no Authorization header. */
+export async function fetchShareArtifactContract(shareToken: string): Promise<ArtifactContractReport> {
+  const isEnterprise = import.meta.env.VITE_ENTERPRISE === 'true'
+  const res = await fetch(
+    `${getBaseUrl()}/share/${encodeURIComponent(shareToken)}/artifact-contract`,
+    {
+      credentials: isEnterprise ? 'include' : 'same-origin',
+      headers: { Accept: 'application/json' },
+    },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    const detail = (body as { detail?: string }).detail
+    throw new Error(detail || `HTTP ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function fetchTemplates(): Promise<Record<string, {
@@ -952,6 +990,33 @@ export async function resumePipeline(
     method: 'POST',
     body: JSON.stringify({ from_stage: fromStage || null, force_continue: forceContinue || false }),
   })
+}
+
+export async function cancelSchedulerQueue(taskId: string): Promise<{
+  ok: boolean
+  removed: number
+  submissionIds: string[]
+  stillRunning: Array<Record<string, unknown>>
+}> {
+  return apiFetch(`/pipeline/tasks/${taskId}/cancel-queue`, { method: 'POST', body: JSON.stringify({}) })
+}
+
+/** Linear engine: reset a stage and rerun via gateway background runner. */
+export async function retryPipelineStage(taskId: string, stageId: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/pipeline/tasks/${taskId}/retry-stage/${stageId}`, { method: 'POST', body: JSON.stringify({}) })
+}
+
+/** DAG scheduler: reset one stage then queue `dag-run` with ``resume: true``. */
+export async function retryDagStage(taskId: string, stageId: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/pipeline/tasks/${taskId}/retry-dag-stage/${stageId}`, { method: 'POST', body: JSON.stringify({}) })
+}
+
+/** Prefer ``retryDagStage`` when the task is on (or owns) the DAG scheduler path. */
+export function shouldRetryStageViaDag(task: PipelineTask): boolean {
+  if (task.schedulerRunKind === 'dag-run') return true
+  if (task.template === 'custom') return true
+  if (Array.isArray(task.customStages) && task.customStages.length > 0) return true
+  return false
 }
 
 /**

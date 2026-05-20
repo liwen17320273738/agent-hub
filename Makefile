@@ -7,10 +7,13 @@
 #   - Redis (port 6379): Cache + SSE pub/sub + working memory
 #   - Nginx (port 80): Reverse proxy (Docker only)
 
-.PHONY: help check config install dev dev-daemon start stop clean test test-relay lint format-backend \
-        docker-start docker-stop docker-logs docker-build backup
+.PHONY: help check config install dev dev-daemon start stop clean test test-relay lint format-backend migrate \
+        docker-start docker-stop docker-logs docker-build backup reset-admin verify-login \
+        provision deploy-server
 
 PYTHON ?= python3
+# Directory containing this Makefile (repo root even when `make -C` is used).
+REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 help:
 	@echo "Agent Hub Development Commands:"
@@ -18,7 +21,10 @@ help:
 	@echo "  make check           - Check if all required tools are installed"
 	@echo "  make config          - Generate local config files from examples"
 	@echo "  make install         - Install all dependencies (frontend + backend)"
+	@echo "  make migrate         - alembic upgrade head (merged env like make dev)"
 	@echo "  make dev             - Start all services in development mode"
+	@echo "  make reset-admin    - Set DB user password to ADMIN_PASSWORD (fix login mismatch)"
+	@echo "  make verify-login   - POST /auth/login with merged .env (same as make dev); must print PASS"
 	@echo "  make dev-daemon      - Start all services in background (daemon mode)"
 	@echo "  make stop            - Stop all running services"
 	@echo "  make clean           - Clean up processes and temporary files"
@@ -28,10 +34,14 @@ help:
 	@echo "  make format-backend  - Backend: ruff format (optional; touches many files)"
 	@echo ""
 	@echo "Docker Commands:"
-	@echo "  make docker-build    - Build Docker images"
-	@echo "  make docker-start    - Start Docker services"
+	@echo "  make docker-build    - Build Docker images (internal PG/Redis)"
+	@echo "  make docker-start    - Start Docker services (internal PG/Redis)"
 	@echo "  make docker-stop     - Stop Docker services"
 	@echo "  make docker-logs     - View Docker logs"
+	@echo ""
+	@echo "Production:"
+	@echo "  make provision       - One-command deploy on a fresh VPS"
+	@echo "  make deploy-server   - Deploy with external PostgreSQL + Docker Redis"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make backup          - Backup PostgreSQL database"
@@ -65,6 +75,26 @@ dev-daemon:
 
 start:
 	@./scripts/serve.sh --prod
+
+# Same env merge as scripts/serve.sh: backend/.env then repo-root .env (latter wins on duplicates).
+# Ensures ADMIN_* / DATABASE_URL match the running API before syncing password in DB.
+reset-admin:
+	@set -a; \
+	[ -f "$(REPO_ROOT)/backend/.env" ] && . "$(REPO_ROOT)/backend/.env"; \
+	[ -f "$(REPO_ROOT)/.env" ] && . "$(REPO_ROOT)/.env"; \
+	set +a; \
+	cd "$(REPO_ROOT)/backend" && $(PYTHON) -m scripts.reset_admin_password
+
+# Same DATABASE_URL merge as scripts/serve.sh; avoids migrating localhost while the API uses root .env.
+migrate:
+	@set -a; \
+	[ -f "$(REPO_ROOT)/backend/.env" ] && . "$(REPO_ROOT)/backend/.env"; \
+	[ -f "$(REPO_ROOT)/.env" ] && . "$(REPO_ROOT)/.env"; \
+	set +a; \
+	cd "$(REPO_ROOT)/backend" && PYTHONPATH=. $(PYTHON) -m alembic upgrade head
+
+verify-login:
+	@./scripts/verify-dev-login.sh
 
 stop:
 	@echo "Stopping all services..."
@@ -112,6 +142,50 @@ docker-stop:
 
 docker-logs:
 	@docker compose -f docker/docker-compose.yml logs -f
+
+docker-firecrawl:
+	@docker compose -f docker/docker-compose.firecrawl.yml up -d
+	@echo "Firecrawl: http://localhost:$${FIRECRAWL_PORT:-3002}"
+	@echo "在 .env 中设置 FIRECRAWL_SELF_HOSTED_URL=http://localhost:$${FIRECRAWL_PORT:-3002}"
+
+docker-firecrawl-down:
+	@docker compose -f docker/docker-compose.firecrawl.yml down
+
+# ── Production ───────────────────────────────────────────────────────────────
+
+provision:
+	@echo ""
+	@echo "=========================================="
+	@echo "  Running production deployer..."
+	@echo "=========================================="
+	@echo ""
+	@echo "  This will:"
+	@echo "    1. Install Docker if missing"
+	@echo "    2. Clone/pull agent-hub to /opt/agent-hub"
+	@echo "    3. Prompt for .env configuration"
+	@echo "    4. Optionally set up HTTPS via Caddy"
+	@echo "    5. Build & start all containers"
+	@echo ""
+	@echo "  Run from your target server (not locally)."
+	@echo ""
+	@sudo ./scripts/provision.sh
+
+# ── Server Deployment (reuses external PostgreSQL) ────────────────────────
+
+deploy-server:
+	@echo ""
+	@echo "=========================================="
+	@echo "  Deploying Agent Hub (external PG)..."
+	@echo "=========================================="
+	@echo ""
+	@echo "  This will:"
+	@echo "    1. Ensure Docker Compose plugin is installed"
+	@echo "    2. Verify PostgreSQL connectivity"
+	@echo "    3. Clean up test data (optional)"
+	@echo "    4. Build Docker images"
+	@echo "    5. Start all containers"
+	@echo ""
+	@./scripts/deploy-server.sh
 
 # ── Maintenance ─────────────────────────────────────────────────────────────
 

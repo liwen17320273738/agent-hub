@@ -44,8 +44,8 @@
     <!-- Empty state -->
     <div v-if="!imagePath && !htmlPath" class="empty-state">
       <div class="empty-icon">🎨</div>
-      <p class="empty-title">暂无设计稿</p>
-      <p class="empty-desc">当前阶段还未生成 UI 设计稿，Pipeline 执行 design 阶段后将自动生成</p>
+      <p class="empty-title">{{ compact ? '' : '暂无设计稿' }}</p>
+      <p class="empty-desc">{{ compact ? '设计图尚未生成' : '当前阶段还未生成 UI 设计稿，Pipeline 执行 design 阶段后将自动生成' }}</p>
     </div>
   </div>
 </template>
@@ -57,6 +57,7 @@ import { apiFetch } from '@/services/api'
 
 const props = defineProps<{
   taskId: string
+  compact?: boolean
 }>()
 
 const imagePath = ref('')

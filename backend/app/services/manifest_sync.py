@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,12 +34,17 @@ async def rebuild_manifest(task_id: str, db: AsyncSession) -> Dict[str, Any]:
     )
     artifacts = result.scalars().all()
 
+    from .artifact_contract import build_task_contract_report
+
+    contract_report = await build_task_contract_report(db, str(task_id))
+
     manifest = {
         "task_id": str(task_id),
         "title": title,
         "rebuilt_at": datetime.now(timezone.utc).isoformat(),
         "artifact_count": len(artifacts),
         "artifacts": {},
+        "contract": contract_report,
     }
 
     for art in artifacts:
@@ -65,11 +70,21 @@ async def rebuild_manifest(task_id: str, db: AsyncSession) -> Dict[str, Any]:
     return manifest
 
 
-async def trigger_manifest_refresh(task_id: str) -> None:
-    """Trigger an async manifest rebuild. Best-effort, non-blocking."""
+async def trigger_manifest_refresh(
+    task_id: str,
+    db: Optional[AsyncSession] = None,
+) -> None:
+    """Rebuild manifest cache for a task (best-effort).
+
+    When ``db`` is provided (same request transaction), reuse it so nested
+    sessions do not break SQLite / test overrides that share one connection.
+    """
     try:
-        from ..database import async_session
-        async with async_session() as db:
+        if db is not None:
             await rebuild_manifest(task_id, db)
+            return
+        from ..database import async_session
+        async with async_session() as session:
+            await rebuild_manifest(task_id, session)
     except Exception as e:
         logger.warning("Manifest refresh failed for task %s: %s", task_id, e)

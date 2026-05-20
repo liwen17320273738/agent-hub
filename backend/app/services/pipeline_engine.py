@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -876,6 +877,24 @@ async def execute_stage(
     """
     Execute a single pipeline stage with all 6 maturation layers.
     """
+    # ── Trace context propagation ────────────────────────────────────
+    # Inherit the API-level trace so logs from LLM router, agent runtime,
+    # and tool calls all share the same trace_id for full-chain RCA.
+    try:
+        from ..core.context import get_current_span, ensure_trace, set_current_span
+        current_span = get_current_span()
+        if current_span:
+            parent_span = current_span
+        else:
+            parent_span = ensure_trace()
+        stage_span = parent_span.new_child({
+            "task_id": str(task_id),
+            "stage_id": stage_id,
+        })
+        set_current_span(stage_span)
+    except Exception:
+        stage_span = None
+
     stage_conf = STAGE_ROLE_PROMPTS.get(stage_id)
     if not stage_conf:
         return {"ok": False, "error": f"Unknown stage: {stage_id}"}
@@ -1216,6 +1235,50 @@ async def execute_stage(
     except Exception as hook_err:
         logger.warning("[pipeline] Pre-stage hooks failed for %s: %s", stage_id, hook_err)
 
+    # --- Phase 5: Resource Check for Design/Architecture stages ---
+    if stage_id in ("design", "architecture"):
+        try:
+            from .ui_visualizer import UiVisualizer
+            viz = UiVisualizer(workspace_root=app_settings.workspace_root)
+            if stage_id == "design":
+                rc = await viz.check_design_resources()
+            else:
+                rc = await viz.check_diagram_resources()
+
+            if stage_span:
+                try:
+                    stage_span.set_metadata("resource_check", rc)
+                except Exception:
+                    pass
+
+            await emit_event("stage:resource-check", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "resourceOk": rc.get("ok", False),
+                "available": rc.get("available", []),
+                "channels": rc.get("channels", {}),
+            })
+
+            if not rc.get("ok") and not rc.get("fallbacks"):
+                err_msg = (
+                    f"Visual resource check failed for stage {stage_id}: "
+                    f"no image generation or diagram rendering channel available. "
+                    f"Check result: {json.dumps(rc, ensure_ascii=False)}"
+                )
+                logger.error("[pipeline] %s", err_msg)
+                await emit_event("stage:error", {
+                    "taskId": task_id, "stageId": stage_id,
+                    "error": err_msg, "blocked": True,
+                })
+                return {
+                    "ok": False,
+                    "blocked": True,
+                    "error": err_msg,
+                    "resource_check": rc,
+                }
+        except Exception as rce:
+            logger.warning("[pipeline] Resource check failed for %s: %s", stage_id, rce)
+
     # --- Layer 4: LLM Call (with optional AgentRuntime tool loop) ---
     llm_result = None
     try:
@@ -1366,6 +1429,8 @@ async def execute_stage(
         # --- Layer 4.6: Testing stage build verification ---
         # Before the testing agent generates a report, try to build the code
         # that was written in the development stage. If build fails, auto-fix.
+        # Phase 4 (4.2b): max 2 auto-fix retries; if both fail → return
+        # stage failure with build_log_summary.
         if stage_id == "testing" and task_worktree:
             try:
                 from .codegen.codegen_agent import CodeGenAgent
@@ -1376,22 +1441,46 @@ async def execute_stage(
                     build_result = await codegen.run_build(str(task_worktree), build_cmd)
                     build_log = build_result.get("output", "")
                     build_ok = build_result.get("ok", False)
-                    if not build_ok:
-                        logger.warning("[pipeline] Build failed, attempting auto-fix: %s", build_log[:500])
+
+                    # Phase 4.2b: auto-fix loop, max 2 retries
+                    build_log_path = os.path.join(str(task_worktree), "build.log")
+                    fix_attempts = 0
+                    while not build_ok and fix_attempts < 2:
+                        fix_attempts += 1
+                        logger.warning("[pipeline] Build failed, auto-fix attempt %d/2", fix_attempts)
                         fix_result = await codegen.auto_fix(
                             task_id=task_id,
                             project_dir=str(task_worktree),
-                            error_output=build_log,
-                            attempt=1,
+                            build_log_path=build_log_path,
+                            attempt=fix_attempts,
                         )
-                        if fix_result.get("ok"):
-                            # Retry build after fix
-                            build_result = await codegen.run_build(str(task_worktree), build_cmd)
-                            build_log = build_result.get("output", "")
-                            build_ok = build_result.get("ok", False)
-                            logger.info("[pipeline] Build retry after auto-fix: ok=%s", build_ok)
-                        else:
-                            logger.warning("[pipeline] Auto-fix failed: %s", fix_result.get("output", "")[:500])
+                        if not fix_result.get("ok"):
+                            logger.warning("[pipeline] Auto-fix attempt %d failed: %s", fix_attempts,
+                                           fix_result.get("output", "")[:300])
+                        # Retry build regardless (auto_fix may have partially fixed)
+                        build_result = await codegen.run_build(str(task_worktree), build_cmd)
+                        build_log = build_result.get("output", "")
+                        build_ok = build_result.get("ok", False)
+                        if build_ok:
+                            logger.info("[pipeline] Build passed after auto-fix attempt %d", fix_attempts)
+                            break
+
+                    if not build_ok:
+                        # Phase 4.2b: write failing build.log, return stage failure
+                        _write_build_log_to_disk(str(task_worktree), build_log)
+                        build_log_summary = build_log[:2000] if build_log else "no build output"
+                        await emit_event("stage:build-failed", {
+                            "taskId": task_id,
+                            "stageId": stage_id,
+                            "error": f"build_failed_after_{fix_attempts}_retries",
+                            "buildLogSummary": build_log_summary[:500],
+                        })
+                        return {
+                            "ok": False,
+                            "error": f"build_failed_after_{fix_attempts}_retries",
+                            "build_log_summary": build_log_summary,
+                        }
+
                     # Inject build result into user_message so the testing agent sees it
                     build_section = (
                         f"\n\n## 实际构建结果（自动执行）\n\n"
@@ -1719,20 +1808,25 @@ async def execute_stage(
         except Exception as ruflo_err:
             logger.debug("[ruflo] Post-stage store skipped: %s", ruflo_err)
 
-    # --- Layer 9.6: Visual Generator → generate mockups/diagrams ---
+    # --- Layer 9.5: Visual Generator → generate mockups/diagrams (Phase 5 upgrade) ---
     if stage_id in ("design", "architecture") and content:
         try:
             from .ui_visualizer import UiVisualizer
             from .artifact_writer import _write_one_artifact as _write_art_custom
+
             viz = UiVisualizer(workspace_root=app_settings.workspace_root)
 
             if stage_id == "design":
-                # Design stage → UI mockup
+                # Design stage → UI mockup + design tokens + screen plan
                 result = await viz.generate_mockup(
                     task_id=task_id, stage_id=stage_id,
                     design_spec=content,
                     project_name=task_title,
                 )
+                design_tokens = viz.generate_design_tokens(content)
+                screen_plan = viz.generate_screen_plan(content)
+                mockup_produced = False
+
                 if result.get("ok"):
                     if result["imagePath"]:
                         await _write_art_custom(
@@ -1741,8 +1835,15 @@ async def execute_stage(
                             content=f"![UI 设计稿]({result['imagePath']})",
                             storage_path=result["imagePath"],
                             agent_name=agent_name,
-                            metadata_json={"filePath": result["imagePath"], "prompt": result["prompt"]},
+                            metadata_json={
+                                "filePath": result["imagePath"],
+                                "prompt": result["prompt"],
+                                "design_tokens": design_tokens,
+                                "screen_plan": screen_plan,
+                            },
                         )
+                        mockup_produced = True
+                        logger.info("[ui-visualizer] UI mockup PNG generated for %s", task_id[:12])
                     if result["htmlPath"]:
                         await _write_art_custom(
                             db, task_id=str(task_id), stage_id=stage_id,
@@ -1750,32 +1851,307 @@ async def execute_stage(
                             content=f"UI 可交互原型:\n{result['htmlPath']}",
                             storage_path=result["htmlPath"],
                             agent_name=agent_name,
-                            metadata_json={"filePath": result["htmlPath"]},
+                            metadata_json={
+                                "filePath": result["htmlPath"],
+                                "mockup_kind": "png_fallback" if not mockup_produced else "html_supplement",
+                                "design_tokens": design_tokens,
+                                "screen_plan": screen_plan,
+                            },
                         )
-                    logger.info("[ui-visualizer] Generated UI mockups for %s", task_id[:12])
+                        mockup_produced = mockup_produced or True
+                        logger.info("[ui-visualizer] UI mockup HTML generated for %s", task_id[:12])
+
+                # Phase 5: fail design stage if no mockup produced
+                if not mockup_produced:
+                    err_msg = "Design stage: no UI mockup generated (both PNG and HTML failed)"
+                    logger.error("[pipeline] %s", err_msg)
+                    await emit_event("stage:error", {
+                        "taskId": task_id, "stageId": stage_id,
+                        "error": err_msg,
+                        "missing_artifact": "ui_mockup",
+                    })
+                    return {
+                        "ok": False,
+                        "error": err_msg,
+                        "content": content,
+                        "model": model,
+                        "tier": tier,
+                    }
+
             elif stage_id == "architecture":
-                # Architecture stage → architecture diagrams
-                result = await viz.generate_architecture_diagram(
+                # Architecture stage → architecture diagrams + structured data + consistency
+                arch_result = await viz.generate_all_architecture_artifacts(
                     task_id=task_id, stage_id=stage_id,
                     arch_spec=content,
                     project_name=task_title,
                 )
-                if result.get("ok") and result.get("htmlPath"):
+                diagram_result = arch_result.get("diagram", {})
+
+                if diagram_result.get("ok") and diagram_result.get("htmlPath"):
+                    # Write architecture.mmd
+                    mermaid_raw = diagram_result.get("mermaidRaw", {})
+                    if mermaid_raw.get("architecture"):
+                        await _write_art_custom(
+                            db, task_id=str(task_id), stage_id=stage_id,
+                            artifact_type="architecture",
+                            content=f"```mermaid\n{mermaid_raw['architecture']}\n```\n\n## Sequence\n\n```mermaid\n{mermaid_raw.get('sequence', '')}\n```\n\n## Deployment\n\n```mermaid\n{mermaid_raw.get('deployment', '')}\n```",
+                            storage_path="",
+                            agent_name=agent_name,
+                            metadata_json={"format": "mermaid", "diagrams": list(mermaid_raw.keys())},
+                        )
+
+                    # Write architecture.html
                     await _write_art_custom(
                         db, task_id=str(task_id), stage_id=stage_id,
                         artifact_type="architecture_diagram",
-                        content=f"架构图:\n{result['htmlPath']}",
-                        storage_path=result["htmlPath"],
+                        content=f"架构图:\n{diagram_result['htmlPath']}",
+                        storage_path=diagram_result["htmlPath"],
                         agent_name=agent_name,
                         metadata_json={
-                            "filePath": result["htmlPath"],
-                            "componentCount": result.get("componentCount", 0),
-                            "flowCount": result.get("flowCount", 0),
+                            "filePath": diagram_result["htmlPath"],
+                            "componentCount": diagram_result.get("componentCount", 0),
+                            "flowCount": diagram_result.get("flowCount", 0),
+                            "api_contract": arch_result.get("api_contract", {}),
+                            "data_model": arch_result.get("data_model", {}),
+                            "file_plan": arch_result.get("file_plan", {}),
+                            "consistency_ok": arch_result.get("consistency_ok", True),
+                            "consistency_issues": arch_result.get("consistency_issues", []),
                         },
                     )
-                    logger.info("[ui-visualizer] Generated architecture diagrams for %s", task_id[:12])
+
+                    # Phase 5: consistency check — fail if inconsistent
+                    if not arch_result.get("consistency_ok", True):
+                        issues = arch_result.get("consistency_issues", [])
+                        err_msg = (
+                            f"Architecture consistency check failed: "
+                            f"{'; '.join(issues)}"
+                        )
+                        logger.error("[pipeline] %s", err_msg)
+                        await emit_event("stage:error", {
+                            "taskId": task_id, "stageId": stage_id,
+                            "error": err_msg,
+                            "consistency_issues": issues,
+                        })
+                        return {
+                            "ok": False,
+                            "error": err_msg,
+                            "consistency_issues": issues,
+                            "content": content,
+                            "model": model,
+                            "tier": tier,
+                        }
+
+                    logger.info("[ui-visualizer] Architecture diagrams + structured data generated for %s (%d components, %d flows)", task_id[:12], diagram_result.get("componentCount", 0), diagram_result.get("flowCount", 0))
+                else:
+                    err_msg = "Architecture stage: no architecture diagram generated"
+                    logger.error("[pipeline] %s", err_msg)
+                    await emit_event("stage:error", {
+                        "taskId": task_id, "stageId": stage_id,
+                        "error": err_msg,
+                        "missing_artifact": "architecture_diagram",
+                    })
+                    return {
+                        "ok": False,
+                        "error": err_msg,
+                        "content": content,
+                        "model": model,
+                        "tier": tier,
+                    }
+
         except Exception as viz_err:
-            logger.warning("[ui-visualizer] Visual generation skipped: %s", viz_err)
+            logger.error("[ui-visualizer] Visual generation failed for %s: %s", stage_id, viz_err)
+            return {
+                "ok": False,
+                "error": f"Visual generation error: {viz_err}",
+                "content": content,
+                "model": model,
+                "tier": tier,
+            }
+
+    # --- Phase 6: QA Real Execution (post-LLM, pre-artifact-write) ---
+    if stage_id == "testing" and task_worktree:
+        try:
+            from .qa_executor import QaExecutor
+            from .artifact_writer import write_qa_artifacts
+
+            qa = QaExecutor(str(task_worktree))
+            qa_result = await qa.run_full_qa()
+            logger.info(
+                "[pipeline] Phase 6 QA complete for %s: ok=%s, blocked=%s",
+                task_id[:12], qa_result.get("ok"), qa_result.get("blocked"),
+            )
+
+            # Write QA artifacts to DB (test_report, build_log, test_log, screenshot, console_errors)
+            qa_arts = await write_qa_artifacts(db, str(task_id), str(task_worktree), qa_result)
+            if qa_arts:
+                logger.info("[pipeline] Wrote %d Phase 6 QA artifacts for %s", len(qa_arts), task_id[:12])
+
+            # Blocked (no source_manifest / missing tools)
+            if qa_result.get("blocked"):
+                await emit_event("stage:qa-blocked", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "error": qa_result.get("error", "QA blocked"),
+                    "resource_check": qa_result.get("resource_check", {}),
+                })
+                return {
+                    "ok": False,
+                    "error": qa_result.get("error", "QA resources unavailable"),
+                    "qa_blocked": True,
+                }
+
+            # Failed (install/build/test failure)
+            if not qa_result.get("ok"):
+                failed_step = qa_result.get("failed_step", "unknown")
+                await emit_event("stage:qa-failed", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "error": qa_result.get("error", "QA execution failed"),
+                    "failed_step": failed_step,
+                })
+                return {
+                    "ok": False,
+                    "error": qa_result.get("error", "QA execution failed"),
+                    "qa_failed_step": failed_step,
+                }
+
+            # Success — inject QA report into content so artifact writer gets it
+            test_report = qa_result.get("report_markdown", "")
+            if test_report:
+                content = (content or "") + f"\n\n## QA Real Execution Results\n\n{test_report}\n"
+
+        except ImportError:
+            logger.warning("[pipeline] qa_executor not available, skipping Phase 6 QA")
+        except Exception as qa_err:
+            logger.error("[pipeline] Phase 6 QA execution failed: %s", qa_err)
+            await emit_event("stage:qa-error", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "error": str(qa_err),
+            })
+
+    # --- Phase 7: Deploy closure (post-LLM, pre-artifact-write) ---
+    if stage_id == "deployment" and task_worktree:
+        try:
+            from .deploy.local_preview import LocalPreview, check_deploy_resources
+            from .deploy.vercel import deploy_to_vercel
+            from .artifact_writer import write_deploy_artifacts
+
+            # 1. Resource check
+            deploy_rc = check_deploy_resources()
+            if not deploy_rc.get("any_available"):
+                logger.error("[pipeline] No deploy channel available for %s", task_id[:12])
+                await emit_event("stage:deploy-blocked", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "error": "No deploy channel available (local nor Vercel)",
+                    "resource_check": deploy_rc,
+                })
+                return {
+                    "ok": False,
+                    "error": "No deploy channel available (local preview requires node/pnpm; Vercel requires VERCEL_TOKEN)",
+                    "deploy_blocked": True,
+                }
+
+            deploy_result = None
+
+            # 2. Vercel preferred when token is available
+            vercel_token = os.environ.get("VERCEL_TOKEN", "")
+            if vercel_token:
+                logger.info("[pipeline] Deploying %s via Vercel", task_id[:12])
+                try:
+                    project_name = f"agenthub-{task_id[:12]}"
+                    vercel_result = await deploy_to_vercel(
+                        project_dir=str(task_worktree),
+                        project_name=project_name,
+                        token=vercel_token,
+                        production=False,
+                    )
+                    if vercel_result.get("ok"):
+                        deploy_result = {
+                            "url": vercel_result.get("url", ""),
+                            "provider": "vercel",
+                            "environment": "preview",
+                            "health_status": "healthy",
+                            "deployed_at": datetime.utcnow().isoformat(),
+                            "screenshot_path": "",
+                            "ok": True,
+                        }
+                        logger.info("[pipeline] Vercel deploy succeeded: %s", deploy_result["url"])
+                    else:
+                        logger.warning("[pipeline] Vercel deploy failed, falling back to local: %s",
+                                       vercel_result.get("error"))
+                except Exception as ve:
+                    logger.warning("[pipeline] Vercel deploy exception, falling back to local: %s", ve)
+
+            # 3. Fallback to local preview (also used when no Vercel token)
+            if deploy_result is None:
+                logger.info("[pipeline] Deploying %s via local preview", task_id[:12])
+                preview = LocalPreview(str(task_worktree))
+                local_result = await preview.deploy()
+                await preview.close()
+
+                if local_result.ok:
+                    deploy_result = {
+                        "url": local_result.url,
+                        "provider": "local",
+                        "environment": "preview",
+                        "health_status": local_result.health_status,
+                        "deployed_at": local_result.deployed_at,
+                        "screenshot_path": local_result.screenshot_path,
+                        "port_used": local_result.port_used,
+                        "ok": True,
+                    }
+                else:
+                    logger.error("[pipeline] Local preview failed: %s", local_result.error)
+                    await emit_event("stage:deploy-failed", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "error": local_result.error,
+                        "provider": "local",
+                    })
+                    return {
+                        "ok": False,
+                        "error": f"Local preview failed: {local_result.error}",
+                        "deploy_failed": True,
+                    }
+
+            # 4. Write deploy artifacts
+            if deploy_result:
+                deploy_arts = await write_deploy_artifacts(
+                    db, str(task_id), str(task_worktree), deploy_result,
+                )
+                logger.info("[pipeline] Wrote %d deploy artifacts for %s (provider=%s, url=%s)",
+                            len(deploy_arts), task_id[:12],
+                            deploy_result.get("provider"),
+                            deploy_result.get("url", "")[:50])
+
+                # Inject deploy info into content for standard artifact write
+                deploy_info = (
+                    f"\n\n## 部署结果\n\n"
+                    f"- Provider: {deploy_result.get('provider')}\n"
+                    f"- URL: {deploy_result.get('url', 'N/A')}\n"
+                    f"- Health: {deploy_result.get('health_status')}\n"
+                )
+                content = (content or "") + deploy_info
+
+                await emit_event("stage:deploy-complete", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "url": deploy_result.get("url", ""),
+                    "provider": deploy_result.get("provider", "unknown"),
+                    "healthStatus": deploy_result.get("health_status", "unknown"),
+                })
+
+        except ImportError as ie:
+            logger.warning("[pipeline] Deploy modules not available: %s", ie)
+        except Exception as deploy_err:
+            logger.error("[pipeline] Phase 7 deploy failed: %s", deploy_err)
+            await emit_event("stage:error", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "error": str(deploy_err),
+            })
 
     # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
     try:
@@ -1819,6 +2195,91 @@ async def execute_stage(
         })
     except Exception as art_err:
         logger.warning("[pipeline] Artifact write failed for %s: %s", stage_id, art_err)
+
+    if app_settings.artifact_store_v2 and app_settings.artifact_contract_enforce:
+        from .artifact_contract import (
+            validate_stage_artifact_contract,
+            validate_stage_artifact_contract_rules_strict,
+        )
+
+        ok_vc, missing_vc = await validate_stage_artifact_contract(
+            db, str(task_id), stage_id,
+        )
+        if not ok_vc:
+            err_msg = (
+                f"Artifact contract unmet after stage {stage_id}: missing {missing_vc}"
+            )
+            logger.error("[pipeline] %s", err_msg)
+            await emit_event("stage:error", {
+                "taskId": task_id,
+                "stageId": stage_id,
+                "agent": agent_name,
+                "error": err_msg,
+                "contractMissing": missing_vc,
+            })
+            return {
+                "ok": False,
+                "error": err_msg,
+                "contract_missing": missing_vc,
+                "content": content,
+                "model": model,
+                "tier": tier,
+                "skill_completion_criteria": skill_completion_criteria,
+                "verification": {
+                    "status": verification.overall_status.value,
+                    "auto_proceed": verification.auto_proceed,
+                    "checks": [c.dict() for c in verification.checks],
+                    "suggestions": verification.suggestions,
+                },
+                "tokens": {
+                    "prompt": prompt_tokens,
+                    "completion": completion_tokens,
+                    "total": prompt_tokens + completion_tokens,
+                },
+                "cost_usd": cost_estimate,
+                "trace_id": trace.trace_id,
+                "span_id": span.span_id,
+            }
+
+        if app_settings.artifact_contract_rules_strict:
+            ok_sr, rules_errs = await validate_stage_artifact_contract_rules_strict(
+                db, str(task_id), stage_id,
+            )
+            if not ok_sr:
+                err_msg = (
+                    f"Artifact contract rules violated after stage {stage_id}: {rules_errs}"
+                )
+                logger.error("[pipeline] %s", err_msg)
+                await emit_event("stage:error", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "agent": agent_name,
+                    "error": err_msg,
+                    "contractRules": rules_errs,
+                })
+                return {
+                    "ok": False,
+                    "error": err_msg,
+                    "contract_rules": rules_errs,
+                    "content": content,
+                    "model": model,
+                    "tier": tier,
+                    "skill_completion_criteria": skill_completion_criteria,
+                    "verification": {
+                        "status": verification.overall_status.value,
+                        "auto_proceed": verification.auto_proceed,
+                        "checks": [c.dict() for c in verification.checks],
+                        "suggestions": verification.suggestions,
+                    },
+                    "tokens": {
+                        "prompt": prompt_tokens,
+                        "completion": completion_tokens,
+                        "total": prompt_tokens + completion_tokens,
+                    },
+                    "cost_usd": cost_estimate,
+                    "trace_id": trace.trace_id,
+                    "span_id": span.span_id,
+                }
 
     await emit_event("stage:completed", {
         "taskId": task_id,
@@ -1957,6 +2418,13 @@ async def execute_full_pipeline(
                 db_stages[stage_id].status = "blocked" if result.get("blocked") else "error"
             if db_task:
                 db_task.status = "paused" if result.get("blocked") else "active"
+            # Phase 4.2b: write scheduler_last_error for build failure or stage error
+            if result.get("build_log_summary"):
+                err_msg = result["error"][:500]
+            else:
+                err_msg = result.get("error", "Stage execution failed")[:500]
+            if db_task:
+                db_task.scheduler_last_error = err_msg
             await db.flush()
 
             if result.get("blocked") and not force_continue:
@@ -2799,3 +3267,14 @@ async def _ruflo_memory_enrich(
         logger.warning("[ruflo] Memory enrichment failed (non-fatal): %s", e)
 
     return enriched
+
+
+# ── Phase 4.2b helper ───────────────────────────────────────────────────
+
+
+def _write_build_log_to_disk(project_dir: str, log_text: str) -> str:
+    """Write build.log to project_dir. Returns the file path."""
+    path = os.path.join(project_dir, "build.log")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(log_text)
+    return path

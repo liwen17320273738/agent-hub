@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 
 from .file_tools import file_read, file_write, file_list, str_replace
@@ -1189,6 +1190,186 @@ async def execute_tool(
     except Exception as e:
         logger.error(f"Tool {tool_name} failed: {e}")
         return f"Error: tool execution failed - {e}"
+
+
+# ─────────────────────────────────────────────────────────────────
+# GitHub MCP Tools — via @modelcontextprotocol/server-github
+# ─────────────────────────────────────────────────────────────────
+
+_GITHUB_MCP_TOOLS: Dict[str, Dict[str, Any]] = {
+    "github_search_repos": {
+        "name": "github_search_repos",
+        "description": "Search GitHub repositories by query string. Use for research, finding reference implementations, or discovering dependencies.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "GitHub search query (supports qualifiers like 'language:python', 'stars:>100', etc.)"},
+                "limit": {"type": "integer", "description": "Max results (default 10, max 30)"},
+            },
+            "required": ["query"],
+        },
+        "permissions": ["network"],
+        "github_tool": "search_repositories",
+    },
+    "github_search_code": {
+        "name": "github_search_code",
+        "description": "Search code on GitHub. Use for finding usage examples, API patterns, or specific implementations across repos.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Code search query (supports regex, language qualifiers, repo scope)"},
+                "limit": {"type": "integer", "description": "Max results (default 10, max 30)"},
+            },
+            "required": ["query"],
+        },
+        "permissions": ["network"],
+        "github_tool": "search_code",
+    },
+    "github_get_file": {
+        "name": "github_get_file",
+        "description": "Read file contents from a GitHub repository. Use to inspect reference code, check dependencies, or review implementations.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner (user or org)"},
+                "repo": {"type": "string", "description": "Repository name"},
+                "path": {"type": "string", "description": "File path within the repo"},
+                "ref": {"type": "string", "description": "Branch/tag/commit SHA (default: main)"},
+            },
+            "required": ["owner", "repo", "path"],
+        },
+        "permissions": ["network"],
+        "github_tool": "get_file_contents",
+    },
+    "github_create_issue": {
+        "name": "github_create_issue",
+        "description": "Create a GitHub issue. Use for tracking bugs, feature requests, or code review findings.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner"},
+                "repo": {"type": "string", "description": "Repository name"},
+                "title": {"type": "string", "description": "Issue title"},
+                "body": {"type": "string", "description": "Issue body (markdown)"},
+                "labels": {"type": "array", "items": {"type": "string"}, "description": "Issue labels"},
+            },
+            "required": ["owner", "repo", "title"],
+        },
+        "permissions": ["network", "write"],
+        "github_tool": "create_issue",
+    },
+    "github_create_pr": {
+        "name": "github_create_pr",
+        "description": "Create a GitHub pull request. Use for submitting codegen deliverables, proposing changes, or opening review requests.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner"},
+                "repo": {"type": "string", "description": "Repository name"},
+                "title": {"type": "string", "description": "PR title"},
+                "body": {"type": "string", "description": "PR description (markdown)"},
+                "head": {"type": "string", "description": "Source branch name"},
+                "base": {"type": "string", "description": "Target branch (default: main)"},
+            },
+            "required": ["owner", "repo", "title", "head", "base"],
+        },
+        "permissions": ["network", "write"],
+        "github_tool": "create_pull_request",
+    },
+    "github_list_issues": {
+        "name": "github_list_issues",
+        "description": "List issues from a GitHub repository. Use for scanning existing bugs, feature requests, or tracking project status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner"},
+                "repo": {"type": "string", "description": "Repository name"},
+                "state": {"type": "string", "description": "Filter by state: open, closed, all", "enum": ["open", "closed", "all"]},
+                "labels": {"type": "string", "description": "Comma-separated label filter"},
+                "limit": {"type": "integer", "description": "Max results (default 10)"},
+            },
+            "required": ["owner", "repo"],
+        },
+        "permissions": ["network"],
+        "github_tool": "list_issues",
+    },
+    "github_get_issue": {
+        "name": "github_get_issue",
+        "description": "Get a single GitHub issue by number. Use to read issue details, comments, and status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "owner": {"type": "string", "description": "Repository owner"},
+                "repo": {"type": "string", "description": "Repository name"},
+                "issue_number": {"type": "integer", "description": "Issue number"},
+            },
+            "required": ["owner", "repo", "issue_number"],
+        },
+        "permissions": ["network"],
+        "github_tool": "get_issue",
+    },
+}
+
+async def _github_mcp_handler(params: Dict[str, Any], github_tool: str) -> str:
+    """通过 GitHub MCP Bridge 调用工具。"""
+    try:
+        from ..github_mcp import GithubMcpBridge
+
+        bridge = await GithubMcpBridge.start()
+        try:
+            result = await bridge.call_tool(github_tool, params)
+            return result
+        finally:
+            await bridge.stop()
+    except ImportError:
+        return "Error: github_mcp module not available"
+    except FileNotFoundError:
+        return "Error: npx not found — install Node.js to use GitHub MCP tools"
+    except RuntimeError as e:
+        return f"Error: GitHub MCP bridge failed — {e}"
+    except Exception as e:
+        return f"Error: GitHub MCP tool execution failed — {e}"
+
+
+def _make_github_handler(github_tool: str) -> ToolFunc:
+    async def _handler(params: Dict[str, Any]) -> str:
+        return await _github_mcp_handler(params, github_tool)
+    return _handler
+
+
+def _register_github_mcp_tools() -> bool:
+    """尝试注册 GitHub MCP 工具。返回是否成功。"""
+    import shutil
+    if not shutil.which("npx"):
+        logger.info("[tools] GitHub MCP tools unavailable: npx not found")
+        return False
+    if not os.environ.get("GITHUB_PERSONAL_ACCESS_TOKEN"):
+        logger.info("[tools] GitHub MCP tools unavailable: GITHUB_PERSONAL_ACCESS_TOKEN not set")
+        return False
+
+    for name, defn in _GITHUB_MCP_TOOLS.items():
+        github_tool = defn.pop("github_tool")
+        defn["handler"] = _make_github_handler(github_tool)
+        TOOL_REGISTRY[name] = defn
+
+    logger.info("[tools] Registered %d GitHub MCP tools", len(_GITHUB_MCP_TOOLS))
+    return True
+
+
+# 条件注册 GitHub MCP 工具（需要 npx + GITHUB_PERSONAL_ACCESS_TOKEN）
+_register_github_mcp_tools()
+
+# 将 GitHub 工具加入角色白名单
+_GITHUB_READ_TOOLS = {"github_search_repos", "github_search_code", "github_get_file", "github_list_issues", "github_get_issue"}
+_GITHUB_WRITE_TOOLS = {"github_create_issue", "github_create_pr"}
+
+for _role, _tools in ROLE_TOOL_WHITELIST.items():
+    if _role in ("developer", "devops", "architect", "cto"):
+        _tools |= _GITHUB_READ_TOOLS
+    if _role in ("devops",):
+        _tools |= _GITHUB_WRITE_TOOLS
+    if _role in ("product-manager", "qa-lead"):
+        _tools |= {"github_search_repos", "github_list_issues", "github_get_issue"}
 
 
 def get_tool_definitions(tool_names: Optional[List[str]] = None) -> List[Dict[str, Any]]:

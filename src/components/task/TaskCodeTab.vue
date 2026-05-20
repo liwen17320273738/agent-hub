@@ -163,6 +163,71 @@
                 </div>
             </div>
           </div>
+
+          <!-- Phase 4.5: Build summary group -->
+          <div class="file-group">
+            <div class="group-header" @click="buildExpanded = !buildExpanded">
+              <svg class="group-chevron" :class="{ open: buildExpanded }" width="12" height="12" viewBox="0 0 12 12">
+                <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span class="row-icon" style="font-size:14px">🛠️</span>
+              <span class="group-name">{{ t('taskCodeTab.manifestSection') }}</span>
+              <span v-if="sourceManifestData" class="group-badge" :class="{ 'build-ok-badge': buildOk, 'build-fail-badge': !buildOk }">
+                {{ buildOk ? t('taskCodeTab.buildPassed') : t('taskCodeTab.buildFailed') }}
+              </span>
+            </div>
+            <div v-show="buildExpanded" class="group-body build-summary-body">
+              <template v-if="sourceManifestData">
+                <div class="build-summary-row">
+                  <span class="build-label">{{ t('taskCodeTab.buildCommand') }}:</span>
+                  <code class="build-value">{{ sourceManifestData.build_command || '—' }}</code>
+                </div>
+                <div class="build-summary-row">
+                  <span class="build-label">{{ t('taskCodeTab.runCommand') }}:</span>
+                  <code class="build-value">{{ sourceManifestData.run_command || '—' }}</code>
+                </div>
+                <div class="build-summary-row">
+                  <span class="build-label">{{ t('taskCodeTab.testCommand') }}:</span>
+                  <code class="build-value">{{ sourceManifestData.test_command || '—' }}</code>
+                </div>
+                <div class="build-summary-row">
+                  <span class="build-label">{{ t('taskCodeTab.createdFiles') }}:</span>
+                  <span class="build-value">{{ sourceManifestData.created_files?.length || 0 }}</span>
+                </div>
+                <div v-if="sourceManifestData.created_files?.length" class="build-file-list">
+                  <div v-for="fp in sourceManifestData.created_files.slice(0, 30)" :key="fp" class="build-file-item">
+                    <span class="build-file-icon">+</span>
+                    <span class="build-file-path">{{ fp }}</span>
+                  </div>
+                  <div v-if="sourceManifestData.created_files.length > 30" class="build-file-item dimmed">
+                    … {{ sourceManifestData.created_files.length - 30 }} more
+                  </div>
+                </div>
+                <div class="build-status-row" :class="{ 'build-ok': buildOk, 'build-fail': !buildOk }">
+                  {{ buildOk ? ('✅ ' + t('taskCodeTab.buildPassed')) : ('❌ ' + t('taskCodeTab.buildFailed')) }}
+                </div>
+              </template>
+              <div v-else class="build-no-data">
+                {{ t('taskCodeTab.noManifest') }}
+              </div>
+
+              <div v-if="buildLogContent" class="build-log-section">
+                <div class="build-log-header" @click="buildLogExpanded = !buildLogExpanded">
+                  <svg class="group-chevron" :class="{ open: buildLogExpanded }" width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span>{{ t('taskCodeTab.buildLog') }}</span>
+                  <span v-if="!buildOk" class="build-log-error-icon">⚠️</span>
+                </div>
+                <div v-show="buildLogExpanded" class="build-log-body">
+                  <pre :class="{ 'build-log-error': !buildOk }">{{ buildLogContent }}</pre>
+                </div>
+              </div>
+              <div v-else class="build-no-data">
+                {{ t('taskCodeTab.noBuildLog') }}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -371,6 +436,17 @@ interface TableFile {
   docItem?: DocItem
 }
 
+interface SourceManifest {
+  project_name?: string
+  framework?: string
+  build_command?: string
+  run_command?: string
+  test_command?: string
+  created_files?: string[]
+  build_success?: boolean
+  [key: string]: unknown
+}
+
 const props = defineProps<{ taskId: string }>()
 
 const loading = ref(false)
@@ -389,8 +465,18 @@ const activeFileTab = ref<'all' | 'src' | 'docs'>('all')
 const srcExpanded = ref(true)
 const docsExpanded = ref(true)
 const rootExpanded = ref(false)
+const buildExpanded = ref(true)
+const buildLogExpanded = ref(false)
 const expandedDirs = reactive<Record<string, boolean>>({})
 const treePanelWidth = ref(200)
+
+// Phase 4.5: Build summary state
+const sourceManifestData = ref<SourceManifest | null>(null)
+const buildLogContent = ref<string>('')
+const buildOk = computed(() => {
+  if (!sourceManifestData.value) return false
+  return sourceManifestData.value.build_success !== false
+})
 
 function toggleDir(key: string) {
   expandedDirs[key] = !expandedDirs[key]
@@ -592,11 +678,39 @@ async function fetchWorktree() {
     const data = await res.json()
     allFiles.value = data.files || []
     docsStatus.value = data.docs || []
+    // Phase 4.5: Load source_manifest.json and build.log
+    await fetchBuildArtifacts(base, token)
   } catch {
     allFiles.value = []
   } finally {
     loading.value = false
   }
+}
+
+async function fetchBuildArtifacts(base: string, token: string | null) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {}
+  try {
+    const manifestRes = await fetch(`${base}/tasks/${props.taskId}/worktree/source_manifest.json`, {
+      headers,
+    })
+    if (manifestRes.ok) {
+      const manifestData = await manifestRes.json()
+      const raw = manifestData.content || manifestData
+      sourceManifestData.value = typeof raw === 'string' ? JSON.parse(raw) : raw
+    }
+  } catch {
+    sourceManifestData.value = null
+  }
+
+  try {
+    const logRes = await fetch(`${base}/tasks/${props.taskId}/worktree/build.log`, {
+      headers,
+    })
+    if (logRes.ok) {
+      const logData = await logRes.json()
+      buildLogContent.value = logData.content || ''
+    }
+  } catch { /* silent */ }
 }
 
 async function selectFile(f: WFile) {
@@ -721,6 +835,8 @@ watch(() => props.taskId, () => {
   selectedFile.value = null
   selectedDoc.value = ''
   previewContent.value = ''
+  sourceManifestData.value = null
+  buildLogContent.value = ''
   fetchWorktree()
 })
 </script>
@@ -1347,5 +1463,151 @@ watch(() => props.taskId, () => {
 .preview-code-area::-webkit-scrollbar-thumb {
   background: #3a3d47;
   border-radius: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Phase 4.5: Build summary panel styles
+   ═══════════════════════════════════════════════════════════════════ */
+.build-summary-body {
+  padding: 6px 12px 10px 12px !important;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.build-summary-row {
+  display: flex;
+  gap: 6px;
+  padding: 3px 0;
+  align-items: baseline;
+}
+
+.build-label {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 11px;
+  min-width: 64px;
+}
+
+.build-value {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.build-file-list {
+  margin-top: 4px;
+  margin-bottom: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.build-file-item {
+  display: flex;
+  gap: 4px;
+  padding: 2px 0 2px 12px;
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+}
+
+.build-file-item.dimmed {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.build-file-icon {
+  color: #22c55e;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.build-file-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-status-row {
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 4px;
+  text-align: center;
+}
+
+.build-status-row.build-ok {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.build-status-row.build-fail {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.build-no-data {
+  padding: 10px 0;
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.build-log-section {
+  margin-top: 6px;
+  border-top: 1px solid #eef0f4;
+  padding-top: 6px;
+}
+
+.build-log-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  user-select: none;
+}
+
+.build-log-header:hover {
+  color: var(--text-1);
+}
+
+.build-log-error-icon {
+  color: #ef4444;
+  font-size: 12px;
+}
+
+.build-log-body {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.build-log-body pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: #f5f6f8;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-2);
+}
+
+.build-log-body pre.build-log-error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.build-ok-badge {
+  background: #22c55e !important;
+}
+
+.build-fail-badge {
+  background: #ef4444 !important;
 }
 </style>

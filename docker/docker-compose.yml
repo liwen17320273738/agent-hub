@@ -16,6 +16,11 @@ services:
   db:
     image: postgres:16-alpine
     container_name: agent-hub-db
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agenthub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -38,6 +43,11 @@ services:
   redis:
     image: redis:7-alpine
     container_name: agent-hub-redis
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD} --appendonly yes --appendfsync everysec
     volumes:
       - agenthub_redis:/data
@@ -58,12 +68,17 @@ services:
       context: ../
       dockerfile: backend/Dockerfile
     container_name: agent-hub-backend
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
-      DATABASE_URL: postgresql+asyncpg://agenthub:agenthub@db:5432/agenthub
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agenthub}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-agenthub}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?Set REDIS_PASSWORD}@redis:6379/0
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-dev-admin-password-change-me}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env}
       CORS_ORIGINS: '["http://localhost","http://localhost:${PORT:-80}"]'
     env_file:
       - ../.env
@@ -86,14 +101,40 @@ services:
       args:
         VITE_API_BASE: /api
     container_name: agent-hub-frontend
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - agent-hub
     restart: unless-stopped
+
+  # ── 自部署服务 ─────────────────────────────────────────────────────────
+  # Firecrawl: make docker-firecrawl（独立 compose，不依赖 agent-hub）
+  # 启动后在 .env 中设置 FIRECRAWL_SELF_HOSTED_URL=http://localhost:3002
 
   # ── Reverse Proxy ───────────────────────────────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: agent-hub-nginx
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     ports:
       - "${PORT:-80}:80"
     volumes:

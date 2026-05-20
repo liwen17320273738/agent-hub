@@ -80,6 +80,14 @@ class PipelineTask(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
 
+    # ── Phase 2: TaskScheduler persistence cues (crash / UI visibility) ──
+    # While a queued ``kind`` is executing, ``submission_id`` is non-null.
+    scheduler_run_submission_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    scheduler_run_kind: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    scheduler_run_started_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    scheduler_run_finished_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
+    scheduler_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     stages: Mapped[list[PipelineStage]] = relationship(
         back_populates="task", cascade="all, delete-orphan", order_by="PipelineStage.sort_order"
     )
@@ -143,6 +151,10 @@ class PipelineStage(Base):
     # When True, the stage requires human approval AFTER it produces output
     # before the next stage can start (DAG-side mid-pipeline gate).
     human_gate: Mapped[bool] = mapped_column(default=False)
+
+    # When a stage becomes ``active`` via ``/advance``, we record a compact
+    # handoff snapshot so durable execution / debugging can replay context.
+    input_snapshot: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
 
     task: Mapped[PipelineTask] = relationship(back_populates="stages")
 

@@ -46,6 +46,10 @@ BUILTIN_ARTIFACT_TYPES = [
     {"type_key": "screenshot",        "category": "media",    "display_name": "截图",        "icon": "📸", "tab_group": "design",       "sort_order": 9},
     {"type_key": "attachment",        "category": "file",     "display_name": "附件",        "icon": "📎", "tab_group": "misc",         "sort_order": 10},
     {"type_key": "deploy_manifest",   "category": "document", "display_name": "部署清单",    "icon": "🚀", "tab_group": "delivery",     "sort_order": 11},
+    {"type_key": "source_manifest",   "category": "code",     "display_name": "源码清单",    "icon": "📂", "tab_group": "code",         "sort_order": 12},
+    {"type_key": "build_log",         "category": "code",     "display_name": "构建日志",    "icon": "🛠️", "tab_group": "code",         "sort_order": 13},
+    {"type_key": "test_log",          "category": "code",     "display_name": "测试日志",    "icon": "🧪", "tab_group": "quality",      "sort_order": 14},
+    {"type_key": "preview_url",       "category": "document", "display_name": "预览链接",    "icon": "🔗", "tab_group": "delivery",     "sort_order": 15},
 ]
 
 

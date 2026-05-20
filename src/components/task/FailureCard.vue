@@ -80,7 +80,9 @@ defineEmits<{
 const { t } = useI18n()
 
 const failedStage = computed(() =>
-  props.stages.find(s => s.status === 'failed') || null
+  props.stages.find(
+    (s) => s.status === 'failed' || s.status === 'error' || s.status === 'blocked',
+  ) || null,
 )
 
 const rawError = computed(() => {

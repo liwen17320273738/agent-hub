@@ -361,7 +361,7 @@
       </div>
     </section>
 
-    <section class="task-actions" v-else-if="task.status === 'failed'">
+    <section class="task-actions" v-else-if="task.status === 'failed' || task.status === 'error'">
       <FailureCard
         :stages="failureStages"
         :rca-summary="rcaSummaryText"
@@ -371,8 +371,14 @@
         @escalate="handleEscalate"
       />
       <div class="action-buttons" style="margin-top: 12px;">
+        <el-button type="success" size="large" @click="handleResume(false)" :loading="resuming">
+          <el-icon><CaretRight /></el-icon> {{ t('pipelineTaskDetail.btnResumeLinearPipeline') }}
+        </el-button>
         <el-button type="primary" size="large" @click="handleResumeDag" :loading="resumingDag">
           <el-icon><Refresh /></el-icon> {{ t('pipelineTaskDetail.btnFromCheckpoint') }}
+        </el-button>
+        <el-button size="large" @click="handleCancelSchedulerQueue" :loading="cancelingQueue">
+          <el-icon><Close /></el-icon> {{ t('pipelineTaskDetail.btnCancelSchedulerQueue') }}
         </el-button>
         <el-button size="large" @click="openRcaDialog" :loading="rcaLoading">
           <el-icon><WarningFilled /></el-icon> {{ t('pipelineTaskDetail.btnGenRca') }}
@@ -768,6 +774,10 @@ import {
   compileDeliverables, fetchQualityReport, overrideQualityGate,
   uploadTaskAttachment, downloadTaskAttachment,
   getTaskRca,
+  cancelSchedulerQueue,
+  retryPipelineStage,
+  retryDagStage,
+  shouldRetryStageViaDag,
 } from '@/services/pipelineApi'
 import type { RcaReport } from '@/services/pipelineApi'
 import type { TaskArtifact } from '@/agents/types'
@@ -862,6 +872,7 @@ const smartRunning = ref(false)
 const stageRunning = ref(false)
 const resuming = ref(false)
 const resumingDag = ref(false)
+const cancelingQueue = ref(false)
 const showQualityGateConfig = ref(false)
 const showFinalAcceptance = ref(false)
 const rcaDialog = ref(false)
@@ -1083,6 +1094,12 @@ const currentStageGateFailed = computed(() => {
 
 const execBannerClass = computed(() => {
   if (isRunningNow.value) return 'exec-banner-running'
+  if (
+    task.value?.schedulerLastError?.trim()
+    && task.value.status === 'active'
+  ) {
+    return 'exec-banner-warn'
+  }
   if (currentStage.value?.status === 'awaiting_approval') return 'exec-banner-warn'
   if (currentStageGateFailed.value) return 'exec-banner-warn'
   if (task.value?.currentStageId === 'done') return 'exec-banner-done'
@@ -1113,6 +1130,16 @@ const execBannerTitle = computed(() => {
 })
 
 const execBannerSub = computed(() => {
+  const rawSched = task.value?.schedulerLastError?.trim()
+  if (
+    rawSched
+    && task.value?.status === 'active'
+    && !isRunningNow.value
+  ) {
+    const kind = String(task.value.schedulerRunKind || 'scheduler')
+    const msg = rawSched.length > 420 ? `${rawSched.slice(0, 420)}\u2026` : rawSched
+    return t('pipelineTaskDetail.execSubSchedulerError', { kind, msg })
+  }
   if (anyExecutionRunning.value) {
     return t('pipelineTaskDetail.execSubRunBg')
   }
@@ -1469,6 +1496,14 @@ function setupSSE() {
 
     addLog(evt.event, data)
 
+    if (evt.event === 'scheduler:queue-cancelled') {
+      const removed = Number((data as { removed?: number })?.removed ?? 0) || 0
+      if (removed > 0) {
+        ElMessage.info(t('pipelineTaskDetail.msgCancelQueueRemoved', { n: removed }))
+      }
+      loadTask()
+    }
+
     if (evt.event === 'stage:processing') {
       processingStage.value = (data?.stageId as string) || null
     }
@@ -1641,6 +1676,26 @@ async function handleResume(forceContinue = false) {
   }
 }
 
+async function handleCancelSchedulerQueue() {
+  if (!task.value) return
+  cancelingQueue.value = true
+  try {
+    const r = await cancelSchedulerQueue(String(task.value.id))
+    ElMessage.success(
+      t('pipelineTaskDetail.msgCancelQueueRemoved', { n: Number(r.removed) || 0 }),
+    )
+    if ((r.stillRunning?.length ?? 0) > 0) {
+      ElMessage.warning(t('pipelineTaskDetail.msgCancelQueueStillRunning'))
+    }
+  } catch (e: unknown) {
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_cancelQueue', { err: e instanceof Error ? e.message : String(e) }),
+    )
+  } finally {
+    cancelingQueue.value = false
+  }
+}
+
 function rcaSeverityType(severity?: string): 'success' | 'info' | 'warning' | 'danger' {
   switch ((severity || '').toLowerCase()) {
     case 'low': return 'success'
@@ -1711,11 +1766,27 @@ const failureStages = computed(() => {
 const rcaSummaryText = ref('')
 
 function handleRetryStage(stageId: string) {
-  handleResumeDag()
+  void runRetryPipelineStage(stageId)
+}
+async function runRetryPipelineStage(stageId: string) {
+  if (!task.value) return
+  try {
+    if (shouldRetryStageViaDag(task.value)) {
+      await retryDagStage(String(task.value.id), stageId)
+    } else {
+      await retryPipelineStage(String(task.value.id), stageId)
+    }
+    ElMessage.success(t('pipelineTaskDetail.msgRetryStageScheduled'))
+    await loadTask()
+  } catch (e: unknown) {
+    ElMessage.error(
+      t('pipelineTaskDetail.elMessage_retryStage', { err: e instanceof Error ? e.message : String(e) }),
+    )
+  }
 }
 function handleRetryDowngrade(stageId: string) {
   ElMessage.info(t('pipelineTaskDetail.elMessage_6'))
-  handleResumeDag()
+  void runRetryPipelineStage(stageId)
 }
 function handleRollback(_stageId: string) {
   ElMessage.info(t('pipelineTaskDetail.elMessage_7'))

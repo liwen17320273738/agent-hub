@@ -52,9 +52,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         client_ip = request.client.host if request.client else "unknown"
 
+        # In Docker/K8s, nginx proxies from its own container IP (e.g. 172.x.x.x)
+        # but sets X-Forwarded-For with the real client IP. Read the first
+        # forwarded IP when available.
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            first_hop = forwarded.split(",")[0].strip()
+            if first_hop:
+                client_ip = first_hop
+
         # Local development: bypass entirely in non-production environments.
-        # In production (Docker/K8s where nginx proxies through localhost),
-        # localhost exemption would bypass ALL rate-limiting.
         if client_ip in _EXEMPT_HOSTS and not settings.is_production:
             return await call_next(request)
 

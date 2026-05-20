@@ -3,6 +3,8 @@
 .PHONY: install dev test test-relay lint format migrate
 
 PYTHON ?= python3
+# Parent of backend/ is repo root (same assumption as Makefile when run from backend/).
+REPO_ROOT := $(abspath $(CURDIR)/..)
 
 install:
 	$(PYTHON) -m pip install -e ../packages/agent-hub-pipeline && $(PYTHON) -m pip install -r requirements.txt
@@ -26,4 +28,8 @@ format:
 	$(PYTHON) -m ruff check . --fix && $(PYTHON) -m ruff format .
 
 migrate:
-	$(PYTHON) -m alembic upgrade head
+	@set -a; \
+	[ -f "$(REPO_ROOT)/backend/.env" ] && . "$(REPO_ROOT)/backend/.env"; \
+	[ -f "$(REPO_ROOT)/.env" ] && . "$(REPO_ROOT)/.env"; \
+	set +a; \
+	cd "$(CURDIR)" && PYTHONPATH=. $(PYTHON) -m alembic upgrade head

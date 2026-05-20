@@ -202,7 +202,7 @@ async def create_or_update_artifact(
 
     from ..services.manifest_sync import trigger_manifest_refresh
     try:
-        await trigger_manifest_refresh(task_id)
+        await trigger_manifest_refresh(task_id, db=db)
     except Exception:
         pass
 

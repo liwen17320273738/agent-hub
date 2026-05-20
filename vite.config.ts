@@ -199,6 +199,12 @@ export default defineConfig(({ mode }) => {
   },
   server: {
     port: 5200,
+    strictPort: true,
+    // Separate port for HMR WS avoids upgrade failures on the HTTP port (VPN, some proxies, IPv6 edge cases).
+    // See https://vite.dev/config/server-options.html#server-hmr
+    hmr: {
+      port: 24678,
+    },
     // More specific /api/proxy/* routes MUST come before the catch-all /api → backend
     proxy: {
       ...apiProxy,

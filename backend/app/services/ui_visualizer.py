@@ -42,6 +42,264 @@ class UiVisualizer:
             "WORKSPACE_ROOT", "/tmp/agent-hub-ui",
         )
 
+    # ── Resource Check (Phase 5, Task 5.1) ─────────────────────────────
+
+    async def check_design_resources(self) -> Dict[str, Any]:
+        """Check availability of all visual resource channels for designer stage.
+
+        Returns:
+            ``{"ok": bool, "channels": {name: available|reason}, "fallback": [...]}``
+        """
+        channels: Dict[str, Any] = {}
+        fallbacks: List[str] = []
+
+        # 1. OpenAI Images (image_gen_tool)
+        openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        if openai_key:
+            channels["openai_images"] = {"available": True, "model": os.environ.get("OPENAI_IMAGE_MODEL", "dall-e-3")}
+        else:
+            channels["openai_images"] = {"available": False, "reason": "OPENAI_API_KEY not configured"}
+
+        # 2. Gemini / Nano Banana Pro
+        gemini_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+        banana_script = os.path.expanduser(
+            "~/.workbuddy/skills/nano-banana-pro/scripts/generate_image.py",
+        )
+        if gemini_key and os.path.exists(banana_script):
+            channels["gemini_nano_banana"] = {"available": True}
+        else:
+            missing = []
+            if not gemini_key:
+                missing.append("GEMINI_API_KEY")
+            if not os.path.exists(banana_script):
+                missing.append("nano-banana-pro script")
+            channels["gemini_nano_banana"] = {"available": False, "reason": f"missing: {', '.join(missing)}"}
+            if "nano-banana-pro script" not in missing:
+                fallbacks.append("html_prototype")
+
+        # 3. HTML prototype fallback
+        try:
+            self._generate_html(
+                {"theme": "light", "primary_color": "#6366f1"},
+                {"type": "dashboard"},
+                ["header", "card", "footer"],
+                "/tmp/_check_html_fallback",
+                "_check",
+            )
+            channels["html_prototype"] = {"available": True}
+        except Exception as e:
+            channels["html_prototype"] = {"available": False, "reason": str(e)}
+
+        # 4. Figma MCP (probe env vars)
+        figma_token = (os.environ.get("FIGMA_ACCESS_TOKEN") or "").strip()
+        channels["figma_mcp"] = {"available": bool(figma_token), "reason": "" if figma_token else "FIGMA_ACCESS_TOKEN not configured"}
+
+        # Fallback priority: html_prototype is always the last resort
+        available_channel_names = [k for k, v in channels.items() if v.get("available")]
+        if not available_channel_names:
+            fallbacks = ["none"]
+        elif channels.get("html_prototype", {}).get("available"):
+            fallbacks.append("html_prototype")
+
+        overall_ok = (
+            channels.get("openai_images", {}).get("available")
+            or channels.get("gemini_nano_banana", {}).get("available")
+            or channels.get("html_prototype", {}).get("available")
+        )
+
+        return {
+            "ok": overall_ok,
+            "channels": channels,
+            "available": available_channel_names,
+            "fallbacks": fallbacks,
+        }
+
+    async def check_diagram_resources(self) -> Dict[str, Any]:
+        """Check availability of diagram generation resources for architect stage."""
+        channels: Dict[str, Any] = {}
+        fallbacks: List[str] = []
+
+        # Mermaid rendering: local or CDN
+        try:
+            import subprocess
+            result = subprocess.run(["mermaid", "--version"], capture_output=True, text=True, timeout=5)
+            mermaid_available = result.returncode == 0
+        except Exception:
+            mermaid_available = False
+        channels["mermaid_cli"] = {"available": mermaid_available}
+        if not mermaid_available:
+            channels["mermaid_cli"]["reason"] = "mermaid CLI not found (CDN fallback in HTML works)"
+
+        # HTML generation — always available (no external dependency)
+        channels["html_renderer"] = {"available": True}
+
+        available = [k for k, v in channels.items() if v.get("available")]
+        fallbacks.append("html_renderer")
+
+        return {
+            "ok": True,  # HTML rendering always works
+            "channels": channels,
+            "available": available,
+            "fallbacks": fallbacks,
+        }
+
+    # ── Phase 5: Design Tokens & Screen Plan generation ────────────────
+
+    @staticmethod
+    def generate_design_tokens(design_spec: str) -> Dict[str, Any]:
+        """Extract structured design tokens from spec (colors, typography, spacing)."""
+        spec_lower = design_spec.lower()
+        tokens: Dict[str, Any] = {}
+
+        # Primary color
+        primary = "#6366f1"  # default indigo
+        import re
+        colors = re.findall(r"#[0-9a-fA-F]{6}", design_spec)
+        if colors:
+            primary = colors[0]
+        tokens["primary"] = primary
+
+        # Secondary color
+        secondary = "#059669"
+        if len(colors) > 1:
+            secondary = colors[1]
+        tokens["secondary"] = secondary
+
+        # Background / surface
+        is_dark = "dark" in spec_lower
+        tokens["background"] = "#0f0f1a" if is_dark else "#f8f9fa"
+        tokens["surface"] = "#1a1a2e" if is_dark else "#ffffff"
+        tokens["text_primary"] = "#e2e8f0" if is_dark else "#1e293b"
+        tokens["text_muted"] = "#94a3b8" if is_dark else "#64748b"
+
+        # Typography
+        tokens["font_family"] = "Inter, system-ui, -apple-system, sans-serif"
+        tokens["font_sizes"] = {
+            "h1": "28px", "h2": "22px", "h3": "18px",
+            "h4": "16px", "h5": "14px", "h6": "13px",
+            "body": "14px", "caption": "12px",
+        }
+        tokens["spacing_grid"] = "4px"
+        tokens["border_radius"] = {"sm": "6px", "md": "10px", "lg": "16px"}
+
+        if "glass" in spec_lower or "frost" in spec_lower:
+            tokens["style"] = "glassmorphism"
+        elif "neon" in spec_lower or "cyber" in spec_lower:
+            tokens["style"] = "dark neon"
+        elif "minimal" in spec_lower:
+            tokens["style"] = "minimal"
+
+        return tokens
+
+    @staticmethod
+    def generate_screen_plan(design_spec: str) -> Dict[str, Any]:
+        """Generate screen plan from design spec — list of screens + state matrix."""
+        spec_lower = design_spec.lower()
+        screens: List[Dict[str, Any]] = []
+
+        # Extract page/screen titles from markdown headings
+        seen_titles: set = set()
+        for line in design_spec.splitlines():
+            s = line.strip()
+            if s.startswith("## ") and len(s) > 3:
+                title = s[3:].strip()
+                if title and title not in seen_titles:
+                    seen_titles.add(title)
+                    screens.append({
+                        "title": title,
+                        "route": f"/{title.lower().replace(' ', '-')}",
+                        "states": ["loading", "empty", "error", "success"],
+                    })
+
+        if not screens:
+            # Fallback: detect pages from common keywords
+            page_keywords = ["dashboard", "login", "register", "profile", "settings",
+                             "list", "detail", "create", "edit", "home", "landing"]
+            for kw in page_keywords:
+                if kw in spec_lower:
+                    title = kw.capitalize()
+                    if title not in seen_titles:
+                        seen_titles.add(title)
+                        screens.append({
+                            "title": title,
+                            "route": f"/{kw}",
+                            "states": ["loading", "empty", "error", "success"],
+                        })
+
+        if not screens:
+            screens.append({
+                "title": "Main",
+                "route": "/",
+                "states": ["loading", "empty", "error", "success"],
+            })
+
+        return {
+            "screens": screens,
+            "state_matrix": {
+                "loading": "Skeleton/spinner while data loads",
+                "empty": "Empty state with CTA when no data",
+                "error": "Error state with retry action",
+                "success": "Normal data display with full UI",
+            },
+        }
+
+    # ── Phase 5: Consistency check ─────────────────────────────────────
+
+    @staticmethod
+    def check_architecture_consistency(
+        api_contract: Dict[str, Any],
+        data_model: Dict[str, Any],
+        file_plan: Dict[str, Any],
+    ) -> Tuple[bool, List[str]]:
+        """Cross-check api_contract entities ↔ data_model entities ↔ file_plan directories.
+
+        Returns (ok, list of inconsistency messages).
+        """
+        issues: List[str] = []
+
+        # Entity names from api_contract
+        api_entities: set = set()
+        for endpoint in api_contract.get("endpoints", []):
+            name = endpoint.get("entity", endpoint.get("resource", ""))
+            if name:
+                api_entities.add(name.lower())
+
+        # Entity names from data_model
+        model_entities: set = set()
+        for table in data_model.get("tables", data_model.get("entities", [])):
+            name = table.get("name", table.get("table", ""))
+            if name:
+                model_entities.add(name.lower())
+
+        # Cross-check 1: API entity should exist in data model
+        for ae in api_entities:
+            ae_clean = ae.rstrip("s")  # plural API name
+            ae_plural = ae + "s"  # singular API name
+            if ae not in model_entities and ae_plural not in model_entities and ae_clean not in model_entities:
+                issues.append(f"API entity '{ae}' not found in data model entities")
+
+        # Cross-check 2: Routes from file_plan should have corresponding API routes
+        file_routes: set = set()
+        for entry in file_plan.get("files", file_plan.get("directories", [])):
+            name = entry.get("name", "").lower()
+            if name:
+                file_routes.add(name)
+
+        api_routes: set = set()
+        for endpoint in api_contract.get("endpoints", []):
+            path = endpoint.get("path", "").lower()
+            for seg in path.strip("/").split("/"):
+                if seg and not seg.startswith("{") and not seg.startswith(":"):
+                    api_routes.add(seg)
+
+        # Check if file_plan directories map to route groups
+        dir_mismatches = file_routes - api_routes
+        if dir_mismatches and len(dir_mismatches) < len(file_routes):
+            for dm in dir_mismatches:
+                issues.append(f"File plan directory '{dm}' has no corresponding API route group")
+
+        return (len(issues) == 0, issues)
+
     # ── Public API ─────────────────────────────────────────────────────
 
     async def generate_mockup(
@@ -756,3 +1014,191 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
             f.write(html)
         logger.info("[ui-visualizer] Architecture diagram: %s", filepath)
         return filepath
+
+    # ── Phase 5: Structured Architecture Data Generation ────────────────
+
+    @staticmethod
+    def generate_api_contract(spec: str) -> Dict[str, Any]:
+        """Extract API contract from architecture spec."""
+        endpoints: List[Dict[str, Any]] = []
+        spec_lower = spec.lower()
+
+        entities = []
+        entity_keywords = ["user", "project", "task", "order", "product", "account",
+                          "customer", "invoice", "payment", "subscription", "article",
+                          "comment", "message", "notification", "setting", "file",
+                          "document", "template", "report", "analytics", "log"]
+        for ent in entity_keywords:
+            if ent in spec_lower:
+                entities.append(ent)
+
+        if not entities:
+            entities = ["item"]
+
+        for entity in entities:
+            base = f"/api/{entity}s"
+            endpoints.append({"method": "GET", "path": base, "description": f"List {entity}s", "entity": entity})
+            endpoints.append({"method": "POST", "path": base, "description": f"Create {entity}", "entity": entity})
+            endpoints.append({"method": "GET", "path": f"{base}/{{id}}", "description": f"Get {entity} by ID", "entity": entity})
+            endpoints.append({"method": "PUT", "path": f"{base}/{{id}}", "description": f"Update {entity}", "entity": entity})
+            endpoints.append({"method": "DELETE", "path": f"{base}/{{id}}", "description": f"Delete {entity}", "entity": entity})
+
+        if "auth" in spec_lower or "login" in spec_lower:
+            endpoints.insert(0, {"method": "POST", "path": "/api/auth/login", "description": "User login", "entity": "auth"})
+            endpoints.insert(1, {"method": "POST", "path": "/api/auth/register", "description": "User registration", "entity": "auth"})
+
+        return {"endpoints": endpoints}
+
+    @staticmethod
+    def generate_data_model(spec: str) -> Dict[str, Any]:
+        """Extract data model from architecture spec."""
+        spec_lower = spec.lower()
+        tables: List[Dict[str, Any]] = []
+
+        entity_detections = {
+            "user": {"name": "users", "description": "User accounts and profiles",
+                     "fields": [
+                         {"name": "id", "type": "uuid", "pk": True},
+                         {"name": "email", "type": "varchar(255)", "unique": True},
+                         {"name": "name", "type": "varchar(100)"},
+                         {"name": "created_at", "type": "timestamp"},
+                     ]},
+            "project": {"name": "projects", "description": "Project definitions",
+                        "fields": [
+                            {"name": "id", "type": "uuid", "pk": True},
+                            {"name": "name", "type": "varchar(200)"},
+                            {"name": "owner_id", "type": "uuid", "fk": "users.id"},
+                            {"name": "status", "type": "varchar(20)"},
+                            {"name": "created_at", "type": "timestamp"},
+                        ]},
+            "task": {"name": "tasks", "description": "Individual work items",
+                     "fields": [
+                         {"name": "id", "type": "uuid", "pk": True},
+                         {"name": "title", "type": "varchar(200)"},
+                         {"name": "description", "type": "text"},
+                         {"name": "status", "type": "varchar(20)"},
+                         {"name": "assignee_id", "type": "uuid", "fk": "users.id"},
+                         {"name": "project_id", "type": "uuid", "fk": "projects.id"},
+                         {"name": "created_at", "type": "timestamp"},
+                     ]},
+            "order": {"name": "orders", "description": "Customer orders",
+                      "fields": [
+                          {"name": "id", "type": "uuid", "pk": True},
+                          {"name": "customer_id", "type": "uuid", "fk": "customers.id"},
+                          {"name": "total", "type": "decimal(10,2)"},
+                          {"name": "status", "type": "varchar(20)"},
+                          {"name": "created_at", "type": "timestamp"},
+                      ]},
+            "product": {"name": "products", "description": "Product catalog",
+                        "fields": [
+                            {"name": "id", "type": "uuid", "pk": True},
+                            {"name": "name", "type": "varchar(200)"},
+                            {"name": "price", "type": "decimal(10,2)"},
+                            {"name": "description", "type": "text"},
+                            {"name": "created_at", "type": "timestamp"},
+                        ]},
+        }
+
+        for key, table_def in entity_detections.items():
+            if key in spec_lower or key + "s" in spec_lower:
+                tables.append(table_def)
+
+        if not tables:
+            tables.append({
+                "name": "items",
+                "description": "Generic items",
+                "fields": [
+                    {"name": "id", "type": "uuid", "pk": True},
+                    {"name": "name", "type": "varchar(200)"},
+                    {"name": "created_at", "type": "timestamp"},
+                ],
+            })
+
+        return {"tables": tables}
+
+    @staticmethod
+    def generate_file_plan(spec: str) -> Dict[str, Any]:
+        """Extract file/directory plan from architecture spec."""
+        spec_lower = spec.lower()
+        directories: List[Dict[str, Any]] = []
+
+        if "frontend" in spec_lower or "vue" in spec_lower or "react" in spec_lower:
+            directories.append({"name": "frontend", "description": "Frontend application code"})
+            directories.append({"name": "frontend/src/components", "description": "Reusable UI components"})
+            directories.append({"name": "frontend/src/views", "description": "Page-level views"})
+            directories.append({"name": "frontend/src/api", "description": "API client modules"})
+
+        if "backend" in spec_lower or "api" in spec_lower:
+            directories.append({"name": "backend", "description": "Backend API service"})
+            directories.append({"name": "backend/app/api", "description": "API route definitions"})
+            directories.append({"name": "backend/app/models", "description": "Data/ORM models"})
+            directories.append({"name": "backend/app/services", "description": "Business logic"})
+
+        if "database" in spec_lower or "db" in spec_lower:
+            directories.append({"name": "backend/migrations", "description": "Database migrations"})
+
+        if "test" in spec_lower or "qa" in spec_lower:
+            directories.append({"name": "tests", "description": "Test suite"})
+
+        if "deploy" in spec_lower or "docker" in spec_lower:
+            directories.append({"name": "docker", "description": "Docker configuration"})
+
+        if "doc" in spec_lower or "docs" in spec_lower:
+            directories.append({"name": "docs", "description": "Documentation"})
+
+        if not directories:
+            directories.append({"name": "src", "description": "Source code"})
+
+        return {"directories": directories, "files": [{"name": d["name"]} for d in directories]}
+
+    # ── Phase 5: generate from stage output ────────────────────────────
+
+    async def generate_all_design_artifacts(
+        self,
+        task_id: str,
+        stage_id: str,
+        design_spec: str,
+        project_name: str = "",
+    ) -> Dict[str, Any]:
+        """Generate all design visual artifacts from stage output.
+
+        Returns dict with keys: mockup_result, design_tokens, screen_plan.
+        """
+        mockup_result = await self.generate_mockup(task_id, stage_id, design_spec, project_name)
+        design_tokens = self.generate_design_tokens(design_spec)
+        screen_plan = self.generate_screen_plan(design_spec)
+
+        return {
+            "mockup": mockup_result,
+            "design_tokens": design_tokens,
+            "screen_plan": screen_plan,
+        }
+
+    async def generate_all_architecture_artifacts(
+        self,
+        task_id: str,
+        stage_id: str,
+        arch_spec: str,
+        project_name: str = "",
+    ) -> Dict[str, Any]:
+        """Generate all architecture visual artifacts + structured data from stage output.
+
+        Returns dict with keys: diagram_result, mermaid_raw, api_contract, data_model, file_plan.
+        """
+        diagram_result = await self.generate_architecture_diagram(
+            task_id, stage_id, arch_spec, project_name,
+        )
+        api_contract = self.generate_api_contract(arch_spec)
+        data_model = self.generate_data_model(arch_spec)
+        file_plan = self.generate_file_plan(arch_spec)
+
+        ok, issues = self.check_architecture_consistency(api_contract, data_model, file_plan)
+
+        return {
+            "diagram": diagram_result,
+            "api_contract": api_contract,
+            "data_model": data_model,
+            "file_plan": file_plan,
+            "consistency_ok": ok,
+            "consistency_issues": issues,
+        }

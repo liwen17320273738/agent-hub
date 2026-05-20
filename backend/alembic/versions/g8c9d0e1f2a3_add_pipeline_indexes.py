@@ -1,7 +1,7 @@
 """add_pipeline_indexes
 
 Revision ID: g8c9d0e1f2a3
-Revises: f7b8c9d0e1f2
+Revises: m3n4o5p6q7r8
 Create Date: 2026-05-09 13:20:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "g8c9d0e1f2a3"
-down_revision = "f7b8c9d0e1f2"
+down_revision = "m3n4o5p6q7r8"
 branch_labels = None
 depends_on = None
 

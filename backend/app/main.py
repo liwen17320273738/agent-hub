@@ -21,6 +21,7 @@ from .models import *  # noqa: F401,F403  — ensure all models are registered
 from .security import hash_password
 from .middleware.rate_limit import RateLimitMiddleware
 from .middleware.request_logging import RequestLoggingMiddleware
+from .core.trace_middleware import TraceMiddleware
 from .logging_config import setup_logging
 
 # ── Structured logging ─────────────────────────────────────────────
@@ -87,7 +88,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
         logger.info("Sentry initialized (env=%s)", settings.sentry_environment)
     else:
-        logger.info("Sentry disabled (no DSN configured)")
+        if settings.is_production:
+            logger.warning(
+                "Sentry DSN not configured — production errors will not be tracked. "
+                "Set SENTRY_DSN in .env to enable error monitoring."
+            )
+        else:
+            logger.info("Sentry disabled (no DSN configured)")
 
     _test_minimal_lifespan = os.environ.get("AGENTHUB_TEST_MINIMAL_LIFESPAN") == "1"
 
@@ -166,6 +173,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 logger.info("Database tables created via create_all (first-run bootstrap).")
             else:
                 logger.info("PostgreSQL tables exist. Skipping create_all.")
+            # Run alembic migrations if they exist (production-safe: only forward,
+            # never auto-generated — must be committed by a developer).
+            try:
+                from alembic.config import Config as AlembicConfig
+                from alembic.command import upgrade as alembic_upgrade
+
+                alembic_cfg = AlembicConfig("alembic.ini")
+                alembic_upgrade(alembic_cfg, "head")
+                logger.info("Alembic migrations applied up to head.")
+            except ImportError:
+                logger.info("Alembic not available — skipping migration (CI/test mode).")
+            except Exception as e:
+                logger.error(f"Alembic migration failed: {e}")
         except Exception as e:
             logger.error(f"DB check failed: {e}. Attempting create_all as fallback...")
             async with engine.begin() as conn:
@@ -291,6 +311,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("translate pregen not scheduled: %s", exc)
 
+    # Periodic task lifecycle cleanup — prevents zombie processes
+    if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+        try:
+            from .services.task_lifecycle import schedule_periodic_cleanup
+            _cleanup_task = schedule_periodic_cleanup(interval_minutes=60)
+            if _cleanup_task is not None:
+                logger.info("Task lifecycle cleanup scheduled (every 60 min).")
+        except Exception as exc:
+            logger.warning("Task lifecycle cleanup not scheduled: %s", exc)
+
     yield
 
     try:
@@ -392,9 +422,9 @@ AI Agent Hub — 全栈智能体协作平台
         """,
         version="2.0.0",
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if settings.debug else None,
+        redoc_url="/redoc" if settings.debug else None,
+        openapi_url="/openapi.json" if settings.debug else None,
         openapi_tags=[
             {"name": "auth", "description": "Authentication and user management"},
             {"name": "agents", "description": "Agent CRUD and configuration"},
@@ -422,6 +452,9 @@ AI Agent Hub — 全栈智能体协作平台
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
     )
+
+    # Distributed tracing — must be first so trace_id is available everywhere
+    application.add_middleware(TraceMiddleware)
 
     # Rate limiting
     application.add_middleware(RateLimitMiddleware)
@@ -495,7 +528,7 @@ AI Agent Hub — 全栈智能体协作平台
 
     @application.get("/health", tags=["health"])
     async def health():
-        """Health check endpoint."""
+        """Health check endpoint — includes all sub-system probes."""
         provider_keys = settings.get_provider_keys()
         db_type = "postgresql" if "postgresql" in settings.database_url else "sqlite"
 
@@ -504,7 +537,7 @@ AI Agent Hub — 全栈智能体协作平台
 
         # Check Redis connectivity
         redis_ok = False
-        redis_error: str | None = None
+        redis_error = None  # type: ignore[assignment]
         if not _fallback_mode:
             try:
                 from .redis_client import redis as redis_client
@@ -518,6 +551,20 @@ AI Agent Hub — 全栈智能体协作平台
 
         from .services.llm_router import get_provider_health
         provider_health = get_provider_health()
+
+        # ── Crawl4AI health probe ────────────────────────────────────
+        crawl4ai_state = "disabled"
+        crawl4ai_error = None  # type: ignore[assignment]
+        try:
+            from .services.crawl.service import get_crawl4ai_health
+            crawl4ai_state, crawl4ai_error = await get_crawl4ai_health()
+        except Exception as crawle:
+            crawl4ai_state = "error"
+            crawl4ai_error = str(crawle)
+
+        # ── Circuit breaker status ────────────────────────────────────
+        from .services.llm_router import get_circuit_status
+        circuit_status = await get_circuit_status()
 
         # Database connection pool stats (PostgreSQL only)
         db_pool = None
@@ -546,8 +593,22 @@ AI Agent Hub — 全栈智能体协作平台
             workspace_writable = False
             workspace_error = str(wexc)
 
+        # ── Overall status ────────────────────────────────────────────
+        degraded_reasons = []
+        if not redis_ok and not _fallback_mode:
+            degraded_reasons.append("redis_disconnected")
+        if crawl4ai_state not in ("healthy", "disabled"):
+            degraded_reasons.append("crawl4ai_unhealthy")
+        if not provider_health or all(v is False for v in provider_health.values()):
+            degraded_reasons.append("no_healthy_llm_providers")
+        if not workspace_writable:
+            degraded_reasons.append("workspace_not_writable")
+
+        overall = "critical" if degraded_reasons else "healthy" if redis_ok or _fallback_mode else "degraded"
+
         return {
-            "status": "healthy" if redis_ok or _fallback_mode else "degraded",
+            "status": overall,
+            "degraded_reasons": degraded_reasons or None,
             "service": "agent-hub",
             "version": "2.0.0",
             "database": db_type,
@@ -557,9 +618,18 @@ AI Agent Hub — 全栈智能体协作平台
                 "connected": redis_ok,
                 "error": redis_error,
             },
-            "providers_count": len(provider_keys),
-            "providers_healthy": [p for p, ok in provider_health.items() if ok],
-            "providers_unhealthy": [p for p, ok in provider_health.items() if not ok],
+            "crawl4ai": {
+                "status": crawl4ai_state,
+                "error": crawl4ai_error,
+            },
+            "llm_providers": {
+                "configured": len(provider_keys),
+                "healthy": [p for p, ok in provider_health.items() if ok],
+                "unhealthy": [p for p, ok in provider_health.items() if not ok],
+                "circuits_open": [
+                    fp for fp, _, _, _ in circuit_status
+                ],
+            },
             "deploy_platforms_count": sum(1 for _, v in [
                 ("vercel", settings.vercel_token),
                 ("cloudflare", settings.cloudflare_api_token),

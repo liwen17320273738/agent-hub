@@ -46,6 +46,8 @@ export interface PipelineTask {
   status: 'plan_pending' | 'active' | 'running' | 'paused' | 'done' | 'accepted' | 'cancelled' | 'failed' | 'rejected' | 'awaiting_final_acceptance'
   currentStageId: string
   template?: string | null
+  /** Workflow Builder / persisted DAG spec (`custom_stages` from API). */
+  customStages?: Record<string, unknown>[] | null
   repoUrl?: string | null
   projectPath?: string | null
   stages: PipelineStageState[]
@@ -58,6 +60,10 @@ export interface PipelineTask {
   finalAcceptanceAt?: number | null
   finalAcceptanceFeedback?: string | null
   autoFinalAccept?: boolean | null
+  schedulerLastError?: string | undefined
+  schedulerRunKind?: string | undefined
+  schedulerRunStartedAt?: number | undefined
+  schedulerRunFinishedAt?: number | undefined
   createdBy: string
   createdAt: number
   updatedAt: number
@@ -66,7 +72,15 @@ export interface PipelineTask {
 export interface PipelineStageState {
   id: string
   label: string
-  status: 'pending' | 'active' | 'done' | 'blocked' | 'reviewing' | 'rejected' | 'awaiting_approval'
+  status:
+    | 'pending'
+    | 'active'
+    | 'done'
+    | 'failed'
+    | 'blocked'
+    | 'reviewing'
+    | 'rejected'
+    | 'awaiting_approval'
   ownerRole: string
   startedAt: number | null
   completedAt: number | null
@@ -87,6 +101,9 @@ export interface PipelineStageState {
     block_reason?: string | null
     override?: { by: string; reason: string }
   } | null
+  lastError?: string | null
+  retryCount?: number
+  inputSnapshot?: Record<string, unknown> | null
 }
 
 export interface TaskArtifact {
