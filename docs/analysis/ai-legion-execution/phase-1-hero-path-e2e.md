@@ -33,21 +33,18 @@
 
 ## 任务拆分
 
-### 1. 新增 Hero Path E2E 测试文件
+### 1. Hero Path 测试分层（2026-05-20）
 
-已实现：
+| 文件 | 角色 |
+|------|------|
+| `backend/tests/test_hero_delivery_path.py` | **Smoke**：`/advance` + 手动 stub；契约必须 **不满足**（防假绿） |
+| `backend/tests/test_hero_pipeline_acceptance.py` | **Acceptance**：真实 `execute_stage`（mock LLM/外部工具）；契约必须 **满足** |
+| `backend/tests/test_artifact_contract_quality.py` | 质量门：拒绝占位/mock 内容 |
+| `tests/e2e/hero-smoke.spec.ts` | Playwright：UI/API 接线 only |
 
-- `backend/tests/test_hero_delivery_path.py`（无 LLM：`advance` 全阶段 + v2 artifact + share + ZIP）
+原先单一的 `test_hero_delivery_path.py` 仍保留，但不再代表「真实交付验收」。
 
-后续可增强（仍为 Phase 1 范围）：
-
-- 对单个 `advance` 失败输出更细的阶段 id + response body。
-- 在 durable state 落地后断言 `input_snapshot` / `failure_reason`。
-- 增加「仅跑前 N 个阶段故意失败」的负例用例。
-
-测试可以使用可控模型 fixture 或 mock LLM，但不能绕过真实 pipeline 状态流转。
-
-### 2. 定义阶段断点断言
+### 2. 阶段断点断言（durable state 落地后增强）
 
 每个阶段至少断言：
 
@@ -87,6 +84,9 @@
 ## 可能涉及文件
 
 - `backend/tests/test_hero_delivery_path.py`
+- `backend/tests/test_hero_pipeline_acceptance.py`
+- `backend/tests/test_artifact_contract_quality.py`
+- `tests/e2e/hero-smoke.spec.ts`
 - `backend/tests/conftest.py`
 - `backend/app/services/pipeline_engine.py`
 - `backend/app/services/dag_orchestrator.py`
@@ -97,6 +97,9 @@
 ## 强制产物
 
 - `backend/tests/test_hero_delivery_path.py`
+- `backend/tests/test_hero_pipeline_acceptance.py`
+- `backend/tests/test_artifact_contract_quality.py`
+- `tests/e2e/hero-smoke.spec.ts`
 - Hero Path 自测报告。
 - 阶段失败输出样例。
 
@@ -118,5 +121,8 @@
 当下面命令能稳定给出可解释结果，本阶段完成：
 
 ```bash
-cd backend && python3 -m pytest tests/test_hero_delivery_path.py -v
+cd backend && AGENTHUB_TEST_MINIMAL_LIFESPAN=1 python3 -m pytest \
+  tests/test_hero_delivery_path.py \
+  tests/test_hero_pipeline_acceptance.py \
+  tests/test_artifact_contract_quality.py -v
 ```

@@ -35,6 +35,24 @@ OPTIONAL_ARTIFACTS_BY_STAGE: Dict[str, Tuple[str, ...]] = {
 
 CONTRACT_SCHEMA_VERSION = "1.0"
 
+# Substrings that indicate programmatic E2E stubs, not real delivery evidence.
+_MOCK_CONTENT_MARKERS: Tuple[str, ...] = (
+    "[hero_path_e2e_mock]",
+    "[hero_e2e]",
+    "png placeholder",
+    "placeholder — replace",
+    "placeholder for ui mockup",
+    "mock-preview",
+    '"provider":"mock-local"',
+    '"provider": "mock-local"',
+    "程序化占位",
+    "程序化 e2e",
+    "hero-delivery-path",
+    "skipped_in_ci",
+)
+
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg")
+
 
 def _def(
     *,
@@ -223,6 +241,95 @@ def _nonempty_content(content: Optional[str]) -> bool:
     return bool((content or "").strip())
 
 
+def _has_mock_markers(text: str) -> bool:
+    low = (text or "").lower()
+    return any(marker in low for marker in _MOCK_CONTENT_MARKERS)
+
+
+def _visual_asset_ok(
+    content: str,
+    storage_path: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    meta = metadata or {}
+    paths = [
+        str(meta.get("filePath") or ""),
+        str(meta.get("original_path") or ""),
+        str(storage_path or ""),
+    ]
+    if any(p.lower().endswith(_IMAGE_EXTENSIONS) for p in paths if p):
+        return True
+    stripped = (content or "").strip()
+    if stripped.startswith("data:image/"):
+        return True
+    if len(stripped) > 256 and not _has_mock_markers(stripped):
+        head = stripped[:80]
+        if not head.startswith(("#", "[", "PNG ", "png ")):
+            return True
+    return False
+
+
+def _diagram_ok(
+    content: str,
+    storage_path: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    meta = metadata or {}
+    paths = [
+        str(meta.get("filePath") or ""),
+        str(storage_path or ""),
+    ]
+    if any(p.lower().endswith(".html") for p in paths if p):
+        return True
+    raw = content or ""
+    low = raw.lower()
+    if "```mermaid" in low or "<html" in low or "<!doctype html" in low:
+        return True
+    return False
+
+
+def artifact_quality_errors(
+    artifact_type: str,
+    content_kind: str,
+    content: str,
+    storage_path: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Reject mock/stub delivery rows that are non-empty but not real evidence."""
+    errs: List[str] = []
+    raw = content or ""
+    if _has_mock_markers(raw):
+        errs.append("mock_content")
+
+    if artifact_type in ("ui_mockup", "screenshot"):
+        if not _visual_asset_ok(raw, storage_path, metadata):
+            errs.append("requires_visual_asset")
+
+    if artifact_type == "architecture_diagram":
+        if not _diagram_ok(raw, storage_path, metadata):
+            errs.append("requires_diagram")
+
+    if artifact_type == "preview_url" and content_kind == "json":
+        try:
+            obj = json.loads((raw or "").strip())
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(obj, dict):
+                url = str(obj.get("url") or "").lower()
+                provider = str(obj.get("provider") or "").lower()
+                health = str(obj.get("health_status") or "").lower()
+                if "mock" in url or "mock" in provider:
+                    errs.append("mock_deploy_url")
+                if health in ("skipped_in_ci", "unknown") and "mock" in url:
+                    errs.append("mock_deploy_health")
+
+    if artifact_type in ("build_log", "test_report", "test_log") and not raw.strip():
+        errs.append("empty_log")
+
+    return errs
+
+
 def _markdown_h2_text_lines(markdown: str) -> List[str]:
     lines: List[str] = []
     for ln in (markdown or "").splitlines():
@@ -308,10 +415,32 @@ async def validate_stage_artifact_contract(
     return (not missing, missing)
 
 
+def _artifact_validation_errors(art: TaskArtifact) -> List[str]:
+    meta = ARTIFACT_TYPE_CONTRACT.get(art.artifact_type, {})
+    content_kind = str(meta.get("content_kind") or "markdown")
+    schema_errs = _apply_schema_rules(
+        content_kind,
+        art.content or "",
+        list(meta.get("rules") or []),
+    )
+    quality_errs = artifact_quality_errors(
+        art.artifact_type,
+        content_kind,
+        art.content or "",
+        art.storage_path or "",
+        art.metadata_json if isinstance(art.metadata_json, dict) else {},
+    )
+    merged: List[str] = []
+    for err in schema_errs + quality_errs:
+        if err not in merged:
+            merged.append(err)
+    return merged
+
+
 async def validate_stage_artifact_contract_rules_strict(
     db: AsyncSession, task_id: str, stage_id: str
 ) -> Tuple[bool, List[str]]:
-    """Fail when required artifacts exist but violate ``ARTIFACT_TYPE_CONTRACT`` rules.
+    """Fail when required artifacts exist but violate schema or quality rules.
 
     Only runs when artifact v2 store, enforce, and ``artifact_contract_rules_strict`` are all on.
     """
@@ -330,12 +459,7 @@ async def validate_stage_artifact_contract_rules_strict(
         art = by_type.get(tkey)
         if art is None or not _nonempty_content(art.content):
             continue
-        meta = ARTIFACT_TYPE_CONTRACT.get(tkey, {})
-        val_errs = _apply_schema_rules(
-            str(meta.get("content_kind") or "markdown"),
-            art.content or "",
-            list(meta.get("rules") or []),
-        )
+        val_errs = _artifact_validation_errors(art)
         if val_errs:
             violations.append(f"{tkey}:[{','.join(val_errs)}]")
     return (not violations, violations)
@@ -350,6 +474,7 @@ async def build_task_contract_report(db: AsyncSession, task_id: str) -> Dict[str
     for sid, required in REQUIRED_ARTIFACTS_BY_STAGE.items():
         present: Dict[str, bool] = {}
         missing: List[str] = []
+        invalid: List[str] = []
         optional_t = OPTIONAL_ARTIFACTS_BY_STAGE.get(sid, ())
         artifact_details: Dict[str, Any] = {}
 
@@ -360,11 +485,7 @@ async def build_task_contract_report(db: AsyncSession, task_id: str) -> Dict[str
             meta = ARTIFACT_TYPE_CONTRACT.get(t, {})
             val_errs: List[str] = []
             if ok_t and art is not None:
-                val_errs = _apply_schema_rules(
-                    str(meta.get("content_kind") or "markdown"),
-                    art.content or "",
-                    list(meta.get("rules") or []),
-                )
+                val_errs = _artifact_validation_errors(art)
             artifact_details[t] = {
                 "required": True,
                 "present": ok_t,
@@ -374,6 +495,8 @@ async def build_task_contract_report(db: AsyncSession, task_id: str) -> Dict[str
             }
             if not ok_t:
                 missing.append(t)
+            elif val_errs:
+                invalid.append(t)
 
         optional_status: Dict[str, bool] = {}
         for ot in optional_t:
@@ -383,11 +506,7 @@ async def build_task_contract_report(db: AsyncSession, task_id: str) -> Dict[str
             om = ARTIFACT_TYPE_CONTRACT.get(ot, {})
             oerrs: List[str] = []
             if opt_ok and oa is not None:
-                oerrs = _apply_schema_rules(
-                    str(om.get("content_kind") or "markdown"),
-                    oa.content or "",
-                    list(om.get("rules") or []),
-                )
+                oerrs = _artifact_validation_errors(oa)
             artifact_details[ot] = {
                 "required": False,
                 "present": opt_ok,
@@ -396,13 +515,14 @@ async def build_task_contract_report(db: AsyncSession, task_id: str) -> Dict[str
                 "definition": om,
             }
 
-        stage_ok = not missing
+        stage_ok = not missing and not invalid
         if not stage_ok:
             all_ok = False
         stages_out[sid] = {
             "required": list(required),
             "present": present,
             "missing": missing,
+            "invalid": invalid,
             "ok": stage_ok,
             "optional_present": optional_status,
             "artifact_details": artifact_details,

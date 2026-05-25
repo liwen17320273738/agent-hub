@@ -57,6 +57,27 @@
       </div>
     </header>
 
+    <!-- Delivery hero: preview URL + acceptance summary + primary CTAs.
+         Shown above all engineering tabs so the business user sees
+         "can I use this / where is the link" before the 8-tab detail. -->
+    <DeliveryHeader
+      :task-id="task.id"
+      :status="task.status"
+      :artifact-count="task.artifacts?.length || 0"
+      @share="generateShareLink(30)"
+      @accept="openFinalAcceptance('accept')"
+    />
+
+    <!-- Soft warnings — quality gate WARNINGs that did not block but still
+         signal "look at this" (e.g. cross-stage consistency drift). -->
+    <SoftWarningBanner :stages="task.stages || []" />
+
+    <DraftDeliveryBanner
+      v-if="task.status === 'awaiting_evidence'"
+      :task-id="task.id"
+      :status="task.status"
+    />
+
     <section v-if="task.status === 'plan_pending'" class="plan-pending-banner">
       <div class="plan-pending-inner">
         <div class="plan-pending-text">
@@ -88,7 +109,7 @@
 
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
       <el-tab-pane :label="t('pipelineTaskDetail.tabArtifacts')" name="artifacts">
-        <TaskArtifactTabs :task-id="task.id" />
+        <TaskArtifactTabs :task-id="task.id" :task-status="task.status" />
       </el-tab-pane>
       <el-tab-pane :label="t('pipelineTaskDetail.tabOverview')" name="overview" lazy>
     <section v-if="qualitySummary.total > 0" class="quality-summary">
@@ -103,6 +124,23 @@
           {{ t('pipelineTaskDetail.avgScore') }}: ⭐ {{ qualitySummary.avgScore.toFixed(1) }}
         </span>
       </div>
+    </section>
+
+    <!-- Live progress narrative — shown while a stage is running so the
+         user sees "who is doing what" instead of a bare spinner. -->
+    <section v-if="processingNarrative" class="live-narrative">
+      <div class="live-narrative-head">
+        <span class="live-dot" />
+        <span class="live-icon">{{ processingNarrative.icon }}</span>
+        <span class="live-agent">{{ processingNarrative.agent }}</span>
+        <span class="live-text">{{ processingNarrative.narrative }}</span>
+      </div>
+      <ul v-if="narrativeFeed.length > 1" class="live-narrative-feed">
+        <li v-for="(n, i) in narrativeFeed.slice(1)" :key="`${n.stageId}-${n.at}-${i}`">
+          <span class="feed-icon">{{ n.icon }}</span>
+          <span class="feed-text">{{ n.agent }} · {{ n.narrative }}</span>
+        </li>
+      </ul>
     </section>
 
     <!-- Vue Flow must not mount while the tab pane is display:none — zero-size
@@ -788,6 +826,9 @@ import { renderMarkdown } from '@/services/markdown'
 import SubtaskCard from '@/components/SubtaskCard.vue'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import TaskArtifactTabs from '@/components/task/TaskArtifactTabs.vue'
+import DeliveryHeader from '@/components/task/DeliveryHeader.vue'
+import SoftWarningBanner from '@/components/task/SoftWarningBanner.vue'
+import DraftDeliveryBanner from '@/components/task/DraftDeliveryBanner.vue'
 import FailureCard from '@/components/task/FailureCard.vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
@@ -883,6 +924,8 @@ const anyExecutionRunning = computed(() =>
 )
 const subtasks = ref<SubtaskInfo[]>([])
 const processingStage = ref<string | null>(null)
+const processingNarrative = ref<{ agent: string; icon: string; role: string; narrative: string; stageId: string; at: number } | null>(null)
+const narrativeFeed = ref<Array<{ agent: string; icon: string; narrative: string; stageId: string; at: number }>>([])
 const showRejectDialog = ref(false)
 const rejectTarget = ref('')
 const rejectReason = ref('')
@@ -938,21 +981,32 @@ const completedSubtasks = computed(() =>
 
 const statusLabel = computed(() => {
   const s = task.value?.status || ''
+  const key = `status.${s}`
+  const translated = t(key)
+  if (translated !== key) return translated
   if (s === 'active') return t('pipelineTaskDetail.taskStatusActive')
   if (s === 'paused') return t('pipelineTaskDetail.taskStatusPaused')
   if (s === 'done') return t('pipelineTaskDetail.taskStatusDone')
   if (s === 'cancelled') return t('pipelineTaskDetail.taskStatusCancelled')
-  return task.value?.status || ''
+  return s
 })
 
 const statusTagType = computed(() => {
+  const s = task.value?.status || ''
   const map: Record<string, string> = {
     active: 'primary',
+    running: 'primary',
     paused: 'warning',
     done: 'success',
+    accepted: 'success',
     cancelled: 'danger',
+    failed: 'danger',
+    rejected: 'danger',
+    plan_pending: 'warning',
+    awaiting_final_acceptance: 'warning',
+    awaiting_evidence: 'warning',
   }
-  return (map[task.value?.status || ''] || 'info') as '' | 'success' | 'warning' | 'info' | 'danger'
+  return (map[s] || 'info') as '' | 'success' | 'warning' | 'info' | 'danger'
 })
 
 function sourceTagType(source: string): 'primary' | 'success' | 'warning' | 'info' | 'danger' {
@@ -1506,6 +1560,16 @@ function setupSSE() {
 
     if (evt.event === 'stage:processing') {
       processingStage.value = (data?.stageId as string) || null
+      const entry = {
+        agent: (data?.agent as string) || '',
+        icon: (data?.icon as string) || '🤖',
+        role: (data?.role as string) || '',
+        narrative: (data?.narrative as string) || (data?.label as string) || '',
+        stageId: (data?.stageId as string) || '',
+        at: Date.now(),
+      }
+      processingNarrative.value = entry
+      narrativeFeed.value = [entry, ...narrativeFeed.value].slice(0, 5)
     }
 
     if (evt.event === 'stage:completed') {
@@ -1737,8 +1801,17 @@ async function generateShareLink(ttlDays: number = 7) {
     })
     const data = await res.json()
     if (!res.ok) {
-      ElMessage.error(data.detail || t('pipelineTaskDetail.elMessage_shareApi'))
+      const detail = data.detail
+      if (typeof detail === 'object' && detail?.code === 'evidence_missing') {
+        ElMessage.error(detail.message || t('draftDelivery.shareBlocked'))
+        return
+      }
+      ElMessage.error(typeof detail === 'string' ? detail : t('pipelineTaskDetail.elMessage_shareApi'))
       return
+    }
+    if (data.draft && task.value) {
+      task.value.status = 'awaiting_evidence'
+      ElMessage.warning(t('draftDelivery.shareDraftIssued'))
     }
     const fullUrl = `${window.location.origin}/#${data.url}`
     await navigator.clipboard.writeText(fullUrl)
@@ -1985,6 +2058,52 @@ watch(() => route.params.id, () => {
   padding: 32px;
   max-width: 960px;
   margin: 0 auto;
+}
+
+.live-narrative {
+  margin: 16px 0 24px;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eef4ff 0%, #f5f0ff 100%);
+  border: 1px solid #d4e0ff;
+}
+.live-narrative-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #1f2937;
+}
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  animation: live-pulse 1.4s infinite;
+}
+.live-icon { font-size: 18px; }
+.live-agent { font-weight: 600; }
+.live-text { color: #4b5563; }
+.live-narrative-feed {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.live-narrative-feed li {
+  font-size: 12px;
+  color: #6b7280;
+  display: flex;
+  gap: 6px;
+}
+.feed-icon { width: 16px; text-align: center; }
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
 }
 
 .detail-header { margin-bottom: 32px; }

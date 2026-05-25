@@ -235,6 +235,21 @@ async def get_task_artifact_contract(
     return await build_task_contract_report(db, task_id)
 
 
+@router.get("/tasks/{task_id}/evidence")
+async def get_task_delivery_evidence(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """Trustworthy-delivery contract status — used by the detail page banner
+    and the SharePage draft indicator. Returns the structured EvidenceCheck."""
+    task = await _get_task_or_404(db, task_id, user)
+    from ..services.delivery_contract import verify_delivery_evidence
+
+    result = await verify_delivery_evidence(db, task)
+    return result.to_dict()
+
+
 @router.post("/tasks", status_code=201)
 async def create_task(
     body: CreateTaskRequest,
@@ -2126,6 +2141,20 @@ async def final_accept_task(
                 f"task is not awaiting final acceptance "
                 f"(status={task.status})"
             ),
+        )
+
+    # Trustworthy-delivery gate: block accept unless real test + preview +
+    # evidence exist, or the workspace explicitly allows draft delivery.
+    from ..services.delivery_contract import verify_delivery_evidence
+    evidence_check = await verify_delivery_evidence(db, task)
+    if not evidence_check.ok and not evidence_check.workspace_allows_draft:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "evidence_missing",
+                "message": evidence_check.summary,
+                "evidence": evidence_check.to_dict(),
+            },
         )
 
     task.status = "done"

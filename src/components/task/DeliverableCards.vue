@@ -4,7 +4,7 @@
       <h3>{{ t('deliverableCards.text_1') }}</h3>
       <el-button v-if="!isShareMode" size="small" @click="refresh" :loading="loading">
         <el-icon><Refresh /></el-icon>
-        刷新
+        {{ t('deliverableCards.refresh') }}
       </el-button>
     </div>
 
@@ -35,7 +35,7 @@
           <div class="viewer-actions">
             <el-button v-if="!editing && !isShareMode" size="small" text @click="editing = true">
               <el-icon><Edit /></el-icon>
-              编辑
+              {{ t('deliverableCards.edit') }}
             </el-button>
             <template v-if="editing">
               <el-button size="small" type="primary" @click="save" :loading="saving">{{ t('deliverableCards.text_4') }}</el-button>
@@ -119,7 +119,7 @@ const activeTitle = computed(() => {
 })
 
 const renderedContent = computed(() => {
-  if (!docContent.value) return '<p style="color:var(--el-text-color-secondary)">空文档</p>'
+  if (!docContent.value) return `<p style="color:var(--el-text-color-secondary)">${t('deliverableCards.emptyDoc')}</p>`
   return docContent.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/^### (.+)$/gm, '<h4>$1</h4>')
@@ -177,14 +177,14 @@ async function toggleDoc(card: TaskDocMeta & { icon: string }) {
         const data = await res.json()
         docContent.value = data.content
       } else {
-        docContent.value = '*(加载失败)*'
+        docContent.value = `*(${t('deliverableCards.loadFailedInline')})*`
       }
     } else {
       const doc = await readTaskDoc(props.taskId, card.name)
       docContent.value = doc.content
     }
   } catch {
-    docContent.value = '*(加载失败)*'
+    docContent.value = `*(${t('deliverableCards.loadFailedInline')})*`
   }
 }
 

@@ -19,8 +19,10 @@ Gate results:
 from __future__ import annotations
 
 import logging
+import os
+import re
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel
 
@@ -28,6 +30,44 @@ from .self_verify import verify_stage_output, VerifyStatus, StageVerification
 from .llm_router import chat_completion as llm_chat
 
 logger = logging.getLogger(__name__)
+
+
+def _soft_failure_enabled() -> bool:
+    """Cross-stage consistency check toggle (default on)."""
+    return os.getenv("SOFT_FAILURE_DETECTION_ENABLED", "true").lower() not in ("0", "false", "no")
+
+
+_TERM_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}|`[^`]+`|[一-鿿]{2,}")
+
+
+def _extract_key_terms(text: str, limit: int = 80) -> Set[str]:
+    """Pull a coarse bag of identifiers / quoted names / CJK terms.
+
+    Used for cross-stage consistency (a downstream stage that shares few
+    terms with its upstream signals "PRD says X, code talks about Y"
+    drift). Intentionally lexical, not semantic — embeddings get added
+    later as a P1 follow-up.
+    """
+    if not text:
+        return set()
+    raw = _TERM_PATTERN.findall(text)
+    cleaned = {t.strip("` ").lower() for t in raw if t.strip("` ")}
+    cleaned.discard("")
+    if len(cleaned) <= limit:
+        return cleaned
+    return set(list(cleaned)[:limit])
+
+
+# Pairs of stages where lexical overlap is meaningful — i.e. downstream
+# stage should retain noticeable terminology from upstream. Tuned to be
+# conservative to avoid noisy warnings.
+_CONSISTENCY_PAIRS: Dict[str, List[str]] = {
+    "design": ["planning"],
+    "architecture": ["planning", "design"],
+    "development": ["architecture", "planning"],
+    "testing": ["development", "architecture"],
+    "acceptance": ["planning", "development"],
+}
 
 
 class GateStatus(str, Enum):
@@ -56,6 +96,65 @@ class GateResult(BaseModel):
     can_proceed: bool
     block_reason: Optional[str] = None
     suggestions: List[str] = []
+
+
+def _check_cross_stage_consistency(
+    stage_id: str,
+    output: str,
+    previous_outputs: Optional[Dict[str, str]],
+) -> Optional[GateCheck]:
+    """Return a WARNING check when output drifts lexically from upstream.
+
+    Only fires when *every* expected upstream stage has below-threshold
+    overlap; partial overlap is treated as healthy.
+    """
+    if not _soft_failure_enabled():
+        return None
+    upstream_stages = _CONSISTENCY_PAIRS.get(stage_id)
+    if not upstream_stages or not previous_outputs:
+        return None
+
+    cur_terms = _extract_key_terms(output)
+    if len(cur_terms) < 8:
+        # too little signal — abstain rather than false-positive
+        return None
+
+    overlap_scores: List[float] = []
+    weakest_upstream = ""
+    weakest_score = 1.0
+    for up in upstream_stages:
+        up_text = previous_outputs.get(up) or ""
+        up_terms = _extract_key_terms(up_text)
+        if len(up_terms) < 8:
+            continue
+        inter = len(cur_terms & up_terms)
+        union = len(cur_terms | up_terms)
+        score = inter / union if union else 0.0
+        overlap_scores.append(score)
+        if score < weakest_score:
+            weakest_score = score
+            weakest_upstream = up
+
+    if not overlap_scores:
+        return None
+    avg = sum(overlap_scores) / len(overlap_scores)
+    # Threshold 0.06 chosen empirically: typical aligned stages land 0.10-0.25,
+    # genuinely drifted outputs land < 0.04.
+    if avg >= 0.06:
+        return None
+
+    return GateCheck(
+        name="cross_stage_consistency",
+        category="heuristic",
+        status=GateStatus.WARNING,
+        score=round(avg, 3),
+        message=(
+            f"本阶段输出与上游 {weakest_upstream} 的关键词重合度偏低 "
+            f"(score={avg:.2f})，可能存在偏离需求/架构的风险，建议人工复核。"
+        ),
+        details="cross_stage_consistency soft-warning",
+    )
+
 
 
 DELIVERABLE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
@@ -574,6 +673,10 @@ async def evaluate_quality_gate(
     checks.append(_check_deliverable_sections(output, config))
     checks.append(_check_deliverable_keywords(output, config))
     checks.append(_check_length_gate(output, config))
+
+    consistency_check = _check_cross_stage_consistency(stage_id, output, previous_outputs)
+    if consistency_check:
+        checks.append(consistency_check)
 
     if not skip_llm:
         llm_check = await _llm_quality_evaluation(

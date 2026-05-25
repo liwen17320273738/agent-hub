@@ -13,14 +13,14 @@ test.describe('矩阵 A：无需后端（仅前端路由与登录表单）', () 
   test('登录页展示品牌与表单', async ({ page }) => {
     await page.goto('/#/login')
     await expect(page.locator('.login-card h1')).toContainText(/Agent Hub/i)
-    await expect(page.locator('input[type="email"]')).toBeVisible()
+    await expect(page.getByTestId('login-email')).toBeVisible()
     await expect(page.locator('input[type="password"]')).toBeVisible()
     await expect(page.locator('.login-form button[type="submit"]')).toBeVisible()
   })
 
   test('空邮箱密码提交显示客户端校验', async ({ page }) => {
     await page.goto('/#/login')
-    await page.locator('input[type="email"]').fill('')
+    await page.getByTestId('login-email').fill('')
     await page.locator('input[type="password"]').fill('')
     await page.locator('.login-form button[type="submit"]').click()
     await expect(page.locator('.login-card .error-text')).toContainText('请输入邮箱和密码', { timeout: 5000 })
@@ -54,7 +54,7 @@ test.describe('矩阵 B：需后端（健康检查）', () => {
 
   test('错误密码登录显示错误提示', async ({ page }) => {
     await page.goto('/#/login')
-    await page.locator('input[type="email"]').fill(email)
+    await page.getByTestId('login-email').fill(email)
     await page.locator('input[type="password"]').fill(`wrong-${Date.now()}`)
     await page.locator('.login-form button[type="submit"]').click()
     await expect(page.locator('.login-card .error-text')).toBeVisible({ timeout: 15_000 })

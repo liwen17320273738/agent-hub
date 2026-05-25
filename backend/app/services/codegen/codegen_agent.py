@@ -482,7 +482,9 @@ class CodeGenAgent:
             "command": f"cd {project_dir} && {command}",
             "timeout": 120,
         })
-        success = "[exit code: 0]" in result
+        # 结构化提取退出码，避免子字符串误匹配
+        exit_match = re.search(r"\[exit code:\s*(-?\d+)\]", result)
+        success = exit_match is not None and int(exit_match.group(1)) == 0
         _write_build_log(project_dir, result)
         return {"ok": success, "output": result}
 

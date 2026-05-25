@@ -54,6 +54,7 @@ async def clean() -> None:
 
         tables_to_clean = [
             "task_artifacts",
+            "pipeline_artifacts",
             "pipeline_stages",
             "pipeline_tasks",
             "conversation_messages",

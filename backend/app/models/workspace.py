@@ -24,6 +24,12 @@ class Workspace(Base):
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(String(1000), default="")
     is_default: Mapped[bool] = mapped_column(default=False)
+    # Trustworthy-delivery gate (delivery_contract.py): when False (default),
+    # share-token issuance and final-accept are blocked unless real test +
+    # preview + acceptance evidence exist. Workspaces that opt in can still
+    # ship "draft delivery" — the task lands in status="awaiting_evidence"
+    # and the share page renders a draft banner.
+    allow_draft_delivery: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
 

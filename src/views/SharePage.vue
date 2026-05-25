@@ -6,7 +6,7 @@
     </div>
 
     <div v-else-if="error" class="share-error">
-      <el-result icon="warning" :title="error" sub-title="请检查分享链接是否正确或已过期">
+      <el-result icon="warning" :title="error" :sub-title="t('sharePage.errorSubtitle')">
         <template #extra>
           <el-button @click="$router.push('/login')">{{ t('sharePage.text_2') }}</el-button>
         </template>
@@ -15,14 +15,28 @@
 
     <template v-else-if="task">
       <header class="share-header">
-        <div class="share-brand">Agent Hub · 任务分享</div>
+        <div class="share-brand">{{ t('sharePage.brand') }}</div>
         <h1>{{ task.title }}</h1>
         <p v-if="task.description" class="share-desc">{{ task.description }}</p>
         <div class="share-meta">
           <el-tag :type="statusType(task.status)" size="large">{{ statusLabel(task.status) }}</el-tag>
+          <el-tag v-if="isDraftDelivery" type="warning" size="large" effect="dark" class="draft-tag">
+            {{ t('sharePage.draftBadge') }}
+          </el-tag>
           <span v-if="task.created_at" class="meta-date">{{ formatDate(task.created_at) }}</span>
         </div>
       </header>
+
+      <DraftDeliveryBanner
+        :evidence="task.evidence"
+        :status="task.status"
+        :force-show="isDraftDelivery"
+      />
+
+      <!-- Success-side acceptance card: tries-it URL, what was delivered,
+           owner, deadline. Shown above the engineering tabs so external
+           customers see the SaaS-style summary first. -->
+      <AcceptanceSummaryCard :task="task" />
 
       <section class="share-stages">
         <div
@@ -37,26 +51,26 @@
       </section>
 
       <section v-if="task" class="share-contract">
-        <ArtifactContractPanel :share-token="token" compact />
+        <ArtifactContractPanel :share-token="token" :task-status="task.status" compact />
       </section>
 
       <!-- Phase 5: visual preview — UI mockup + architecture diagram on share page -->
       <section v-if="task" class="share-visuals">
         <div class="visuals-grid">
           <div class="visual-card">
-            <h3 class="visual-title">🎨 UI 设计稿</h3>
-            <UiMockupCard :task-id="task.task_id" compact />
+            <h3 class="visual-title">🎨 {{ t('sharePage.visualUiMockup') }}</h3>
+            <UiMockupCard :task-id="task.task_id" :share-token="token" compact />
           </div>
           <div class="visual-card">
-            <h3 class="visual-title">📐 架构图</h3>
-            <TaskArchDiagram :task-id="task.task_id" compact />
+            <h3 class="visual-title">📐 {{ t('sharePage.visualArch') }}</h3>
+            <TaskArchDiagram :task-id="task.task_id" :share-token="token" compact />
           </div>
         </div>
       </section>
 
       <!-- Phase 6: QA evidence on share page -->
       <section v-if="task" class="share-qa">
-        <TaskQATab :task-id="task.task_id" />
+        <TaskQATab :task-id="task.task_id" :share-token="token" />
       </section>
 
       <!-- Phase 7: Deploy preview on share page -->
@@ -67,35 +81,39 @@
       <section class="share-docs">
         <div class="share-docs-header">
           <el-button type="primary" @click="downloadZip">
-            <el-icon><Download /></el-icon> 下载完整交付包
+            <el-icon><Download /></el-icon> {{ t('sharePage.downloadZip') }}
           </el-button>
         </div>
-        <DeliverableCards :task-id="task.task_id" :share-token="token" />
+        <el-collapse v-model="docsCollapse" class="share-docs-collapse">
+          <el-collapse-item :title="t('sharePage.docsCollapseTitle')" name="docs">
+            <DeliverableCards :task-id="task.task_id" :share-token="token" />
+          </el-collapse-item>
+        </el-collapse>
       </section>
 
       <section v-if="task.status === 'awaiting_final_acceptance'" class="share-acceptance">
-        <h2>验收确认</h2>
-        <p>请查看上方交付文档后做出决定：</p>
+        <h2>{{ t('sharePage.acceptanceTitle') }}</h2>
+        <p>{{ t('sharePage.acceptanceBody') }}</p>
         <div class="acceptance-actions">
           <el-button type="success" size="large" :loading="accepting" @click="handleAccept">
-            ✅ 我同意验收
+            ✅ {{ t('sharePage.acceptBtn') }}
           </el-button>
           <el-button type="danger" size="large" :loading="rejecting" @click="showRejectDialog = true">
-            ↩ 打回重做
+            ↩ {{ t('sharePage.rejectBtn') }}
           </el-button>
         </div>
       </section>
 
       <section v-if="task.final_acceptance_status === 'accepted'" class="share-done">
-        <el-result icon="success" title="已验收通过" sub-title="该任务已通过客户验收" />
+        <el-result icon="success" :title="t('sharePage.doneTitle')" :sub-title="t('sharePage.doneSubtitle')" />
       </section>
     </template>
 
-    <el-dialog v-model="showRejectDialog" title="打回原因" width="460px">
-      <el-input v-model="rejectReason" type="textarea" :rows="4" placeholder="请说明打回原因…" />
+    <el-dialog v-model="showRejectDialog" :title="t('sharePage.rejectDialogTitle')" width="460px">
+      <el-input v-model="rejectReason" type="textarea" :rows="4" :placeholder="t('sharePage.rejectPlaceholder')" />
       <template #footer>
-        <el-button @click="showRejectDialog = false">取消</el-button>
-        <el-button type="danger" :loading="rejecting" @click="handleReject">确认打回</el-button>
+        <el-button @click="showRejectDialog = false">{{ t('sharePage.cancel') }}</el-button>
+        <el-button type="danger" :loading="rejecting" @click="handleReject">{{ t('sharePage.confirmReject') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -107,10 +125,12 @@ import { useRoute } from 'vue-router'
 import { Loading, Download } from '@element-plus/icons-vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import ArtifactContractPanel from '@/components/task/ArtifactContractPanel.vue'
+import AcceptanceSummaryCard from '@/components/task/AcceptanceSummaryCard.vue'
 import UiMockupCard from '@/components/design/UiMockupCard.vue'
 import TaskArchDiagram from '@/components/task/TaskArchDiagram.vue'
 import TaskQATab from '@/components/task/TaskQATab.vue'
 import DeployPreviewCard from '@/components/task/DeployPreviewCard.vue'
+import DraftDeliveryBanner from '@/components/task/DraftDeliveryBanner.vue'
 import { useI18n } from 'vue-i18n'
 import { appLocaleToBcp47 } from '@/i18n'
 
@@ -127,6 +147,16 @@ const accepting = ref(false)
 const rejecting = ref(false)
 const showRejectDialog = ref(false)
 const rejectReason = ref('')
+// Markdown documents are folded by default — external customers see the
+// AcceptanceSummaryCard + visual + QA + Deploy sections first.
+const docsCollapse = ref<string[]>([])
+
+const isDraftDelivery = computed(() => {
+  if (!task.value) return false
+  if (task.value.is_draft_delivery) return true
+  if (task.value.status === 'awaiting_evidence') return true
+  return task.value.evidence?.ok === false
+})
 
 function getBaseUrl(): string {
   return import.meta.env.VITE_API_BASE || '/api'
@@ -145,7 +175,7 @@ onMounted(async () => {
   try {
     task.value = await shareFetch(`/share/${token.value}`)
   } catch (e: any) {
-    error.value = e.message || '加载失败'
+    error.value = e.message || t('sharePage.loadFailed')
   } finally {
     loading.value = false
   }
@@ -185,17 +215,12 @@ async function handleReject() {
 function statusType(s: string) {
   if (s === 'done' || s === 'accepted') return 'success'
   if (s === 'failed' || s === 'rejected') return 'danger'
-  if (s === 'awaiting_final_acceptance' || s === 'plan_pending') return 'warning'
+  if (s === 'awaiting_final_acceptance' || s === 'plan_pending' || s === 'awaiting_evidence') return 'warning'
   return 'primary'
 }
 
 function statusLabel(s: string) {
-  const m: Record<string, string> = {
-    plan_pending: '待审批', awaiting_final_acceptance: '待验收',
-    active: '执行中', running: '执行中', done: '已完成', accepted: '已验收',
-    failed: '失败', rejected: '已拒绝', paused: '已暂停',
-  }
-  return m[s] || s
+  return t(`status.${s}` as any)
 }
 
 function downloadZip() {
@@ -257,6 +282,10 @@ function formatDate(iso: string) {
   color: var(--el-text-color-regular);
   line-height: 1.6;
   margin-bottom: 16px;
+}
+
+.share-meta .draft-tag {
+  margin-left: 8px;
 }
 
 .share-meta {

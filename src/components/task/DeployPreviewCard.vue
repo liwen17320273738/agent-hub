@@ -71,6 +71,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getAuthToken } from '@/services/api'
 import { Link } from '@element-plus/icons-vue'
 
@@ -78,6 +79,8 @@ const props = defineProps<{
   taskId: string
   shareToken?: string
 }>()
+
+const { t } = useI18n()
 
 const loading = ref(true)
 const error = ref(false)
@@ -155,15 +158,15 @@ const healthTagType = computed(() => {
 
 const healthLabel = computed(() => {
   switch (healthStatus.value) {
-    case 'healthy': return '正常'
-    case 'unhealthy': return '异常'
-    default: return '未知'
+    case 'healthy': return t('deploy.health_healthy')
+    case 'unhealthy': return t('deploy.health_unhealthy')
+    default: return t('deploy.health_unknown')
   }
 })
 
 const providerLabel = computed(() => {
-  if (provider.value === 'vercel') return 'Vercel'
-  if (provider.value === 'local') return 'Local'
+  if (provider.value === 'vercel') return t('deploy.providerVercel')
+  if (provider.value === 'local') return t('deploy.providerLocal')
   return provider.value || '-'
 })
 

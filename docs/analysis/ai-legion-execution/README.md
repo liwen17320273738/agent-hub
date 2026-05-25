@@ -46,7 +46,7 @@ Phase 5 和 Phase 6 可以根据资源情况调整顺序。若视觉模型/Figma
 
 | Phase | 状态 |
 |---|---|
-| 1 | ✅ 已实现 `backend/tests/test_hero_delivery_path.py`，见 `docs/selftest-report.md` 本节说明 |
+| 1 | ✅ 已实现分层 Hero 测试（smoke + acceptance + 质量门），见 `docs/selftest-report.md` |
 | 2 | ✅ 深化：`POST .../cancel-queue`（queued + 等槽位协作取消）、`failed`/`error` 下 linear `resume`、`FailureCard` 识别 `error`/`blocked`、任务详情恢复按钮与 `retry-stage` API 对齐；详见 `phase-2-durable-state-machine.md` |
 | 3 | ✅ 可交付版：`artifact_contract.py`、execute_stage 缺件失败、`GET .../artifact-contract`、manifest `contract`；见 `phase-3-artifact-contract.md` |
 

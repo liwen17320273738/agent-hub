@@ -4,16 +4,26 @@
 
 ## Hero Path 程序化 E2E（pytest，无真实 LLM）
 
-**更新：2026-05-13**
+**更新：2026-05-20**
 
-执行 `docs/analysis/ai-legion-execution/phase-1-hero-path-e2e.md` 的第一步：新增可重复运行的交付链路灯测试。
+Hero 验收拆成三层，避免「测试全绿但 PRD/UI/代码缺失」的假信号：
+
+| 层级 | 测试 | 命令 | 说明 |
+|------|------|------|------|
+| **Smoke（状态机）** | `test_hero_delivery_path.py` | `pytest tests/test_hero_delivery_path.py -v` | `/advance` 走阶段 + 手动 POST stub 工件；断言 `all_required_satisfied is False` |
+| **Acceptance（管线）** | `test_hero_pipeline_acceptance.py` | `pytest tests/test_hero_pipeline_acceptance.py -v` | 真实 `execute_stage` ×7（mock LLM / Phase 5–7）；断言质量契约 **满足** |
+| **质量门** | `test_artifact_contract_quality.py` | `pytest tests/test_artifact_contract_quality.py -v` | 占位/mock PNG/假 deploy URL 进入 `invalid[]`，UI 显示「未达标」 |
+
+Playwright：`tests/e2e/hero-smoke.spec.ts` — 仅 UI/API 接线（登录→建单→详情→分享），**不**断言交付物内容。
+
+**2026-05-13（历史）** — 首版 `test_hero_delivery_path.py` 曾用 stub 占位且契约显示「满足」；现已加质量门，stub 任务应显示缺口。
 
 | 项目 | 内容 |
 |---|---|
-| 测试文件 | `backend/tests/test_hero_delivery_path.py` |
-| 本地命令 | `cd backend && python3 -m pytest tests/test_hero_delivery_path.py -v` |
-| 行为说明 | 创建任务 → 用 `/api/pipeline/tasks/{id}/advance` 走完全部默认阶段 → 写入 12 类 v2 工件占位内容 → 生成分享 token 并匿名访问 → 下载 `deliverables.zip`。 |
-| 失败定位 | 断言会标出：`advance` 卡住、某类 artifact 未写入、`has_content` 为假、分享或 ZIP 失败。 |
+| Smoke 测试文件 | `backend/tests/test_hero_delivery_path.py` |
+| Acceptance 测试文件 | `backend/tests/test_hero_pipeline_acceptance.py` |
+| 本地命令（推荐一起跑） | `cd backend && AGENTHUB_TEST_MINIMAL_LIFESPAN=1 python3 -m pytest tests/test_hero_delivery_path.py tests/test_hero_pipeline_acceptance.py tests/test_artifact_contract_quality.py -q` |
+| 失败定位 | smoke：advance/分享/ZIP；acceptance：某阶段 `execute_stage` 失败或契约 `invalid`/`missing`；质量门：占位内容未拦截 |
 
 本节与下方手工自测明细独立；下文表格仍为历史一次跑通快照。
 

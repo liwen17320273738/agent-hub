@@ -181,5 +181,14 @@ class LocalPreview:
                     pass
             self._process = None
 
+    def detach(self):
+        """Leave the preview server running after a successful deploy.
+
+        The pipeline returns a clickable local URL as a delivery artifact. If
+        we keep owning the process and call ``close()``, that URL becomes dead
+        before the user can inspect it.
+        """
+        self._process = None
+
     async def close(self):
         self._cleanup()

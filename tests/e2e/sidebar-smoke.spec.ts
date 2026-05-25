@@ -27,7 +27,7 @@ test.describe('登录与五入口侧栏', () => {
     await page.goto('/#/login')
     await expect(page.locator('.login-card h1')).toContainText(/Agent Hub/i)
 
-    await page.locator('input[type="email"]').fill(email)
+    await page.getByTestId('login-email').fill(email)
     await page.locator('input[type="password"]').fill(password)
     await page.locator('.login-form button[type="submit"]').click()
 

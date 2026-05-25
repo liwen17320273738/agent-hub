@@ -205,6 +205,26 @@ export default defineConfig(({ mode }) => {
     hmr: {
       port: 24678,
     },
+    // Backend writes task artifacts (HTML mockups, arch diagrams) under data/workspace/ on every pipeline run,
+    // and Playwright writes report HTML under playwright-report/. Without these ignores Vite triggers a full
+    // page reload every time the backend produces an artifact, making the SPA appear to "refresh constantly".
+    watch: {
+      ignored: [
+        '**/data/**',
+        '**/playwright-report/**',
+        '**/test-results/**',
+        '**/backend/**',
+        '**/logs/**',
+        '**/packages/agent-hub-pipeline/templates/**',
+        '**/skills/custom/**',
+        '**/.swarm/**',
+        '**/*.db',
+        '**/*.db-shm',
+        '**/*.db-wal',
+        '**/*.lock',
+        '**/*.log',
+      ],
+    },
     // More specific /api/proxy/* routes MUST come before the catch-all /api → backend
     proxy: {
       ...apiProxy,

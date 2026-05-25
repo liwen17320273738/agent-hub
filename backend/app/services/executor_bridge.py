@@ -33,8 +33,8 @@ def _ensure_sandbox_allowed():
         projects_dir = os.path.join(get_sandbox_root(), "projects")
         if projects_dir not in ALLOWED_WORK_DIRS:
             ALLOWED_WORK_DIRS.append(projects_dir)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("[executor_bridge] 无法注册 sandbox 工作目录: %s", e)
 
     # Also allow workspace tasks directory for pipeline worktrees.
     # Derive from repo root (same logic as task_workspace._workspace_root)
@@ -43,8 +43,8 @@ def _ensure_sandbox_allowed():
         workspace_tasks = str(repo_root / "data" / "workspace" / "tasks")
         if workspace_tasks not in ALLOWED_WORK_DIRS:
             ALLOWED_WORK_DIRS.append(workspace_tasks)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("[executor_bridge] 无法注册 workspace 工作目录: %s", e)
 
 
 _ensure_sandbox_allowed()

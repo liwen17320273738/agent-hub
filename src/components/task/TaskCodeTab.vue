@@ -260,7 +260,7 @@
               <td class="td-time">{{ f.time || '—' }}</td>
               <td class="td-size">{{ fmtSize(f.size) }}</td>
               <td class="td-actions">
-                <button class="action-dot" title="更多操作" @click.stop="openContextMenu($event, f)">
+                <button class="action-dot" :title="t('taskCodeTab.moreActions')" @click.stop="openContextMenu($event, f)">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                     <circle cx="8" cy="3" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="8" cy="13" r="1.5"/>
                   </svg>
@@ -270,7 +270,7 @@
           </tbody>
         </table>
         <div v-if="!filteredTableFiles.length" class="table-empty">
-          <span>暂无匹配文件</span>
+          <span>{{ t('taskCodeTab.noMatchingFiles') }}</span>
         </div>
       </div>
 
@@ -301,7 +301,7 @@
                   <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>
                 </svg>
               </button>
-              <button class="action-btn close-btn" title="关闭预览" @click="clearSelection">
+              <button class="action-btn close-btn" :title="t('taskCodeTab.closePreview')" @click="clearSelection">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                 </svg>
@@ -319,7 +319,7 @@
           <!-- Loading -->
           <div v-if="fileLoading" class="preview-loading">
             <div class="loading-spinner small"></div>
-            <span>加载中...</span>
+            <span>{{ t('taskCodeTab.loading') }}</span>
           </div>
 
           <!-- Code content with syntax highlight -->
@@ -332,7 +332,7 @@
 
           <!-- Empty content -->
           <div v-else class="preview-no-content">
-            <p>此文件暂无内容</p>
+            <p>{{ t('taskCodeTab.noFileContent') }}</p>
           </div>
         </template>
 
@@ -348,14 +348,14 @@
             <rect x="16" y="32" width="24" height="2" rx="1" fill="#2a2d36"/>
             <rect x="16" y="38" width="12" height="2" rx="1" fill="#2a2d36"/>
           </svg>
-          <p class="hint-title">选择文件进行预览</p>
-          <p class="hint-sub">支持语法高亮、行号、代码复制</p>
+          <p class="hint-title">{{ t('taskCodeTab.selectFileHint') }}</p>
+          <p class="hint-sub">{{ t('taskCodeTab.selectFileSub') }}</p>
         </div>
       </div>
     </div>
 
     <!-- Copy toast -->
-    <div v-if="showCopyToast" class="copy-toast">已复制到剪贴板</div>
+    <div v-if="showCopyToast" class="copy-toast">{{ t('taskCodeTab.copied') }}</div>
   </div>
 </template>
 

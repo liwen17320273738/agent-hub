@@ -341,14 +341,14 @@ async def write_qa_artifacts(
         metadata_json=qa_result if len(json.dumps(qa_result, default=str)) < 50000 else {"truncated": True},
     ))
 
-    # --- build.log ---
-    build_log_path = os.path.join(project_dir, "build.log")
-    if os.path.isfile(build_log_path):
-        with open(build_log_path, "r", encoding="utf-8") as f:
+    # --- qa-build.log (Phase 6 uses separate file to avoid overwriting Phase 4 build.log) ---
+    qa_build_log_path = os.path.join(project_dir, "qa-build.log")
+    if os.path.isfile(qa_build_log_path):
+        with open(qa_build_log_path, "r", encoding="utf-8") as f:
             raw_log = f.read()
         written.append(await _write_one_artifact(
             db, task_id, "testing", "build_log", raw_log,
-            "build.log", "Agent-qa",
+            "qa-build.log", "Agent-qa",
         ))
 
     # --- test.log ---

@@ -96,7 +96,9 @@ onMounted(async () => {
 })
 
 const pending = computed(() => tasks.value.filter(t =>
-  t.status === 'plan_pending' || t.status === 'awaiting_final_acceptance'
+  t.status === 'plan_pending'
+  || t.status === 'awaiting_final_acceptance'
+  || t.status === 'awaiting_evidence',
 ))
 const running = computed(() => tasks.value.filter(t =>
   t.status === 'active' || t.status === 'running'

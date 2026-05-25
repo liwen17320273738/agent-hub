@@ -73,7 +73,7 @@
         </template>
         <el-alert
           v-if="consoleErrors.length > 0"
-          :title="`${consoleErrors.length} console error(s) detected`"
+          :title="t('qa.consoleErrorsDetected', { n: consoleErrors.length })"
           type="warning"
           :closable="false"
           show-icon
@@ -94,11 +94,15 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getAuthToken } from '@/services/api'
 
 const props = defineProps<{
   taskId: string
+  shareToken?: string
 }>()
+
+const { t } = useI18n()
 
 const loading = ref(true)
 const qaData = ref<any>(null)
@@ -161,45 +165,58 @@ async function loadQaData() {
   loading.value = true
   try {
     const baseUrl = import.meta.env.VITE_API_BASE || '/api'
-    const token = getAuthToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    let artifacts: any[] = []
 
-    // Fetch test_report artifact to extract metadata (contains full qa_result)
-    const artRes = await fetch(
-      `${baseUrl}/tasks/${props.taskId}/artifacts`,
-      { headers },
-    )
-    if (!artRes.ok) return
-    const artData = await artRes.json()
-    const artifacts: any[] = artData.artifacts || []
+    if (props.shareToken) {
+      const shareRes = await fetch(`${baseUrl}/share/${props.shareToken}`)
+      if (!shareRes.ok) return
+      const shareData = await shareRes.json()
+      artifacts = shareData.artifacts || []
+    } else {
+      const token = getAuthToken()
+      const headers: Record<string, string> = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const artRes = await fetch(
+        `${baseUrl}/tasks/${props.taskId}/artifacts`,
+        { headers },
+      )
+      if (!artRes.ok) return
+      const artData = await artRes.json()
+      artifacts = artData.artifacts || []
+    }
 
     // Find test_report for qaResult metadata
-    const testReportArt = artifacts.find((a: any) => a.type_key === 'test_report')
+    const testReportArt = artifacts.find((a: any) => (a.type_key || a.artifact_type) === 'test_report')
     if (testReportArt?.metadata_json?.qa_result) {
       qaData.value = testReportArt.metadata_json.qa_result
     }
 
     // Build log
-    const buildLogArt = artifacts.find((a: any) => a.type_key === 'build_log' && a.stage_id === 'testing')
+    const buildLogArt = artifacts.find((a: any) => (a.type_key || a.artifact_type) === 'build_log' && a.stage_id === 'testing')
     if (buildLogArt?.content) {
       buildLog.value = buildLogArt.content
     }
 
     // Test log
-    const testLogArt = artifacts.find((a: any) => a.type_key === 'test_log')
+    const testLogArt = artifacts.find((a: any) => (a.type_key || a.artifact_type) === 'test_log')
     if (testLogArt?.content) {
       testLog.value = testLogArt.content
     }
 
-    // Screenshot (base64 content)
-    const screenshotArt = artifacts.find((a: any) => a.type_key === 'screenshot')
+    // Screenshot — QA and deploy both use type "screenshot"; scope to testing stage.
+    const screenshotArt = artifacts.find((a: any) => {
+      const type = a.type_key || a.artifact_type
+      if (type !== 'screenshot') return false
+      if (a.stage_id === 'testing') return true
+      const path = String(a.storage_path || '')
+      return path.includes('browser_screenshot')
+    })
     if (screenshotArt?.content) {
       screenshotB64.value = screenshotArt.content
     }
 
     // Console errors
-    const consoleArt = artifacts.find((a: any) => a.type_key === 'console_errors')
+    const consoleArt = artifacts.find((a: any) => (a.type_key || a.artifact_type) === 'console_errors')
     if (consoleArt?.content) {
       try {
         const parsed = JSON.parse(consoleArt.content)

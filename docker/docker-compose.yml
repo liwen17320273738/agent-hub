@@ -116,7 +116,35 @@ services:
       - agent-hub
     restart: unless-stopped
 
+  # ── One API ─────────────────────────────────────────────────────────
+  # LLM API 管理 & 分发系统，统一管理所有模型调用
+  one-api:
+    build:
+      context: ./one-api
+      dockerfile: Dockerfile
+    container_name: agent-hub-one-api
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      TZ: Asia/Shanghai
+      SESSION_SECRET: ${ONE_API_SESSION_SECRET:-one-api-secret-change-me}
+      SQLITE_PATH: /data/one-api.db
+    volumes:
+      - one-api-data:/data
+    ports:
+      - "${ONE_API_PORT:-3001}:3000"
+    networks:
+      - agent-hub
+    restart: unless-stopped
+
   # ── 自部署服务 ─────────────────────────────────────────────────────────
+  # 启动 one-api（已集成到主 compose 中，不依赖 agent-hub 其他服务）
+  # 访问 http://localhost:3001，默认账号 root / 123456
+  # 启动后在 .env 中设置 LLM_API_URL=http://one-api:3000/v1
+  
   # Firecrawl: make docker-firecrawl（独立 compose，不依赖 agent-hub）
   # 启动后在 .env 中设置 FIRECRAWL_SELF_HOSTED_URL=http://localhost:3002
 
@@ -149,6 +177,7 @@ services:
 volumes:
   agenthub_pg:
   agenthub_redis:
+  one-api-data:
 
 networks:
   agent-hub:

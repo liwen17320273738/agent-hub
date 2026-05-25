@@ -72,7 +72,7 @@ import type { PipelineTask } from '@/agents/types'
 import AutoTranslated from '@/components/AutoTranslated.vue'
 import { appLocaleToBcp47 } from '@/i18n'
 
-const { t, locale } = useI18n()
+const { t, te, locale } = useI18n()
 
 defineProps<{
   tasks: PipelineTask[]
@@ -85,20 +85,21 @@ function statusType(s: string) {
   if (s === 'done' || s === 'accepted') return 'success'
   if (s === 'failed' || s === 'rejected') return 'danger'
   if (s === 'cancelled') return 'info'
-  if (s === 'plan_pending' || s === 'awaiting_final_acceptance') return 'warning'
+  if (s === 'plan_pending' || s === 'awaiting_final_acceptance' || s === 'awaiting_evidence') return 'warning'
   return 'primary'
 }
 
+// Use te() before t() so unknown dynamic values (e.g. arbitrary `source`
+// strings coming from gateway/test scripts) don't spam the console with
+// intlify "Not found …" warnings, but still render as the raw value.
 function statusLabel(s: string) {
   const key = `status.${s}`
-  const out = t(key)
-  return out === key ? s : out
+  return te(key) ? t(key) : s
 }
 
 function sourceLabel(s: string) {
   const key = `taskTable.source.${s}`
-  const out = t(key)
-  return out === key ? s : out
+  return te(key) ? t(key) : s
 }
 
 function stageLabel(row: any): string {
@@ -112,7 +113,14 @@ function doneCount(row: any): number {
   return stages.filter((s: any) => s.status === 'done').length
 }
 
+// Progress must agree with task.status. A task whose lifecycle finished
+// (done/accepted) is 100% even if no `pipeline_stages` rows were written
+// (seed scripts, gateway tasks that wrote artifacts directly, etc.).
+// Conversely, a `failed`/`cancelled` task should reflect how far it got,
+// not be forced to 100%.
 function progressPct(row: any): number {
+  const s = row.status
+  if (s === 'done' || s === 'accepted') return 100
   const total = row.stages?.length || 0
   if (!total) return 0
   return Math.round((doneCount(row) / total) * 100)

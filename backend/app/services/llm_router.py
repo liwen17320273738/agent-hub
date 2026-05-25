@@ -128,7 +128,8 @@ async def circuit_is_open(provider: str, model: str, api_url: str = "") -> bool:
         fp = _circuit_fingerprint(provider, model, api_url)
         v = await r.get(_cb_open_key(fp))
         return bool(v)
-    except Exception:
+    except Exception as e:
+        logger.error("[llm-circuit] Redis 连接失败，熔断器不可用: %s", e)
         return False
 
 
@@ -189,6 +190,7 @@ _ALLOWED_API_HOSTS = {
     "open.bigmodel.cn",
     "dashscope.aliyuncs.com",
     "generativelanguage.googleapis.com",
+    "api.quickrouter.ai",
 }
 
 
@@ -302,6 +304,25 @@ def _messages_openai_multimodal(
         })
     u["content"] = parts
     return out
+
+
+def _ensure_tool_call_types(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """确保所有 tool_calls 都包含 ``"type": "function"`` 字段。
+
+    DeepSeek / Zhipu / Qwen 等 OpenAI 兼容提供商要求 tool_calls 中
+    每个元素都必须有 ``"type": "function"``，否则返回
+    ``missing field 'type'`` 错误。
+    """
+    for m in messages:
+        if m.get("role") != "assistant":
+            continue
+        tcs = m.get("tool_calls")
+        if not tcs:
+            continue
+        for tc in tcs:
+            if "type" not in tc:
+                tc["type"] = "function"
+    return messages
 
 
 def _stringify_message_content(content: Any) -> str:
@@ -668,6 +689,7 @@ async def chat_completion(
             url = api_url or PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openai"])
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             oa_messages = _messages_openai_multimodal(messages, imgs) if imgs else messages
+            oa_messages = _ensure_tool_call_types(oa_messages)
             body: Dict[str, Any] = {
                 "model": model,
                 "messages": oa_messages,
@@ -682,7 +704,6 @@ async def chat_completion(
             # ⚠️ structured output — skip zhipu (GLM) as it doesn't support json_object
             if response_format and provider not in ("zhipu", "local"):
                 body["response_format"] = response_format
-                logger.debug(f"[llm] Using response_format={response_format} for {model}")
             resp = await client.post(url, headers=headers, json=body)
             latency_ms = int((time.monotonic() - started) * 1000)
             if resp.status_code != 200 and imgs:
@@ -718,6 +739,7 @@ async def chat_completion(
                 result["tool_calls"] = [
                     {
                         "id": tc.get("id", f"call_{i}"),
+                        "type": tc.get("type", "function"),
                         "function": {
                             "name": tc["function"]["name"],
                             "arguments": tc["function"].get("arguments", "{}"),
@@ -1022,6 +1044,7 @@ async def chat_completion_stream(
             url = api_url or PROVIDER_ENDPOINTS.get(provider, PROVIDER_ENDPOINTS["openai"])
             headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
             oa_msgs = _messages_openai_multimodal(messages, imgs) if imgs else messages
+            oa_msgs = _ensure_tool_call_types(oa_msgs)
             body = {
                 "model": model,
                 "messages": oa_msgs,
@@ -1097,6 +1120,7 @@ def _extract_anthropic_tool_calls(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         if block.get("type") == "tool_use":
             result.append({
                 "id": block.get("id", f"call_{i}"),
+                "type": "function",
                 "function": {
                     "name": block["name"],
                     "arguments": json.dumps(block.get("input", {})),

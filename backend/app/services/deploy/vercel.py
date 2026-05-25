@@ -147,7 +147,7 @@ def _collect_files(directory: str, max_size: int = 5 * 1024 * 1024) -> Dict[str,
                 with open(full_path, "r", encoding="utf-8") as f:
                     files[rel_path] = f.read()
             except (UnicodeDecodeError, PermissionError):
-                pass
+                logger.warning("[vercel] 跳过非文本文件: %s", rel_path)
 
     return files
 

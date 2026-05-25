@@ -21,7 +21,7 @@ class PipelineTask(Base):
     source_message_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     source_user_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
-    status: Mapped[str] = mapped_column(String(20), default="active")
+    status: Mapped[str] = mapped_column(String(30), default="active")
     current_stage_id: Mapped[str] = mapped_column(String(50), default="planning")
     template: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 

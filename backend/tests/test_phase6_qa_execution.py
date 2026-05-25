@@ -306,7 +306,7 @@ class TestWriteQaArtifacts:
 
     @pytest.mark.asyncio
     async def test_write_qa_artifacts_with_build_log_file(self):
-        """If build.log exists in project_dir, it should be written as build_log artifact."""
+        """If qa-build.log exists in project_dir, it should be written as build_log artifact."""
         from app.services.artifact_writer import write_qa_artifacts
 
         db = AsyncMock()
@@ -327,8 +327,8 @@ class TestWriteQaArtifacts:
             mock_settings.artifact_store_v2 = True
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Write a fake build.log
-                with open(os.path.join(tmpdir, "build.log"), "w") as f:
+                # Write a fake qa-build.log (Phase 6 uses separate file to avoid conflict with Phase 4)
+                with open(os.path.join(tmpdir, "qa-build.log"), "w") as f:
                     f.write("build output here\n")
 
                 qa_result = {

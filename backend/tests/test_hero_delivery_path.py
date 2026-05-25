@@ -3,12 +3,8 @@
 Runs without real LLM: advances all default pipeline stages via ``/advance``,
 writes v2 task artifacts via API, verifies share + deliverables ZIP.
 
-When this test fails it should pinpoint *which step* broke (advance loop,
-durability snapshots, artifact write, share, ZIP layout, artifact contract).
-
-Supplements Phase 1 doc: richer ``advance`` diagnostics, asserts ``input_snapshot``
-on active stages after handoff, validates deliverables ZIP structure, rejects
-bogus ``advance`` after ``done``.
+This is a **smoke** test for state machine + artifact storage wiring.
+Mock/stub artifacts must **not** pass the quality-aware artifact contract.
 
 See: ``docs/analysis/ai-legion-execution/phase-1-hero-path-e2e.md``
 """
@@ -46,7 +42,7 @@ _REQUIRED_ARTIFACT_TYPES = frozenset(
 
 
 @pytest.mark.asyncio
-async def test_hero_delivery_path_bundle_without_llm(client, db, auth_headers):
+async def test_hero_delivery_path_smoke_without_llm(client, db, auth_headers):
     # 1. Create task (one sentence)
     create_res = await client.post(
         "/api/pipeline/tasks",
@@ -274,7 +270,16 @@ async def test_hero_delivery_path_bundle_without_llm(client, db, auth_headers):
         headers=auth_headers,
     )
     assert hero_contract.status_code == 200
-    assert hero_contract.json().get("all_required_satisfied") is True
+    contract_body = hero_contract.json()
+    assert contract_body.get("all_required_satisfied") is False, (
+        "mock/stub artifacts must not satisfy quality-aware contract"
+    )
+    invalid_stages = [
+        sid
+        for sid, block in (contract_body.get("stages") or {}).items()
+        if block.get("invalid")
+    ]
+    assert invalid_stages, "expected at least one stage flagged invalid for mock content"
 
 
 @pytest.mark.asyncio

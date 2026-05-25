@@ -372,11 +372,55 @@ async def run_full_e2e(
             "url": deploy_result.get("url", ""),
         })
 
+        if not deploy_result.get("ok"):
+            e2e_result["phases"]["deploy"] = deploy_result
+            e2e_result["ok"] = False
+            e2e_result["stopped_at"] = "deploy"
+            e2e_result["error"] = deploy_result.get("error", "Deploy failed")
+            await emit_event("e2e:failed", {
+                "taskId": task_id,
+                "phase": "deploy",
+                "error": e2e_result["error"],
+            })
+            await _notify(
+                "failed",
+                message="部署失败，未生成可验收的预览链接",
+                extras={"平台": platform, "错误": str(e2e_result["error"])[:200]},
+            )
+            return e2e_result
+    elif pause_for_acceptance:
+        e2e_result["phases"]["deploy"] = deploy_result
+        e2e_result["ok"] = False
+        e2e_result["stopped_at"] = "deploy"
+        e2e_result["error"] = "auto_deploy disabled; final acceptance requires a preview URL"
+        await emit_event("e2e:failed", {
+            "taskId": task_id,
+            "phase": "deploy",
+            "error": e2e_result["error"],
+        })
+        return e2e_result
+
     e2e_result["phases"]["deploy"] = deploy_result
 
     # ── Phase 5: Preview + Notify ───────────────────────────────────
     preview_url = deploy_result.get("url", "")
     preview_result: Dict[str, Any] = {"ok": True, "skipped": not preview_url}
+
+    if not preview_url and auto_deploy:
+        e2e_result["phases"]["preview"] = {
+            "ok": False,
+            "skipped": False,
+            "error": "Deploy succeeded without a preview URL",
+        }
+        e2e_result["ok"] = False
+        e2e_result["stopped_at"] = "preview"
+        e2e_result["error"] = "Deploy succeeded without a preview URL"
+        await emit_event("e2e:failed", {
+            "taskId": task_id,
+            "phase": "preview",
+            "error": e2e_result["error"],
+        })
+        return e2e_result
 
     if preview_url:
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "running"})
@@ -390,14 +434,39 @@ async def run_full_e2e(
             shot = await preview_svc.capture_screenshot(
                 url=preview_url, output_path=screenshot_path,
             )
-            preview_result = {"ok": True, "screenshotOk": bool(shot.get("ok")),
-                              "screenshotPath": screenshot_path if shot.get("ok") else ""}
+            screenshot_ok = bool(shot.get("ok"))
+            preview_result = {
+                "ok": screenshot_ok,
+                "screenshotOk": screenshot_ok,
+                "screenshotPath": screenshot_path if screenshot_ok else "",
+                "error": "" if screenshot_ok else (shot.get("error") or "preview screenshot failed"),
+            }
         except Exception as e:
             logger.warning(f"[e2e] screenshot failed: {e}")
-            preview_result = {"ok": True, "screenshotOk": False, "error": str(e)}
+            preview_result = {"ok": False, "screenshotOk": False, "error": str(e)}
 
         e2e_result["phases"]["preview"] = preview_result
-        await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "done"})
+        await emit_event("e2e:phase", {
+            "taskId": task_id,
+            "phase": "preview",
+            "status": "done" if preview_result.get("ok") else "failed",
+        })
+        if not preview_result.get("ok"):
+            e2e_result["ok"] = False
+            e2e_result["stopped_at"] = "preview"
+            e2e_result["error"] = preview_result.get("error", "Preview verification failed")
+            await emit_event("e2e:failed", {
+                "taskId": task_id,
+                "phase": "preview",
+                "error": e2e_result["error"],
+            })
+            await _notify(
+                "failed",
+                message="预览验证失败，未进入验收",
+                url=preview_url,
+                extras={"错误": str(e2e_result["error"])[:200]},
+            )
+            return e2e_result
 
     else:
         e2e_result["phases"]["preview"] = preview_result
@@ -468,9 +537,11 @@ async def run_full_e2e(
         )
 
     # ── Done ────────────────────────────────────────────────────────
+    optional_skips = {"acceptance"} if not preview_url else set()
     all_ok = all(
-        phase.get("ok", False) or phase.get("skipped", False)
-        for phase in e2e_result["phases"].values()
+        phase.get("ok", False)
+        or (name in optional_skips and phase.get("skipped", False))
+        for name, phase in e2e_result["phases"].items()
     )
     e2e_result["ok"] = all_ok
     e2e_result["url"] = preview_url

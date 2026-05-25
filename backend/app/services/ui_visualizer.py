@@ -31,16 +31,34 @@ MOCKUP_DIR = "ui_mockups"
 ARCH_DIR = "architecture_diagrams"
 
 
-# ── UI Visualizer ──────────────────────────────────────────────────────
+def _slugify_filename(text: str, max_len: int = 48) -> str:
+    s = re.sub(r"[^\w\u4e00-\u9fff-]", "-", (text or "").strip().lower())
+    s = re.sub(r"-+", "-", s).strip("-")
+    return (s[:max_len] or "mockup")
 
 
 class UiVisualizer:
     """Generate visual UI mockups from pipeline design specs."""
 
-    def __init__(self, workspace_root: str = "") -> None:
+    def __init__(self, workspace_root: str = "", task_worktree: str = "") -> None:
         self.workspace_root = workspace_root or os.environ.get(
             "WORKSPACE_ROOT", "/tmp/agent-hub-ui",
         )
+        self.task_worktree = task_worktree or ""
+
+    def _visual_out_dir(self, task_id: str, subdir: str) -> tuple[str, str]:
+        """Return (absolute_out_dir, worktree_relative_prefix/subdir/)."""
+        if self.task_worktree:
+            abs_dir = os.path.join(self.task_worktree, subdir)
+            rel_prefix = subdir
+        else:
+            abs_dir = os.path.join(self.workspace_root, task_id, subdir)
+            rel_prefix = os.path.join(subdir)
+        os.makedirs(abs_dir, exist_ok=True)
+        return abs_dir, rel_prefix
+
+    def _rel_path(self, rel_prefix: str, filename: str) -> str:
+        return f"{rel_prefix}/{filename}".replace("\\", "/")
 
     # ── Resource Check (Phase 5, Task 5.1) ─────────────────────────────
 
@@ -74,16 +92,19 @@ class UiVisualizer:
             if not os.path.exists(banana_script):
                 missing.append("nano-banana-pro script")
             channels["gemini_nano_banana"] = {"available": False, "reason": f"missing: {', '.join(missing)}"}
-            if "nano-banana-pro script" not in missing:
+            if "nano-banana-pro script" not in missing and "html_prototype" not in fallbacks:
                 fallbacks.append("html_prototype")
 
         # 3. HTML prototype fallback
         try:
+            import os as _os
+            _html_check_dir = "/tmp/_check_html_fallback"
+            _os.makedirs(_html_check_dir, exist_ok=True)
             self._generate_html(
                 {"theme": "light", "primary_color": "#6366f1"},
                 {"type": "dashboard"},
                 ["header", "card", "footer"],
-                "/tmp/_check_html_fallback",
+                _html_check_dir,
                 "_check",
             )
             channels["html_prototype"] = {"available": True}
@@ -98,17 +119,33 @@ class UiVisualizer:
         available_channel_names = [k for k, v in channels.items() if v.get("available")]
         if not available_channel_names:
             fallbacks = ["none"]
-        elif channels.get("html_prototype", {}).get("available"):
+        elif channels.get("html_prototype", {}).get("available") and "html_prototype" not in fallbacks:
             fallbacks.append("html_prototype")
 
-        overall_ok = (
+        has_real_image_gen = (
             channels.get("openai_images", {}).get("available")
             or channels.get("gemini_nano_banana", {}).get("available")
-            or channels.get("html_prototype", {}).get("available")
         )
+        has_figma = channels.get("figma_mcp", {}).get("available")
+        has_html_fallback = channels.get("html_prototype", {}).get("available")
+
+        overall_ok = has_real_image_gen or has_figma or has_html_fallback
+
+        # Degraded mode: only HTML fallback available, no real image generation
+        degraded = overall_ok and not has_real_image_gen and not has_figma
+        degraded_reason = ""
+        if degraded:
+            missing = []
+            if not channels.get("openai_images", {}).get("available"):
+                missing.append("OPENAI_API_KEY")
+            if not channels.get("gemini_nano_banana", {}).get("available"):
+                missing.append("GEMINI_API_KEY")
+            degraded_reason = f"no_image_gen_api: {', '.join(missing)} not configured"
 
         return {
             "ok": overall_ok,
+            "degraded": degraded,
+            "degraded_reason": degraded_reason,
             "channels": channels,
             "available": available_channel_names,
             "fallbacks": fallbacks,
@@ -136,8 +173,11 @@ class UiVisualizer:
         available = [k for k, v in channels.items() if v.get("available")]
         fallbacks.append("html_renderer")
 
+        degraded = not mermaid_available  # CDN-only mode, no offline rendering
         return {
-            "ok": True,  # HTML rendering always works
+            "ok": True,  # HTML rendering always works (CDN or local)
+            "degraded": degraded,
+            "degraded_reason": "mermaid_cli_not_installed: CDN fallback requires internet access" if degraded else "",
             "channels": channels,
             "available": available,
             "fallbacks": fallbacks,
@@ -147,23 +187,19 @@ class UiVisualizer:
 
     @staticmethod
     def generate_design_tokens(design_spec: str) -> Dict[str, Any]:
-        """Extract structured design tokens from spec (colors, typography, spacing)."""
+        """Extract structured design tokens from spec (colors, typography, spacing).
+
+        Returns dict with ``degraded: True`` when using defaults — spec had no
+        actionable design information.
+        """
         spec_lower = design_spec.lower()
         tokens: Dict[str, Any] = {}
 
         # Primary color
-        primary = "#6366f1"  # default indigo
         import re
         colors = re.findall(r"#[0-9a-fA-F]{6}", design_spec)
-        if colors:
-            primary = colors[0]
-        tokens["primary"] = primary
-
-        # Secondary color
-        secondary = "#059669"
-        if len(colors) > 1:
-            secondary = colors[1]
-        tokens["secondary"] = secondary
+        tokens["primary"] = colors[0] if colors else "#6366f1"
+        tokens["secondary"] = colors[1] if len(colors) > 1 else "#059669"
 
         # Background / surface
         is_dark = "dark" in spec_lower
@@ -182,12 +218,18 @@ class UiVisualizer:
         tokens["spacing_grid"] = "4px"
         tokens["border_radius"] = {"sm": "6px", "md": "10px", "lg": "16px"}
 
+        style_keywords = ("glass", "frost", "neon", "cyber", "minimal", "brutal", "editorial", "swiss")
+        has_style = any(kw in spec_lower for kw in style_keywords)
         if "glass" in spec_lower or "frost" in spec_lower:
             tokens["style"] = "glassmorphism"
         elif "neon" in spec_lower or "cyber" in spec_lower:
             tokens["style"] = "dark neon"
         elif "minimal" in spec_lower:
             tokens["style"] = "minimal"
+
+        tokens["degraded"] = not colors and not has_style and not is_dark
+        if tokens["degraded"]:
+            tokens["degraded_reason"] = "no_colors_or_style_in_spec: using default design tokens"
 
         return tokens
 
@@ -233,6 +275,8 @@ class UiVisualizer:
                 "states": ["loading", "empty", "error", "success"],
             })
 
+        has_spec_content = bool(seen_titles)  # headings or keywords matched
+
         return {
             "screens": screens,
             "state_matrix": {
@@ -241,6 +285,10 @@ class UiVisualizer:
                 "error": "Error state with retry action",
                 "success": "Normal data display with full UI",
             },
+            "degraded": not has_spec_content,
+            "degraded_reason": (
+                "no_headings_or_page_keywords_in_spec: using single Main screen fallback"
+            ) if not has_spec_content else "",
         }
 
     # ── Phase 5: Consistency check ─────────────────────────────────────
@@ -257,28 +305,74 @@ class UiVisualizer:
         """
         issues: List[str] = []
 
-        # Entity names from api_contract
+        # ── 1. Entity cross-reference (both directions) ──
         api_entities: set = set()
         for endpoint in api_contract.get("endpoints", []):
             name = endpoint.get("entity", endpoint.get("resource", ""))
             if name:
                 api_entities.add(name.lower())
 
-        # Entity names from data_model
-        model_entities: set = set()
-        for table in data_model.get("tables", data_model.get("entities", [])):
+        model_entity_names: set = set()
+        model_entities: List[Dict[str, Any]] = data_model.get("tables", data_model.get("entities", []))
+        for table in model_entities:
             name = table.get("name", table.get("table", ""))
             if name:
-                model_entities.add(name.lower())
+                model_entity_names.add(name.lower())
 
-        # Cross-check 1: API entity should exist in data model
+        # 1a: Every API entity must have a matching data model table
         for ae in api_entities:
-            ae_clean = ae.rstrip("s")  # plural API name
-            ae_plural = ae + "s"  # singular API name
-            if ae not in model_entities and ae_plural not in model_entities and ae_clean not in model_entities:
-                issues.append(f"API entity '{ae}' not found in data model entities")
+            ae_clean = ae.rstrip("s")
+            ae_plural = ae + "s"
+            if (
+                ae not in model_entity_names
+                and ae_plural not in model_entity_names
+                and ae_clean not in model_entity_names
+            ):
+                issues.append(f"API entity '{ae}' not found in data model")
 
-        # Cross-check 2: Routes from file_plan should have corresponding API routes
+        # 1b: Every data model table should have a matching API entity
+        # (only flag when there are API entities defined — skip if only generic "items" table)
+        if api_entities and model_entity_names != {"items"}:
+            for mn in model_entity_names:
+                mn_singular = mn.rstrip("s")
+                mn_plural = mn + "s"
+                if (
+                    mn not in api_entities
+                    and mn_singular not in api_entities
+                    and mn_plural not in api_entities
+                ):
+                    issues.append(f"Data model table '{mn}' has no corresponding API entity")
+
+        # ── 2. Foreign key validation ──
+        for table in model_entities:
+            table_name = table.get("name", "")
+            for field in table.get("fields", []):
+                fk = field.get("fk", "")
+                if fk:
+                    fk_table = fk.split(".")[0] if "." in fk else fk
+                    if fk_table.lower() not in model_entity_names:
+                        issues.append(
+                            f"Foreign key '{field['name']}' in table '{table_name}' "
+                            f"references '{fk_table}' which is not in data model"
+                        )
+
+        # ── 3. Field type validation ──
+        valid_types = {
+            "uuid", "varchar", "text", "integer", "int", "bigint", "smallint",
+            "boolean", "bool", "timestamp", "date", "time", "datetime",
+            "decimal", "numeric", "float", "double", "real",
+            "json", "jsonb", "bytea", "blob", "enum",
+        }
+        for table in model_entities:
+            table_name = table.get("name", "")
+            for field in table.get("fields", []):
+                ftype = field.get("type", "").lower().split("(")[0].split("<")[0].strip()
+                if ftype and not any(ftype.startswith(vt) for vt in valid_types):
+                    issues.append(
+                        f"Unknown field type '{field['type']}' for '{field['name']}' in table '{table_name}'"
+                    )
+
+        # ── 4. Route-to-directory mapping ──
         file_routes: set = set()
         for entry in file_plan.get("files", file_plan.get("directories", [])):
             name = entry.get("name", "").lower()
@@ -292,11 +386,24 @@ class UiVisualizer:
                 if seg and not seg.startswith("{") and not seg.startswith(":"):
                     api_routes.add(seg)
 
-        # Check if file_plan directories map to route groups
         dir_mismatches = file_routes - api_routes
         if dir_mismatches and len(dir_mismatches) < len(file_routes):
             for dm in dir_mismatches:
-                issues.append(f"File plan directory '{dm}' has no corresponding API route group")
+                issues.append(f"File plan directory '{dm}' has no corresponding API route segment")
+
+        # ── 5. Degraded artifact aggregation ──
+        degraded_sources = []
+        if api_contract.get("degraded"):
+            degraded_sources.append("api_contract")
+        if data_model.get("degraded"):
+            degraded_sources.append("data_model")
+        if file_plan.get("degraded"):
+            degraded_sources.append("file_plan")
+        if degraded_sources:
+            issues.append(
+                f"Architecture consistency based on degraded/generic data: "
+                f"{', '.join(degraded_sources)}"
+            )
 
         return (len(issues) == 0, issues)
 
@@ -312,10 +419,11 @@ class UiVisualizer:
         """Generate a visual UI mockup from a design specification.
 
         Returns:
-            ``{"ok": True, "imagePath": "...", "htmlPath": "...", "prompt": "..."}``
+            ``{"ok": True, ...}`` when real image (PNG) generated via image gen API.
+            ``{"ok": False, "degraded": True, ...}`` when only HTML fallback produced.
+            ``{"ok": False, "degraded": False, ...}`` when nothing could be generated.
         """
-        out_dir = os.path.join(self.workspace_root, task_id, MOCKUP_DIR)
-        os.makedirs(out_dir, exist_ok=True)
+        out_dir, rel_prefix = self._visual_out_dir(task_id, MOCKUP_DIR)
 
         # Extract style and layout from spec
         style, layout, components = self._parse_spec(design_spec)
@@ -325,16 +433,28 @@ class UiVisualizer:
             design_spec, style, out_dir, task_id,
         )
 
-        # 2. Generate interactive HTML prototype
+        # 2. Generate interactive HTML prototype (always available as pure-Python fallback)
         html_path = self._generate_html(
             style, layout, components, out_dir, project_name,
         )
 
+        image_ok = bool(image_path)
+        html_ok = bool(html_path)
+
+        rel_image = ""
+        rel_html = ""
+        if image_path:
+            rel_image = self._rel_path(rel_prefix, os.path.basename(image_path))
+        if html_path:
+            rel_html = self._rel_path(rel_prefix, os.path.basename(html_path))
+
         return {
-            "ok": True,
-            "imagePath": image_path or "",
-            "htmlPath": html_path,
-            "imageExists": bool(image_path),
+            "ok": image_ok,
+            "degraded": not image_ok and html_ok,
+            "imagePath": rel_image,
+            "htmlPath": rel_html,
+            "imageExists": image_ok,
+            "htmlExists": html_ok,
             "prompt": self._build_image_prompt(design_spec, style, layout),
         }
 
@@ -358,7 +478,7 @@ class UiVisualizer:
 
         if os.path.exists(script) and api_key:
             try:
-                filename = f"{datetime.utcnow().strftime('%Y-%m-%d-%H-%M-%S')}-ui-mockup.png"
+                filename = f"ui-mockup-{task_id[:12]}.png"
                 filepath = os.path.join(out_dir, filename)
 
                 import subprocess
@@ -474,7 +594,17 @@ class UiVisualizer:
         out_dir: str,
         project_name: str,
     ) -> str:
-        """Generate an interactive HTML prototype reflecting the design spec."""
+        """Generate an interactive HTML prototype reflecting the design spec.
+
+        The output is intentionally self-contained (no external assets, no
+        framework) so it works inside a sandboxed iframe without network
+        access. View-switching happens via a small vanilla-JS click handler
+        bound to elements that carry a ``data-view`` attribute — clicking a
+        sidebar item OR a top-nav link swaps which ``section.view`` is
+        visible AND mirrors the active state across both navigators, so
+        the prototype actually feels like a navigable app rather than a
+        single dead screenshot.
+        """
         theme = style.get("theme", "light")
         primary = style.get("primary_color", "#6366f1")
         is_dark = "dark" in str(theme).lower()
@@ -483,6 +613,9 @@ class UiVisualizer:
         surface = "#1a1a2e" if is_dark else "#ffffff"
         text_color = "#e2e8f0" if is_dark else "#1e293b"
         text_muted = "#94a3b8" if is_dark else "#64748b"
+        border = "rgba(255,255,255,0.06)" if is_dark else "rgba(0,0,0,0.06)"
+        border_strong = "rgba(255,255,255,0.15)" if is_dark else "rgba(0,0,0,0.15)"
+        input_bg = "rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.02)"
 
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -494,43 +627,66 @@ class UiVisualizer:
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: {bg}; color: {text_color}; line-height: 1.6; }}
 .container {{ max-width: 1280px; margin: 0 auto; padding: 24px; }}
-.mockup-frame {{ background: {surface}; border-radius: 16px; border: 1px solid {'rgba(255,255,255,0.08)' if is_dark else 'rgba(0,0,0,0.06)'}; overflow: hidden; min-height: 600px; }}
-.toolbar {{ display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; }}
+.mockup-frame {{ background: {surface}; border-radius: 16px; border: 1px solid {border}; overflow: hidden; min-height: 600px; }}
+.toolbar {{ display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid {border}; }}
 .toolbar-dot {{ width: 12px; height: 12px; border-radius: 50%; }}
 .toolbar-dot:nth-child(1) {{ background: #ef4444; }}
 .toolbar-dot:nth-child(2) {{ background: #f59e0b; }}
 .toolbar-dot:nth-child(3) {{ background: #22c55e; }}
 .toolbar-title {{ font-size: 13px; color: {text_muted}; margin-left: 8px; }}
-.navbar {{ display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: {surface}; border-bottom: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; }}
+.navbar {{ display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: {surface}; border-bottom: 1px solid {border}; }}
 .logo {{ font-weight: 700; font-size: 18px; color: {primary}; }}
 .nav-links {{ display: flex; gap: 24px; }}
-.nav-links a {{ color: {text_muted}; text-decoration: none; font-size: 14px; transition: color 0.2s; }}
+.nav-links a {{ color: {text_muted}; text-decoration: none; font-size: 14px; padding: 4px 2px; border-bottom: 2px solid transparent; transition: all 0.2s; cursor: pointer; }}
 .nav-links a:hover {{ color: {text_color}; }}
+.nav-links a.active {{ color: {primary}; border-bottom-color: {primary}; font-weight: 600; }}
 .content {{ display: grid; grid-template-columns: 240px 1fr; min-height: 600px; }}
-.sidebar {{ padding: 24px; border-right: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; }}
-.sidebar-item {{ padding: 10px 16px; border-radius: 8px; margin-bottom: 4px; font-size: 14px; color: {text_muted}; cursor: pointer; transition: all 0.2s; }}
+.sidebar {{ padding: 24px 16px; border-right: 1px solid {border}; }}
+.sidebar-item {{ padding: 10px 16px; border-radius: 8px; margin-bottom: 4px; font-size: 14px; color: {text_muted}; cursor: pointer; transition: all 0.2s; user-select: none; }}
 .sidebar-item:hover {{ background: {primary}15; color: {primary}; }}
 .sidebar-item.active {{ background: {primary}; color: #fff; }}
 .main {{ padding: 24px; }}
+.view {{ display: none; animation: fadeIn 0.18s ease; }}
+.view.active {{ display: block; }}
+@keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
 .header-row {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }}
 .header-row h1 {{ font-size: 24px; font-weight: 600; }}
 .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }}
-.stat-card {{ padding: 20px; border-radius: 12px; background: {surface}; border: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; }}
+.stat-card {{ padding: 20px; border-radius: 12px; background: {surface}; border: 1px solid {border}; }}
 .stat-card .label {{ font-size: 12px; color: {text_muted}; text-transform: uppercase; letter-spacing: 0.5px; }}
 .stat-card .value {{ font-size: 28px; font-weight: 700; margin-top: 8px; color: {primary}; }}
 .card-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }}
-.card {{ padding: 20px; border-radius: 12px; background: {surface}; border: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; transition: transform 0.2s; }}
+.card {{ padding: 20px; border-radius: 12px; background: {surface}; border: 1px solid {border}; transition: transform 0.2s; }}
 .card:hover {{ transform: translateY(-2px); }}
 .card h3 {{ font-size: 15px; margin-bottom: 8px; }}
-.card p {{ font-size: 13px; color: {text_muted}; }}
+.card p {{ font-size: 13px; color: {text_muted}; margin-bottom: 12px; }}
 .badge {{ display: inline-block; padding: 2px 10px; border-radius: 100px; font-size: 12px; background: {primary}15; color: {primary}; }}
-.btn {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; }}
+.badge-warn {{ background: rgba(245, 158, 11, 0.15); color: #f59e0b; }}
+.badge-ok {{ background: rgba(34, 197, 94, 0.15); color: #22c55e; }}
+.btn {{ display: inline-flex; align-items: center; gap: 6px; padding: 8px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; border: none; transition: all 0.2s; font-family: inherit; }}
 .btn-primary {{ background: {primary}; color: #fff; }}
 .btn-primary:hover {{ opacity: 0.9; }}
-.btn-outline {{ border: 1px solid {'rgba(255,255,255,0.15)' if is_dark else 'rgba(0,0,0,0.15)'}; background: transparent; color: {text_color}; }}
-.btn-outline:hover {{ background: {'rgba(255,255,255,0.05)' if is_dark else 'rgba(0,0,0,0.03)'}; }}
-.footer {{ text-align: center; padding: 24px; color: {text_muted}; font-size: 13px; border-top: 1px solid {'rgba(255,255,255,0.06)' if is_dark else 'rgba(0,0,0,0.06)'}; }}
-@media (max-width: 768px) {{ .content {{ grid-template-columns: 1fr; }} .sidebar {{ display: none; }} }}
+.btn-outline {{ border: 1px solid {border_strong}; background: transparent; color: {text_color}; }}
+.btn-outline:hover {{ background: {input_bg}; }}
+.list-table {{ width: 100%; border-collapse: collapse; background: {surface}; border-radius: 12px; overflow: hidden; border: 1px solid {border}; }}
+.list-table th, .list-table td {{ text-align: left; padding: 12px 16px; border-bottom: 1px solid {border}; font-size: 14px; }}
+.list-table tr:last-child td {{ border-bottom: none; }}
+.list-table th {{ font-size: 11px; color: {text_muted}; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; background: {input_bg}; }}
+.progress {{ width: 100%; height: 6px; background: {primary}25; border-radius: 3px; overflow: hidden; }}
+.progress > span {{ display: block; height: 100%; background: {primary}; border-radius: 3px; }}
+.chart-placeholder {{ height: 220px; border-radius: 12px; background: linear-gradient(135deg, {primary}15, {primary}30); display: flex; align-items: center; justify-content: center; color: {text_muted}; font-size: 13px; margin-bottom: 24px; border: 1px solid {border}; }}
+.form-row {{ display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid {border}; }}
+.form-row:last-child {{ border-bottom: none; }}
+.form-row label {{ flex: 0 0 220px; font-size: 14px; color: {text_color}; }}
+.form-row input, .form-row select {{ flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid {border_strong}; background: {input_bg}; color: {text_color}; font-size: 14px; font-family: inherit; }}
+.form-row .hint {{ font-size: 12px; color: {text_muted}; margin-top: 4px; }}
+.team-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }}
+.team-card {{ padding: 20px; border-radius: 12px; background: {surface}; border: 1px solid {border}; text-align: center; }}
+.avatar {{ width: 48px; height: 48px; border-radius: 50%; background: {primary}; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: 16px; margin-bottom: 12px; }}
+.team-card h4 {{ font-size: 14px; margin-bottom: 2px; }}
+.team-card p {{ font-size: 12px; color: {text_muted}; }}
+.footer {{ text-align: center; padding: 24px; color: {text_muted}; font-size: 13px; border-top: 1px solid {border}; }}
+@media (max-width: 768px) {{ .content {{ grid-template-columns: 1fr; }} .sidebar {{ display: none; }} .nav-links {{ gap: 12px; }} }}
 </style></head>
 <body>
 <div class="container">
@@ -542,42 +698,134 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
     <nav class="navbar">
       <div class="logo">{project_name[:4] if project_name else 'Hub'}</div>
       <div class="nav-links">
-        <a href="#">Dashboard</a><a href="#">Projects</a><a href="#">Analytics</a><a href="#">Settings</a>
+        <a data-view="overview" class="active">Dashboard</a>
+        <a data-view="projects">Projects</a>
+        <a data-view="analytics">Analytics</a>
+        <a data-view="settings">Settings</a>
       </div>
     </nav>
     <div class="content">
       <aside class="sidebar">
-        <div class="sidebar-item active">📊 Overview</div>
-        <div class="sidebar-item">📁 Projects</div>
-        <div class="sidebar-item">📈 Analytics</div>
-        <div class="sidebar-item">👥 Team</div>
-        <div class="sidebar-item">⚙️ Settings</div>
+        <div class="sidebar-item active" data-view="overview">📊 Overview</div>
+        <div class="sidebar-item" data-view="projects">📁 Projects</div>
+        <div class="sidebar-item" data-view="analytics">📈 Analytics</div>
+        <div class="sidebar-item" data-view="team">👥 Team</div>
+        <div class="sidebar-item" data-view="settings">⚙️ Settings</div>
       </aside>
       <main class="main">
-        <div class="header-row">
-          <h1>Dashboard</h1>
-          <button class="btn btn-primary">+ New Project</button>
-        </div>
-        <div class="stats">
-          <div class="stat-card"><div class="label">Total Projects</div><div class="value">12</div></div>
-          <div class="stat-card"><div class="label">Active Tasks</div><div class="value">48</div></div>
-          <div class="stat-card"><div class="label">Team Members</div><div class="value">8</div></div>
-          <div class="stat-card"><div class="label">Completion</div><div class="value">87%</div></div>
-        </div>
-        <div class="card-grid">
-          <div class="card"><h3>Project Alpha</h3><p>Frontend redesign with modern UI patterns</p><span class="badge">In Progress</span></div>
-          <div class="card"><h3>Project Beta</h3><p>Backend API optimization and migration</p><span class="badge">Review</span></div>
-          <div class="card"><h3>Project Gamma</h3><p>Mobile app v2 with new features</p><span class="badge">Done</span></div>
-        </div>
+        <section class="view active" data-view="overview">
+          <div class="header-row">
+            <h1>Dashboard</h1>
+            <button class="btn btn-primary" data-view="projects">+ New Project</button>
+          </div>
+          <div class="stats">
+            <div class="stat-card"><div class="label">Total Projects</div><div class="value">12</div></div>
+            <div class="stat-card"><div class="label">Active Tasks</div><div class="value">48</div></div>
+            <div class="stat-card"><div class="label">Team Members</div><div class="value">8</div></div>
+            <div class="stat-card"><div class="label">Completion</div><div class="value">87%</div></div>
+          </div>
+          <div class="card-grid">
+            <div class="card"><h3>Project Alpha</h3><p>Frontend redesign with modern UI patterns</p><span class="badge">In Progress</span></div>
+            <div class="card"><h3>Project Beta</h3><p>Backend API optimization and migration</p><span class="badge badge-warn">Review</span></div>
+            <div class="card"><h3>Project Gamma</h3><p>Mobile app v2 with new features</p><span class="badge badge-ok">Done</span></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="projects">
+          <div class="header-row">
+            <h1>Projects</h1>
+            <button class="btn btn-primary">+ New Project</button>
+          </div>
+          <table class="list-table">
+            <thead><tr><th>Name</th><th>Owner</th><th>Progress</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Project Alpha</td><td>Alice</td><td><div class="progress"><span style="width:62%"></span></div></td><td><span class="badge">In Progress</span></td></tr>
+              <tr><td>Project Beta</td><td>Bob</td><td><div class="progress"><span style="width:88%"></span></div></td><td><span class="badge badge-warn">Review</span></td></tr>
+              <tr><td>Project Gamma</td><td>Cara</td><td><div class="progress"><span style="width:100%"></span></div></td><td><span class="badge badge-ok">Done</span></td></tr>
+              <tr><td>Project Delta</td><td>Dan</td><td><div class="progress"><span style="width:24%"></span></div></td><td><span class="badge">In Progress</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="view" data-view="analytics">
+          <div class="header-row">
+            <h1>Analytics</h1>
+            <button class="btn btn-outline">Export CSV</button>
+          </div>
+          <div class="stats">
+            <div class="stat-card"><div class="label">Weekly Visits</div><div class="value">14.2k</div></div>
+            <div class="stat-card"><div class="label">Conversion</div><div class="value">4.8%</div></div>
+            <div class="stat-card"><div class="label">Avg Session</div><div class="value">3m 42s</div></div>
+            <div class="stat-card"><div class="label">Churn</div><div class="value">1.2%</div></div>
+          </div>
+          <div class="chart-placeholder">📈 Trend chart (preview-only — real charts wired to API in implementation)</div>
+        </section>
+
+        <section class="view" data-view="team">
+          <div class="header-row">
+            <h1>Team</h1>
+            <button class="btn btn-primary">+ Invite Member</button>
+          </div>
+          <div class="team-grid">
+            <div class="team-card"><div class="avatar">A</div><h4>Alice Chen</h4><p>Product Lead</p></div>
+            <div class="team-card"><div class="avatar">B</div><h4>Bob Smith</h4><p>Backend Engineer</p></div>
+            <div class="team-card"><div class="avatar">C</div><h4>Cara Liu</h4><p>UX Designer</p></div>
+            <div class="team-card"><div class="avatar">D</div><h4>Dan Park</h4><p>Frontend Engineer</p></div>
+          </div>
+        </section>
+
+        <section class="view" data-view="settings">
+          <div class="header-row">
+            <h1>Settings</h1>
+            <button class="btn btn-primary">Save</button>
+          </div>
+          <div class="card">
+            <div class="form-row"><label>Workspace name</label><input type="text" value="{project_name or 'My Workspace'}"></div>
+            <div class="form-row"><label>Default language</label><select><option>简体中文</option><option>English</option></select></div>
+            <div class="form-row"><label>Notifications</label><select><option>All activity</option><option>Mentions only</option><option>Off</option></select></div>
+            <div class="form-row"><label>Theme</label><select><option>{'Dark' if is_dark else 'Light'}</option><option>{'Light' if is_dark else 'Dark'}</option><option>Auto</option></select></div>
+          </div>
+        </section>
       </main>
     </div>
     <div class="footer">Agent Hub · AI 生成的 UI 设计稿 · {datetime.utcnow().strftime('%Y-%m-%d')}</div>
   </div>
 </div>
+<script>
+(function () {{
+  // Mirror the active state across the top nav, the sidebar, and any
+  // call-to-action that wants to jump to another view (e.g. dashboard
+  // "+ New Project" button forwards to the projects view). Anything that
+  // declares data-view participates automatically — adding more sections
+  // later is just markup.
+  const triggers = document.querySelectorAll('[data-view]');
+  const views = document.querySelectorAll('section.view');
+
+  function show(target) {{
+    if (!target) return;
+    views.forEach(function (s) {{
+      s.classList.toggle('active', s.dataset.view === target);
+    }});
+    triggers.forEach(function (el) {{
+      if (el.tagName === 'SECTION') return;
+      el.classList.toggle('active', el.dataset.view === target);
+    }});
+  }}
+
+  triggers.forEach(function (el) {{
+    if (el.tagName === 'SECTION') return;
+    el.addEventListener('click', function (e) {{
+      e.preventDefault();
+      show(el.dataset.view);
+    }});
+  }});
+}})();
+</script>
 </body>
 </html>"""
 
-        filename = f"{datetime.utcnow().strftime('%Y-%m-%d-%H-%M-%S')}-ui-prototype.html"
+        filename = f"ui-prototype-{_slugify_filename(project_name or 'mockup')}.html"
+        os.makedirs(out_dir, exist_ok=True)
         filepath = os.path.join(out_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html)
@@ -597,14 +845,13 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
     ) -> Dict[str, Any]:
         """Generate architecture diagrams from an architecture specification.
 
-        Returns:
-            ``{"ok": True, "htmlPath": "...", "mermaidRaw": "...", "summary": {...}}``
+        Returns dict with ``degraded: True`` when no real components detected
+        in spec (only default 3-tier template used).
         """
-        out_dir = os.path.join(self.workspace_root, task_id, ARCH_DIR)
-        os.makedirs(out_dir, exist_ok=True)
+        out_dir, rel_prefix = self._visual_out_dir(task_id, ARCH_DIR)
 
         # Parse spec to extract components and flows
-        components, flows = self._parse_architecture_spec(arch_spec)
+        components, flows, arch_degraded, arch_degraded_reason = self._parse_architecture_spec(arch_spec)
 
         # Generate Mermaid markdown for multiple diagram types
         diagrams = self._generate_mermaid_diagrams(arch_spec, components, flows)
@@ -614,12 +861,16 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
             diagrams, components, out_dir, project_name or "System Architecture",
         )
 
+        rel_html = self._rel_path(rel_prefix, os.path.basename(html_path)) if html_path else ""
+
         return {
             "ok": True,
-            "htmlPath": html_path,
+            "htmlPath": rel_html,
             "mermaidRaw": diagrams,
             "componentCount": len(components),
             "flowCount": len(flows),
+            "degraded": arch_degraded,
+            "degraded_reason": arch_degraded_reason,
         }
 
     # ── Architecture Spec Parsing ─────────────────────────────────────
@@ -627,8 +878,11 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
     def _parse_architecture_spec(
         self,
         spec: str,
-    ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
-        """Parse architecture spec to extract system components and data flows."""
+    ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]], bool, str]:
+        """Parse architecture spec to extract system components and data flows.
+
+        Returns (components, flows, degraded, degraded_reason).
+        """
         spec_lower = spec.lower()
 
         # Detect common components from spec keywords
@@ -654,7 +908,6 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
         for component_name, pattern in component_keywords.items():
             if re.search(pattern, spec_lower):
                 if component_name not in found_component_types:
-                    # Extract description context (first sentence mentioning this component)
                     lines = spec.split("\n")
                     description = ""
                     for line in lines:
@@ -667,8 +920,11 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
                     })
                     found_component_types.add(component_name)
 
+        degraded = False
+        degraded_reason = ""
         if not components:
-            # Fallback: default web app stack
+            degraded = True
+            degraded_reason = "no_component_keywords_in_spec: using default 3-tier web stack"
             components = [
                 {"name": "Frontend", "description": "Client-side UI layer (Vue/React)"},
                 {"name": "Backend API", "description": "Server-side API service"},
@@ -698,7 +954,7 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
             if src in component_names and dst in component_names:
                 flows.append({"source": src, "target": dst, "label": label})
 
-        return components, flows
+        return components, flows, degraded, degraded_reason
 
     # ── Mermaid Markdown Generation ───────────────────────────────────
 
@@ -842,6 +1098,27 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
 
     # ── Architecture HTML Generation ──────────────────────────────────
 
+    def _render_mermaid_svg(self, mermaid_code: str, diagram_name: str) -> str:
+        """Try to pre-render Mermaid to SVG via local CLI. Returns SVG string or empty."""
+        try:
+            import subprocess
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False, encoding="utf-8") as tf:
+                tf.write(mermaid_code)
+                mmd_path = tf.name
+            try:
+                result = subprocess.run(
+                    ["mmdc", "-i", mmd_path, "-o", "-", "-b", "transparent"],
+                    capture_output=True, text=True, timeout=30,
+                )
+                if result.returncode == 0 and result.stdout.strip().startswith("<svg"):
+                    return result.stdout.strip()
+            finally:
+                os.unlink(mmd_path)
+        except Exception:
+            pass
+        return ""
+
     def _generate_arch_html(
         self,
         diagrams: Dict[str, str],
@@ -849,7 +1126,11 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
         out_dir: str,
         project_name: str,
     ) -> str:
-        """Wrap Mermaid diagrams in a standalone HTML page."""
+        """Wrap Mermaid diagrams in a standalone HTML page.
+
+        Pre-renders SVGs via local mermaid-cli when available (offline-safe).
+        Falls back to CDN-loaded Mermaid.js with noscript plain-text backup.
+        """
         import json
 
         mermaid_config = {
@@ -865,86 +1146,97 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
             },
         }
 
+        # Pre-render SVGs via local CLI when available
+        pre_rendered: Dict[str, str] = {}
+        for key in ("architecture", "sequence", "deployment"):
+            svg = self._render_mermaid_svg(diagrams.get(key, ""), key)
+            if svg:
+                pre_rendered[key] = svg
+        use_cdn = not pre_rendered  # need CDN fallback if no local CLI
+
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{project_name} — 架构图</title>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{
+"""
+        if use_cdn:
+            html += '<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>\n'
+        html += """<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     background: #0f0f1a;
     color: #e2e8f0;
     line-height: 1.6;
-}}
-.header {{
+}
+.header {
     padding: 24px 32px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
     display: flex;
     align-items: center;
     gap: 12px;
-}}
-.header h1 {{ font-size: 20px; font-weight: 600; }}
-.header .subtitle {{ color: #94a3b8; font-size: 13px; }}
-.diagram-section {{
+}
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .subtitle { color: #94a3b8; font-size: 13px; }
+.diagram-section {
     padding: 24px 32px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
-}}
-.diagram-section:last-child {{ border-bottom: none; }}
-.section-title {{
+}
+.diagram-section:last-child { border-bottom: none; }
+.section-title {
     font-size: 16px;
     font-weight: 600;
     margin-bottom: 16px;
     display: flex;
     align-items: center;
     gap: 8px;
-}}
-.section-title .tag {{
+}
+.section-title .tag {
     font-size: 11px;
     padding: 2px 8px;
     border-radius: 100px;
     background: rgba(99,102,241,0.15);
     color: #818cf8;
     font-weight: 500;
-}}
-.mermaid-container {{
+}
+.mermaid-container {
     background: #1a1a2e;
     border-radius: 12px;
     border: 1px solid rgba(255,255,255,0.08);
     padding: 24px;
     overflow-x: auto;
-    min-height: 300px;
+    min-height: 200px;
     display: flex;
     justify-content: center;
-}}
-.mermaid-container svg {{ max-width: 100%; height: auto; }}
-.component-grid {{
+}
+.mermaid-container svg { max-width: 100%; height: auto; }
+.mermaid-container pre { color: #94a3b8; font-size: 13px; white-space: pre-wrap; }
+.component-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 12px;
     margin: 16px 0;
-}}
-.component-card {{
+}
+.component-card {
     padding: 14px 16px;
     border-radius: 10px;
     background: rgba(255,255,255,0.03);
     border: 1px solid rgba(255,255,255,0.06);
-}}
-.component-card .name {{ font-weight: 500; font-size: 14px; }}
-.component-card .desc {{ font-size: 12px; color: #94a3b8; margin-top: 4px; }}
-.footer {{
+}
+.component-card .name { font-weight: 500; font-size: 14px; }
+.component-card .desc { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+.footer {
     text-align: center;
     padding: 20px;
     color: #4b5563;
     font-size: 12px;
-}}
-@media (max-width: 768px) {{
-    .diagram-section {{ padding: 16px; }}
-    .header {{ padding: 16px; flex-direction: column; align-items: flex-start; }}
-}}
+}
+@media (max-width: 768px) {
+    .diagram-section { padding: 16px; }
+    .header { padding: 16px; flex-direction: column; align-items: flex-start; }
+}
 </style>
 </head>
 <body>
@@ -952,43 +1244,44 @@ body {{
     <h1>{project_name}</h1>
     <span class="subtitle">系统架构图 · AI 自动生成</span>
 </div>
-<div class="diagram-section">
+"""
+
+        diagram_labels = [
+            ("architecture", "📐 系统架构总览", "Architecture Overview"),
+            ("sequence", "🔄 核心交互流程", "Sequence Diagram"),
+            ("deployment", "🏗️ 分层部署视图", "Deployment View"),
+        ]
+        for key, title, tag in diagram_labels:
+            mermaid_code = diagrams.get(key, "")
+            svg = pre_rendered.get(key, "")
+            html += f"""<div class="diagram-section">
     <div class="section-title">
-        📐 系统架构总览 <span class="tag">Architecture Overview</span>
+        {title} <span class="tag">{tag}</span>
     </div>
     <div class="mermaid-container">
-        <pre class="mermaid">
-{diagrams['architecture']}
+"""
+            if svg:
+                # Pre-rendered SVG (offline-safe, no JS required)
+                html += svg
+            else:
+                # CDN fallback with noscript backup
+                html += f"""        <pre class="mermaid">
+{mermaid_code}
         </pre>
+        <noscript>
+            <pre>{mermaid_code}</pre>
+        </noscript>"""
+            html += """
     </div>
 </div>
-<div class="diagram-section">
-    <div class="section-title">
-        🔄 核心交互流程 <span class="tag">Sequence Diagram</span>
-    </div>
-    <div class="mermaid-container">
-        <pre class="mermaid">
-{diagrams['sequence']}
-        </pre>
-    </div>
-</div>
-<div class="diagram-section">
-    <div class="section-title">
-        🏗️ 分层部署视图 <span class="tag">Deployment View</span>
-    </div>
-    <div class="mermaid-container">
-        <pre class="mermaid">
-{diagrams['deployment']}
-        </pre>
-    </div>
-</div>
-<div class="diagram-section">
+"""
+
+        html += f"""<div class="diagram-section">
     <div class="section-title">
         📋 系统组件清单 <span class="tag">{len(components)} components</span>
     </div>
     <div class="component-grid">
 """
-
         for comp in components:
             html += f"""
         <div class="component-card">
@@ -1002,17 +1295,16 @@ body {{
 <div class="footer">
     Agent Hub · AI 自动生成的架构设计图 · """ + datetime.utcnow().strftime('%Y-%m-%d') + """
 </div>
-<script>
-mermaid.initialize(""" + json.dumps(mermaid_config) + """);
-</script>
-</body>
-</html>"""
+"""
+        if use_cdn:
+            html += "<script>\nmermaid.initialize(" + json.dumps(mermaid_config) + ");\n</script>\n"
+        html += "</body>\n</html>"
 
-        filename = f"{datetime.utcnow().strftime('%Y-%m-%d-%H-%M-%S')}-architecture.html"
+        filename = f"architecture-{_slugify_filename(project_name or 'diagram')}.html"
         filepath = os.path.join(out_dir, filename)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(html)
-        logger.info("[ui-visualizer] Architecture diagram: %s", filepath)
+        logger.info("[ui-visualizer] Architecture diagram: %s (pre-rendered=%s)", filepath, bool(pre_rendered))
         return filepath
 
     # ── Phase 5: Structured Architecture Data Generation ────────────────
@@ -1032,8 +1324,10 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
             if ent in spec_lower:
                 entities.append(ent)
 
+        degraded = False
         if not entities:
             entities = ["item"]
+            degraded = True
 
         for entity in entities:
             base = f"/api/{entity}s"
@@ -1047,7 +1341,10 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
             endpoints.insert(0, {"method": "POST", "path": "/api/auth/login", "description": "User login", "entity": "auth"})
             endpoints.insert(1, {"method": "POST", "path": "/api/auth/register", "description": "User registration", "entity": "auth"})
 
-        return {"endpoints": endpoints}
+        result: Dict[str, Any] = {"endpoints": endpoints, "degraded": degraded}
+        if degraded:
+            result["degraded_reason"] = "no_entity_keywords_in_spec: using generic item CRUD endpoints"
+        return result
 
     @staticmethod
     def generate_data_model(spec: str) -> Dict[str, Any]:
@@ -1103,7 +1400,9 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
             if key in spec_lower or key + "s" in spec_lower:
                 tables.append(table_def)
 
+        degraded = False
         if not tables:
+            degraded = True
             tables.append({
                 "name": "items",
                 "description": "Generic items",
@@ -1114,7 +1413,10 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
                 ],
             })
 
-        return {"tables": tables}
+        result: Dict[str, Any] = {"tables": tables, "degraded": degraded}
+        if degraded:
+            result["degraded_reason"] = "no_entity_keywords_in_spec: using generic items table"
+        return result
 
     @staticmethod
     def generate_file_plan(spec: str) -> Dict[str, Any]:
@@ -1146,10 +1448,19 @@ mermaid.initialize(""" + json.dumps(mermaid_config) + """);
         if "doc" in spec_lower or "docs" in spec_lower:
             directories.append({"name": "docs", "description": "Documentation"})
 
+        degraded = False
         if not directories:
+            degraded = True
             directories.append({"name": "src", "description": "Source code"})
 
-        return {"directories": directories, "files": [{"name": d["name"]} for d in directories]}
+        result: Dict[str, Any] = {
+            "directories": directories,
+            "files": [{"name": d["name"]} for d in directories],
+            "degraded": degraded,
+        }
+        if degraded:
+            result["degraded_reason"] = "no_tech_keywords_in_spec: using generic src directory"
+        return result
 
     # ── Phase 5: generate from stage output ────────────────────────────
 

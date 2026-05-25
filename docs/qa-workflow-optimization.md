@@ -30,6 +30,9 @@ backend/tests/
 ├── test_e2e_pipeline.py         ✅ 12 用例（全链路：网关→任务→流水线）
 ├── test_gateway.py              ✅ 3 用例（API key 验证）
 ├── test_gateway_plan_mode.py    ✅ 3 用例（计划模式审批/修订）
+├── test_hero_delivery_path.py   ✅ smoke：`/advance` + 手动 stub，契约应 **不满足**
+├── test_hero_pipeline_acceptance.py ✅ 真实 `execute_stage` ×7 阶段 + 质量契约 **满足**
+├── test_artifact_contract_quality.py ✅ 反占位/反 mock 质量门
 ├── test_im_final_acceptance.py  ✅ 14 用例（IM 侧验收路由）
 ├── test_memory_api.py           ✅ 5 用例（记忆搜索/模式/CRUD）
 ├── test_observability.py        ✅ 6 用例（追踪/审批/审计）
@@ -55,7 +58,7 @@ backend/tests/
 ```
 tests/e2e/
 ├── sidebar-smoke.spec.ts        ✅ 侧栏五入口导航
-├── product-hero-path.spec.ts    ✅ 全链路（登录→建单→详情→分享）
+├── hero-smoke.spec.ts           ✅ UI/API 接线（登录→建单→详情→分享，**不测真实交付物**）
 ├── regression-battery.spec.ts   ✅ API 合约 + 匿名分享
 └── regression-matrix.spec.ts    ✅ 15+ 场景回归矩阵
 
@@ -233,9 +236,18 @@ backend/tests/integration/
 | Spec | 覆盖范围 | 状态 |
 |------|----------|------|
 | `sidebar-smoke.spec.ts` | 五入口侧栏导航 | ✅ |
-| `product-hero-path.spec.ts` | 登录→建单→详情→收件箱→分享 | ✅ |
+| `hero-smoke.spec.ts` | 登录→建单→详情→收件箱→分享（smoke，无交付物断言） | ✅ |
 | `regression-battery.spec.ts` | API 合约 + 匿名分享 | ✅ |
 | `regression-matrix.spec.ts` | 15+ 场景回归矩阵 | ✅ |
+
+**Hero 验收分层（后端 + 前端互补）**
+
+| 层级 | 文件 | 断言范围 |
+|------|------|----------|
+| Playwright smoke | `tests/e2e/hero-smoke.spec.ts` | 页面/API 能走通 |
+| 状态机 smoke | `test_hero_delivery_path.py` | `/advance` + stub 写入；`all_required_satisfied` 应为 **false** |
+| 管线 acceptance | `test_hero_pipeline_acceptance.py` | 真实 `execute_stage`（mock LLM/外部工具）；质量契约 **true** |
+| 质量门单元 | `test_artifact_contract_quality.py` | 拒绝 `[HERO_E2E]`、`PNG placeholder` 等占位内容 |
 
 #### 需要补全（P1 + P2）
 

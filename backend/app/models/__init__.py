@@ -16,6 +16,11 @@ from .workspace import Workspace, WorkspaceMember
 from .credential import Credential
 from .task_artifact import TaskArtifact, ArtifactTypeRegistry
 from .stage_run_log import StageRunLog
+from .outcome_contract import (
+    OutcomeContract,
+    OutcomeMetricReading,
+    OutcomeCheckpoint,
+)
 
 __all__ = [
     "AgentMessage",
@@ -58,4 +63,7 @@ __all__ = [
     "TaskArtifact",
     "ArtifactTypeRegistry",
     "StageRunLog",
+    "OutcomeContract",
+    "OutcomeMetricReading",
+    "OutcomeCheckpoint",
 ]

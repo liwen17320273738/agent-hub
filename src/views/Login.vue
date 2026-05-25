@@ -3,9 +3,16 @@
     <div class="login-card">
       <h1>{{ t('login.brand') }}</h1>
       <p class="subtitle">{{ t('login.subtitle') }}</p>
-      <el-form :model="form" @submit.prevent="onSubmit" label-position="top" class="login-form">
+      <el-form :model="form" novalidate @submit.prevent="onSubmit" label-position="top" class="login-form">
         <el-form-item :label="t('login.email')">
-          <el-input v-model="form.email" type="email" autocomplete="username" :placeholder="t('login.emailPlaceholder')" />
+          <el-input
+            v-model="form.email"
+            type="text"
+            inputmode="email"
+            autocomplete="username"
+            data-testid="login-email"
+            :placeholder="t('login.emailPlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="t('login.password')">
           <el-input
@@ -27,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -38,10 +45,34 @@ const auth = useAuthStore()
 const { t } = useI18n()
 
 const LOGIN_REDIRECT_KEY = 'agent-hub-login-redirect'
+const LOGIN_EMAIL_DRAFT_KEY = 'agent-hub-login-email'
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const form = reactive({ email: '', password: '' })
 const loading = ref(false)
 const error = ref('')
+
+onMounted(() => {
+  try {
+    const saved = sessionStorage.getItem(LOGIN_EMAIL_DRAFT_KEY)
+    if (saved) form.email = saved
+  } catch {
+    /* private mode / quota */
+  }
+})
+
+watch(
+  () => form.email,
+  (email) => {
+    try {
+      const trimmed = email.trim()
+      if (trimmed) sessionStorage.setItem(LOGIN_EMAIL_DRAFT_KEY, trimmed)
+      else sessionStorage.removeItem(LOGIN_EMAIL_DRAFT_KEY)
+    } catch {
+      /* ignore */
+    }
+  },
+)
 
 async function onSubmit() {
   error.value = ''
@@ -49,9 +80,18 @@ async function onSubmit() {
     error.value = t('login.errEmpty')
     return
   }
+  if (!EMAIL_RE.test(form.email.trim())) {
+    error.value = t('login.errInvalidEmail')
+    return
+  }
   loading.value = true
   try {
     await auth.login(form.email.trim(), form.password)
+    try {
+      sessionStorage.removeItem(LOGIN_EMAIL_DRAFT_KEY)
+    } catch {
+      /* ignore */
+    }
     let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
     if (redirect.startsWith('/') && !redirect.startsWith('//')) {
       try {

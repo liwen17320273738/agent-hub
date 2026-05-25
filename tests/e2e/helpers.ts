@@ -1,12 +1,38 @@
+import { execSync } from 'node:child_process'
 import type { APIRequestContext, Page } from '@playwright/test'
 
-/** UI 登录并等待侧栏（与现有 spec 相同 JWT 流程）。 */
+/** UI 登录并等待侧栏（Element Plus 密码框需按 label/placeholder 定位）。 */
 export async function loginThroughUi(page: Page, email: string, password: string): Promise<void> {
   await page.goto('/#/login')
-  await page.locator('input[type="email"]').fill(email)
-  await page.locator('input[type="password"]').fill(password)
+  await page.getByTestId('login-email').fill(email)
+  const passwordInput = page
+    .getByPlaceholder(/请输入密码|Enter password/i)
+    .or(page.getByLabel(/密码|Password/i))
+  await passwordInput.fill(password)
   await page.locator('.login-form button[type="submit"]').click()
   await page.locator('aside.app-sidebar').waitFor({ state: 'visible', timeout: 30_000 })
+}
+
+/** 注入 JWT，跳过 UI 登录（仍可用于后续页面流程）。 */
+export async function seedAuthToken(page: Page, token: string): Promise<void> {
+  await page.addInitScript((t) => {
+    localStorage.setItem('agent-hub-token', t)
+  }, token)
+}
+
+/** 准备 smoke 工作区（草稿交付）并返回 workspace_id。 */
+export function prepareSmokeWorkspaceId(): string {
+  const out = execSync('cd backend && python3 -m scripts.prepare_e2e_workspace', {
+    stdio: 'pipe',
+    encoding: 'utf-8',
+  }).trim()
+  if (!out) throw new Error('prepare_e2e_workspace returned empty workspace id')
+  return out.split('\n').pop()!.trim()
+}
+
+/** @deprecated use prepareSmokeWorkspaceId in beforeAll */
+export async function enableDraftDeliveryForSmoke(): Promise<string> {
+  return prepareSmokeWorkspaceId()
 }
 
 const jsonHeaders = { 'Content-Type': 'application/json' } as const
@@ -52,7 +78,7 @@ export async function loginGetJwt(
 export async function createPipelineTaskApi(
   request: APIRequestContext,
   jwt: string,
-  payload: { title: string; description?: string; source?: string },
+  payload: { title: string; description?: string; source?: string; workspace_id?: string },
 ): Promise<{ id: string; title: string }> {
   const { res, json } = await postJson(request, '/api/pipeline/tasks', payload, jwt)
   if (!res.ok()) {
@@ -63,6 +89,25 @@ export async function createPipelineTaskApi(
   const id = body.task?.id
   if (!id) throw new Error('create task response missing task.id')
   return { id: String(id), title: String(body.task?.title ?? payload.title) }
+}
+
+/**
+ * Best-effort delete of a pipeline task created by an E2E test. Swallows
+ * all failures (auth gone, task already deleted, backend down) because
+ * cleanup hooks must never mask the real test result.
+ */
+export async function deletePipelineTaskApi(
+  request: APIRequestContext,
+  jwt: string,
+  taskId: string,
+): Promise<void> {
+  try {
+    await request.delete(`/api/pipeline/tasks/${encodeURIComponent(taskId)}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
+  } catch {
+    /* ignore — cleanup must be idempotent and silent */
+  }
 }
 
 export async function generateShareTokenApi(

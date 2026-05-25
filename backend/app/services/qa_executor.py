@@ -28,8 +28,10 @@ class QaCommandResult:
     """Result of a single QA command execution."""
     command: str = ""
     exit_code: int = -1
-    stdout_summary: str = ""  # first 5 kB
-    stderr_summary: str = ""  # first 5 kB
+    stdout_full: str = ""   # complete stdout
+    stderr_full: str = ""   # complete stderr
+    stdout_summary: str = ""  # first 5 kB (for JSON serialization)
+    stderr_summary: str = ""  # first 5 kB (for JSON serialization)
     duration_ms: float = 0.0
     ok: bool = False
 
@@ -205,8 +207,10 @@ class QaExecutor:
 
             result.exit_code = proc.returncode or 0
             result.ok = proc.returncode == 0
-            result.stdout_summary = (stdout.decode("utf-8", errors="replace") or "")[:5000]
-            result.stderr_summary = (stderr.decode("utf-8", errors="replace") or "")[:5000]
+            result.stdout_full = (stdout.decode("utf-8", errors="replace") or "")
+            result.stderr_full = (stderr.decode("utf-8", errors="replace") or "")
+            result.stdout_summary = result.stdout_full[:5000]
+            result.stderr_summary = result.stderr_full[:5000]
         except Exception as e:
             result.exit_code = -1
             result.ok = False
@@ -215,15 +219,22 @@ class QaExecutor:
         result.duration_ms = (time.monotonic() - start) * 1000
         return result
 
-    def _log_to_file(self, filename: str, content: str):
-        """Append content to a file in the project dir."""
+    def _write_real_log(self, filename: str, result: QaCommandResult):
+        """Write real command stdout/stderr to a log file (overwrites, not appends)."""
         path = os.path.join(self.project_dir, filename)
         try:
             os.makedirs(os.path.dirname(path) or self.project_dir, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as f:
-                f.write(f"\n--- {datetime.utcnow().isoformat()} ---\n")
-                f.write(content)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# Command: {result.command}\n")
+                f.write(f"# Exit code: {result.exit_code}\n")
+                f.write(f"# Duration: {result.duration_ms:.0f}ms\n")
+                f.write(f"# Timestamp: {datetime.utcnow().isoformat()}Z\n")
                 f.write("\n")
+                if result.stdout_full:
+                    f.write(result.stdout_full)
+                if result.stderr_full:
+                    f.write("\n# STDERR:\n")
+                    f.write(result.stderr_full)
         except Exception as e:
             logger.warning("[qa_executor] Failed to write %s: %s", filename, e)
 
@@ -239,7 +250,7 @@ class QaExecutor:
             logger.info("[qa_executor] Running install: %s", plan.install_command)
             install_result = await self.run_command(plan.install_command, timeout_sec=120)
             results["install"] = asdict(install_result)
-            self._log_to_file("install.log", json.dumps(asdict(install_result), ensure_ascii=False, indent=2))
+            self._write_real_log("install.log", install_result)
             if not install_result.ok:
                 results["ok"] = False
                 results["failed_step"] = "install"
@@ -251,7 +262,7 @@ class QaExecutor:
             logger.info("[qa_executor] Running build: %s", plan.build_command)
             build_result = await self.run_command(plan.build_command, timeout_sec=120)
             results["build"] = asdict(build_result)
-            self._log_to_file("build.log", json.dumps(asdict(build_result), ensure_ascii=False, indent=2))
+            self._write_real_log("qa-build.log", build_result)
             if not build_result.ok:
                 results["ok"] = False
                 results["failed_step"] = "build"
@@ -263,7 +274,7 @@ class QaExecutor:
             logger.info("[qa_executor] Running test: %s", plan.test_command)
             test_result = await self.run_command(plan.test_command, timeout_sec=60)
             results["test"] = asdict(test_result)
-            self._log_to_file("test.log", json.dumps(asdict(test_result), ensure_ascii=False, indent=2))
+            self._write_real_log("test.log", test_result)
             if not test_result.ok:
                 results["ok"] = False
                 results["failed_step"] = "test"
@@ -398,5 +409,14 @@ class QaExecutor:
         browser_result = await self.run_browser_smoke()
         cmd_results["browser"] = asdict(browser_result)
         cmd_results["resource_check"] = asdict(rc)
+
+        # Browser smoke failure is critical: build/test passed but page doesn't render
+        if not browser_result.page_opened or browser_result.error:
+            cmd_results["ok"] = False
+            cmd_results["failed_step"] = "browser_smoke"
+            cmd_results["error"] = (
+                f"Browser smoke failed: {browser_result.error or 'page not reachable'}"
+            )
+            return cmd_results
 
         return cmd_results

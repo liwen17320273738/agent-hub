@@ -66,6 +66,7 @@ from .api import (
     relay as relay_api,
     crawl,
     vector_api,
+    outcome_contract as outcome_contract_api,
 )
 
 logger = __import__("structlog").get_logger("agent-hub")
@@ -311,15 +312,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("translate pregen not scheduled: %s", exc)
 
-    # Periodic task lifecycle cleanup — prevents zombie processes
+    # Periodic task lifecycle watchdog — cancels in-flight tasks that haven't
+    # advanced for TASK_STALE_IDLE_MINUTES (default 60), preventing the Inbox
+    # from filling up with "执行中" zombies left by crashed workers, abandoned
+    # E2E tests, or seed scripts that never finalize task.status.
     if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
         try:
-            from .services.task_lifecycle import schedule_periodic_cleanup
-            _cleanup_task = schedule_periodic_cleanup(interval_minutes=60)
+            from .services.task_lifecycle import (
+                LIFECYCLE_SWEEP_MINUTES,
+                STALE_TASK_IDLE_MINUTES,
+                schedule_periodic_cleanup,
+            )
+            _cleanup_task = schedule_periodic_cleanup()
             if _cleanup_task is not None:
-                logger.info("Task lifecycle cleanup scheduled (every 60 min).")
+                logger.info(
+                    "Task lifecycle watchdog scheduled "
+                    "(sweep every %dm, cancel if idle > %dm).",
+                    LIFECYCLE_SWEEP_MINUTES, STALE_TASK_IDLE_MINUTES,
+                )
         except Exception as exc:
-            logger.warning("Task lifecycle cleanup not scheduled: %s", exc)
+            logger.warning("Task lifecycle watchdog not scheduled: %s", exc)
 
     yield
 
@@ -520,6 +532,7 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(relay_api.router, prefix="/api")
     application.include_router(crawl.router, prefix="/api")
     application.include_router(vector_api.router, prefix="/api")
+    application.include_router(outcome_contract_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)
     application.include_router(openai_compat.router)

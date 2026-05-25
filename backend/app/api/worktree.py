@@ -1,8 +1,9 @@
 """Worktree File API — browse and preview files in a task's workspace directory.
 
 Endpoints:
-  GET /api/tasks/{task_id}/worktree         → file tree
-  GET /api/tasks/{task_id}/worktree/{path}  → file content
+  GET /api/tasks/{task_id}/worktree              → file tree (JSON)
+  GET /api/tasks/{task_id}/worktree/{path}       → file content (JSON)
+  GET /api/tasks/{task_id}/worktree/raw/{path}   → raw file (HTML/PNG for iframe/img)
 """
 from __future__ import annotations
 
@@ -11,11 +12,22 @@ import os
 from pathlib import Path
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import mimetypes
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
+
+from ..config import settings
+from ..database import get_db
 from ..models.user import User
 from ..security import get_pipeline_auth_optional
 from ..services.task_workspace import find_task_root, DOC_SPECS
+from ..services.visual_asset_repair import (
+    find_visual_html_fallback,
+    is_visual_asset_path,
+    repair_visual_asset,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/tasks", tags=["worktree"])
 
@@ -49,6 +61,82 @@ def _file_hash(path: Path) -> str:
         return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
     except Exception:
         return ""
+
+
+def _workspace_root() -> Path:
+    if settings.workspace_root:
+        return Path(settings.workspace_root)
+    return Path(__file__).resolve().parent.parent.parent.parent / "data" / "workspace"
+
+
+def _normalize_worktree_relative_path(file_path: str, task_id: str) -> str:
+    """Map legacy absolute visual paths to worktree-relative paths."""
+    rel = file_path.replace("\\", "/").lstrip("/")
+    marker = f"{task_id}/"
+    idx = rel.find(marker)
+    if idx >= 0:
+        tail = rel[idx + len(marker):]
+        if tail.startswith(("ui_mockups/", "architecture_diagrams/")):
+            return tail
+    for prefix in ("ui_mockups/", "architecture_diagrams/"):
+        pos = rel.find(prefix)
+        if pos >= 0:
+            return rel[pos:]
+    return rel
+
+
+def _resolve_worktree_file(task_id: str, file_path: str) -> Path:
+    rel = _normalize_worktree_relative_path(file_path, task_id)
+    root = find_task_root(task_id)
+
+    if root and root.exists():
+        candidate = (root / rel).resolve()
+        try:
+            candidate.relative_to(root.resolve())
+        except ValueError:
+            raise HTTPException(403, "Path traversal denied")
+        if candidate.is_file():
+            return candidate
+
+    # Legacy: visual assets written outside task worktree (/tmp or workspace/{task_id}/)
+    legacy_roots = [
+        Path("/tmp/agent-hub-ui") / task_id,
+        _workspace_root() / task_id,
+    ]
+    for legacy_root in legacy_roots:
+        legacy_candidate = (legacy_root / rel).resolve()
+        if legacy_candidate.is_file():
+            try:
+                legacy_candidate.relative_to(legacy_root.resolve())
+            except ValueError:
+                continue
+            return legacy_candidate
+
+    raw = file_path.replace("\\", "/")
+    if raw.startswith("/"):
+        legacy_file = Path(raw)
+        if legacy_file.is_file():
+            for allowed in legacy_roots:
+                try:
+                    legacy_file.resolve().relative_to(allowed.resolve())
+                    return legacy_file.resolve()
+                except ValueError:
+                    continue
+
+    fallback = find_visual_html_fallback(task_id, file_path)
+    if fallback:
+        return fallback
+
+    raise HTTPException(404, f"File not found: {file_path}")
+
+
+def _guess_media_type(path: Path) -> str:
+    mime, _ = mimetypes.guess_type(str(path))
+    if mime:
+        return mime
+    if path.suffix.lower() == ".html":
+        return "text/html; charset=utf-8"
+    return "application/octet-stream"
 
 
 @router.get("/{task_id}/worktree")
@@ -109,6 +197,34 @@ async def list_worktree(
     }
 
 
+@router.get("/{task_id}/worktree/raw/{file_path:path}")
+async def read_worktree_file_raw(
+    task_id: str,
+    file_path: str,
+    _user: Annotated[Optional[User], Depends(get_pipeline_auth_optional)],
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a worktree file with correct Content-Type for img/iframe preview."""
+    try:
+        target = _resolve_worktree_file(task_id, file_path)
+    except HTTPException as exc:
+        if exc.status_code == 404 and is_visual_asset_path(file_path):
+            repaired = await repair_visual_asset(db, task_id, file_path)
+            if repaired:
+                target = repaired
+            else:
+                raise
+        else:
+            raise
+    # NOTE: do NOT pass `filename=` to FileResponse — Starlette would then
+    # emit `Content-Disposition: attachment; filename=...`, which forces the
+    # browser to download the file instead of rendering it inline. The whole
+    # point of /worktree/raw/ is iframe/<img> preview, so we omit the header
+    # entirely and let `media_type` drive rendering (text/html → render,
+    # image/png → display, application/octet-stream → fall-through download).
+    return FileResponse(target, media_type=_guess_media_type(target))
+
+
 @router.get("/{task_id}/worktree/{file_path:path}")
 async def read_worktree_file(
     task_id: str,
@@ -117,15 +233,24 @@ async def read_worktree_file(
     max_size: int = Query(default=500_000, le=2_000_000),
 ):
     """Read a single file from the task's workspace."""
-    root = find_task_root(task_id)
-    if not root or not root.exists():
-        raise HTTPException(404, f"Task workspace not found: {task_id}")
+    if file_path.startswith("raw/"):
+        raise HTTPException(404, f"File not found: {file_path}")
 
-    target = (root / file_path).resolve()
     try:
-        target.relative_to(root.resolve())
-    except ValueError:
-        raise HTTPException(403, "Path traversal denied")
+        target = _resolve_worktree_file(task_id, file_path)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        root = find_task_root(task_id)
+        if not root or not root.exists():
+            raise HTTPException(404, f"Task workspace not found: {task_id}") from exc
+        target = (root / file_path).resolve()
+        try:
+            target.relative_to(root.resolve())
+        except ValueError:
+            raise HTTPException(403, "Path traversal denied") from exc
+        if not target.exists():
+            raise HTTPException(404, f"File not found: {file_path}") from exc
 
     if not target.exists():
         raise HTTPException(404, f"File not found: {file_path}")

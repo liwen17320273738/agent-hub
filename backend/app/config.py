@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     # Phase 3: after each linear stage persists v2 artifacts, require registered types exist
     artifact_contract_enforce: bool = True
     # Phase 3: when True, markdown/JSON rules on required artifacts fail the stage (not only API/UI hints)
-    artifact_contract_rules_strict: bool = False
+    artifact_contract_rules_strict: bool = True
 
     # Git clone allowlist (comma-separated hostnames). Empty = use defaults.
     git_allowed_hosts: str = "github.com,gitee.com,gitlab.com,bitbucket.org,codeup.aliyun.com"

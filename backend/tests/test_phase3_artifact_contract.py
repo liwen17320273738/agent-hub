@@ -67,7 +67,10 @@ async def test_rebuild_manifest_includes_contract_snapshot(db, test_user):
         task_id=tid,
         task_title=task.title,
         stage_id="design",
-        content="## UI\nmock spec\n",
+        content=(
+            "## UI 规格\n"
+            "主列表区展示待办项，右下角 FAB 新建；每项含完成勾选与删除操作。\n"
+        ),
     )
     # Also write ui_mockup to satisfy Phase 5 contract
     from app.services.artifact_writer import _write_one_artifact

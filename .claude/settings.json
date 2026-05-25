@@ -18,7 +18,16 @@
       "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
       "Bash(ls -la venv/bin/python)",
       "Bash(ls -la .venv/bin/python)",
-      "mcp__github__*"
+      "mcp__github__*",
+      "Bash(xargs -I{} sh -c 'ps eww {} 2>/dev/null || echo \"no env access\"')",
+      "Bash(ps eww *)",
+      "Bash(/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python -c ' *)",
+      "Bash(kill 88406)",
+      "Bash(echo \"Started with PID $!\")",
+      "Bash(curl -s http://localhost:8000/api/pipeline/tasks -o /dev/null -w \"%{http_code}\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s http://localhost:8000/api/pipeline/tasks?limit=3)",
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); tasks=data if isinstance\\(data,list\\) else data.get\\('tasks',data.get\\('data',[]\\)\\); [print\\(json.dumps\\({'id':t.get\\('id'\\),'title':t.get\\('title'\\),'status':t.get\\('status'\\),'current_stage_id':t.get\\('current_stage_id'\\)},ensure_ascii=False\\)\\) for t in tasks[:5]]\")"
     ]
   }
 }

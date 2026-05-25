@@ -105,9 +105,21 @@ const humanReason = computed(() => {
 const ownerLabel = computed(() => {
   const reason = humanReason.value
   if (reason.includes('API Key') || reason.includes(t('failureCard.reasonAuth'))) return t('failureCard.ownerAdminKey')
-  if (reason.includes('超限') || reason.includes('频率') || reason === t('failureCard.reasonRateLimit')) return t('failureCard.ownerAdminQuota')
-  if (reason.includes('超时') || reason.includes('错误') || reason === t('failureCard.reasonTimeout') || reason === t('failureCard.reasonServer')) return t('failureCard.ownerAgentRetry')
-  if (reason.includes('上下文') || reason === t('failureCard.reasonContext')) return t('failureCard.ownerUserPrompt')
+  if (
+    reason.toLowerCase().includes('rate') ||
+    reason.toLowerCase().includes('limit') ||
+    reason === t('failureCard.reasonRateLimit')
+  ) return t('failureCard.ownerAdminQuota')
+  if (
+    reason.toLowerCase().includes('timeout') ||
+    reason.toLowerCase().includes('error') ||
+    reason === t('failureCard.reasonTimeout') ||
+    reason === t('failureCard.reasonServer')
+  ) return t('failureCard.ownerAgentRetry')
+  if (
+    reason.toLowerCase().includes('context') ||
+    reason === t('failureCard.reasonContext')
+  ) return t('failureCard.ownerUserPrompt')
   return t('failureCard.ownerAgentRetry')
 })
 

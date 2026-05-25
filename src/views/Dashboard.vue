@@ -186,7 +186,11 @@ onMounted(async () => {
 })
 
 const pendingTasks = computed(() =>
-  tasks.value.filter(t => t.status === 'plan_pending' || t.status === 'awaiting_final_acceptance')
+  tasks.value.filter(t =>
+    t.status === 'plan_pending'
+    || t.status === 'awaiting_final_acceptance'
+    || t.status === 'awaiting_evidence',
+  )
 )
 const runningTasks = computed(() =>
   tasks.value.filter(t => t.status === 'active' || t.status === 'running')
@@ -203,7 +207,11 @@ const cancelledTasks = computed(() =>
 /** Pending / awaiting acceptance are listed in「待办任务」— keep「最近任务」from duplicating them. */
 const recentTasks = computed(() =>
   [...tasks.value]
-    .filter(t => t.status !== 'plan_pending' && t.status !== 'awaiting_final_acceptance')
+    .filter(t =>
+      t.status !== 'plan_pending'
+      && t.status !== 'awaiting_final_acceptance'
+      && t.status !== 'awaiting_evidence',
+    )
     .sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt))
     .slice(0, 10)
 )
@@ -228,7 +236,7 @@ function statusType(s: string) {
   if (s === 'done' || s === 'accepted') return 'success'
   if (s === 'failed' || s === 'rejected') return 'danger'
   if (s === 'cancelled') return 'info'
-  if (s === 'plan_pending' || s === 'awaiting_final_acceptance') return 'warning'
+  if (s === 'plan_pending' || s === 'awaiting_final_acceptance' || s === 'awaiting_evidence') return 'warning'
   return 'primary'
 }
 

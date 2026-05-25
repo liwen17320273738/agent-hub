@@ -11,6 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    AcceptanceSummaryCard: typeof import('./components/task/AcceptanceSummaryCard.vue')['default']
     AgentCard: typeof import('./components/AgentCard.vue')['default']
     AgentStageNode: typeof import('./components/builder/AgentStageNode.vue')['default']
     ArtifactCompletionBar: typeof import('./components/task/ArtifactCompletionBar.vue')['default']
@@ -18,7 +19,9 @@ declare module 'vue' {
     AutoTranslated: typeof import('./components/AutoTranslated.vue')['default']
     ChatMessage: typeof import('./components/ChatMessage.vue')['default']
     DeliverableCards: typeof import('./components/task/DeliverableCards.vue')['default']
+    DeliveryHeader: typeof import('./components/task/DeliveryHeader.vue')['default']
     DeployPreviewCard: typeof import('./components/task/DeployPreviewCard.vue')['default']
+    DraftDeliveryBanner: typeof import('./components/task/DraftDeliveryBanner.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAutocomplete: typeof import('element-plus/es')['ElAutocomplete']
     ElBadge: typeof import('element-plus/es')['ElBadge']
@@ -77,6 +80,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SkillsPanel: typeof import('./components/SkillsPanel.vue')['default']
+    SoftWarningBanner: typeof import('./components/task/SoftWarningBanner.vue')['default']
     StageConfigDrawer: typeof import('./components/builder/StageConfigDrawer.vue')['default']
     StagePalette: typeof import('./components/builder/StagePalette.vue')['default']
     SubtaskCard: typeof import('./components/SubtaskCard.vue')['default']

@@ -43,7 +43,7 @@ export interface PipelineTask {
   source: 'feishu' | 'qq' | 'web' | 'api'
   sourceMessageId?: string
   sourceUserId?: string
-  status: 'plan_pending' | 'active' | 'running' | 'paused' | 'done' | 'accepted' | 'cancelled' | 'failed' | 'rejected' | 'awaiting_final_acceptance'
+  status: 'plan_pending' | 'active' | 'running' | 'paused' | 'done' | 'accepted' | 'cancelled' | 'failed' | 'rejected' | 'awaiting_final_acceptance' | 'awaiting_evidence'
   currentStageId: string
   template?: string | null
   /** Workflow Builder / persisted DAG spec (`custom_stages` from API). */
