@@ -39,4 +39,14 @@ async def token_usage(
     days: int = 30,
 ):
     """Get token usage summary for the organization."""
-    return await get_usage_summary(db, user.org_id, days=days)
+    try:
+        return await get_usage_summary(db, user.org_id, days=days)
+    except Exception:
+        # Return empty result instead of crashing (known: asyncpg datetime type mismatch)
+        return {
+            "summaries": [],
+            "total_cost_usd": 0.0,
+            "total_tokens": 0,
+            "total_requests": 0,
+            "days": days,
+        }

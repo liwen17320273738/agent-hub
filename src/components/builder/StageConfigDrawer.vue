@@ -14,7 +14,7 @@
   -->
   <el-drawer
     v-model="visibleProxy"
-    :title="`配置阶段 · ${data?.label || data?.stageId || ''}`"
+    :title="`{{ $t('StageConfigDrawer.configStage') }} · ${data?.label || data?.stageId || ''}`"
     direction="rtl"
     size="380px"
     :destroy-on-close="false"
@@ -30,7 +30,7 @@
             @input="onStageIdInput"
           >
             <template #append>
-              <el-tooltip content="后端使用的稳定标识；建议小写英文，含字母数字和短横线">
+              <el-tooltip content="{{ $t('StageConfigDrawer.stableId') }}；{{ $t('StageConfigDrawer.lowercaseEnglish') }}，{{ $t('StageConfigDrawer.alphanumeric') }}">
                 <el-icon><InfoFilled /></el-icon>
               </el-tooltip>
             </template>

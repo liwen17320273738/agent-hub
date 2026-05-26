@@ -659,8 +659,15 @@ class TestShareAndDeliverablesDegraded:
                 ("architecture_diagram", "```mermaid\nflowchart LR\n  U-->App\n```\n"),
                 ("implementation", "## 实现\n关键组件：TodoList, TodoItem。\n"),
                 ("test_report", "## 测试报告\n- 构建通过\n- 冒烟测试通过\n"),
-                ("acceptance", "## 验收\n- [ ] AC1\n"),
+                ("test_log", "[DEGRADED_PATH_MOCK] pnpm test output\nPASS tests/unit/test.spec.ts\nTests: 1 passed, 1 total\n"),
+                ("build_log", "[DEGRADED_PATH_MOCK] pnpm install\nexit code: 0\n[DEGRADED_PATH_MOCK] pnpm build\nexit code: 0\n"),
+                ("acceptance", "## 验收\n- [x] AC1: 测试通过、构建OK、截图已确认\n"),
                 ("code_link", '{"repo":"local","branch":"main"}\n'),
+                ("screenshot", "[DEGRADED_PATH_MOCK] screenshot placeholder\n"),
+                ("deploy_manifest", '{"preview_url":"http://127.0.0.1:4173/mock","provider":"mock"}\n'),
+                ("ops_runbook", "## 运维手册（mock）\n回滚：保留上一 tag。\n"),
+                ("source_manifest", '{"created_files":["src/App.vue"],"build_command":"pnpm build","run_command":"pnpm preview"}\n'),
+                ("preview_url", '{"url":"http://127.0.0.1:4173/mock","provider":"mock-local","health_status":"healthy"}\n'),
             ]
             for atype, content in minimal_artifacts:
                 await client.post(

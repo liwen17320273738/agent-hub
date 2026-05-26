@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 interface StageInfo {
   id: string
@@ -48,13 +49,13 @@ const props = defineProps<{
 }>()
 
 const LANE_META: { stageId: string; icon: string; label: string; defaultAgent: string }[] = [
-  { stageId: 'planning',     icon: '📋', label: '需求规划', defaultAgent: 'CEO / 产品经理' },
-  { stageId: 'design',       icon: '🎨', label: 'UI/UX 设计', defaultAgent: '设计师' },
-  { stageId: 'architecture', icon: '🏗', label: '架构设计', defaultAgent: '架构师' },
-  { stageId: 'development',  icon: '💻', label: '开发实现', defaultAgent: '开发工程师' },
-  { stageId: 'testing',      icon: '🧪', label: '测试验证', defaultAgent: 'QA 负责人' },
-  { stageId: 'reviewing',    icon: '✅', label: '审查验收', defaultAgent: '验收官' },
-  { stageId: 'deployment',   icon: '🚀', label: '部署上线', defaultAgent: 'DevOps' },
+  { stageId: 'planning',     icon: '📋', defaultAgent: 'CEO / 产品经理' },
+  { stageId: 'design',       icon: '🎨', defaultAgent: '设计师' },
+  { stageId: 'architecture', icon: '🏗', defaultAgent: '架构师' },
+  { stageId: 'development',  icon: '💻', defaultAgent: '开发工程师' },
+  { stageId: 'testing',      icon: '🧪', defaultAgent: 'QA 负责人' },
+  { stageId: 'reviewing',    icon: '✅', defaultAgent: '验收官' },
+  { stageId: 'deployment',   icon: '🚀', defaultAgent: 'DevOps' },
 ]
 
 const lanes = computed(() => {
@@ -66,24 +67,24 @@ const lanes = computed(() => {
 
     let statusClass = 'lane-pending'
     let tagType: 'info' | 'warning' | 'success' | 'danger' | 'primary' = 'info'
-    let statusText = '未开始'
+    let statusText = t('roleSwimlane.pending')
 
     if (status === 'done') {
       statusClass = 'lane-done'
       tagType = 'success'
-      statusText = '已完成'
+      statusText = t('roleSwimlane.done')
     } else if (['active', 'running', 'reviewing', 'awaiting_approval'].includes(status)) {
       statusClass = 'lane-active'
       tagType = 'primary'
-      statusText = '进行中'
+      statusText = t('roleSwimlane.active')
     } else if (status === 'rejected' || status === 'failed') {
       statusClass = 'lane-rejected'
       tagType = 'danger'
-      statusText = status === 'rejected' ? '被打回' : '失败'
+      statusText = status === 'rejected' ? t('roleSwimlane.rejected') : t('roleSwimlane.failed')
     } else if (status === 'skipped') {
       statusClass = 'lane-skipped'
       tagType = 'info'
-      statusText = '跳过'
+      statusText = t('roleSwimlane.skipped')
     }
 
     const output = stage?.output || ''
@@ -91,6 +92,7 @@ const lanes = computed(() => {
 
     return {
       ...meta,
+      label: t(`stages.${meta.stageId}`),
       statusClass,
       tagType,
       statusText,

@@ -165,8 +165,13 @@ async def test_hero_delivery_path_smoke_without_llm(client, db, auth_headers):
             "Test report (mock CLI)",
         ),
         (
+            "test_log",
+            "[HERO_PATH_E2E_MOCK] pnpm test output\nPASS tests/unit/TodoList.spec.ts\nPASS tests/unit/TodoItem.spec.ts\nTests: 2 passed, 2 total\n",
+            "Test log",
+        ),
+        (
             "acceptance",
-            "## 验收\n- [ ] 所有 PRD AC 逐项核对（本条为程序化占位）。\n",
+            "## 验收\n- [x] 所有 PRD AC 逐项核对\n- [x] 浏览器截图已确认 UI 正确\n- [x] 测试通过：build ok + test passed\n- [x] 预览已访问：http://127.0.0.1:4173/mock-preview\n",
             "Acceptance",
         ),
         (

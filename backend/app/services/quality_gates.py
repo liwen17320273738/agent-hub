@@ -18,6 +18,7 @@ Gate results:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -505,7 +506,13 @@ async def _llm_quality_evaluation(
     config: Dict[str, Any],
     previous_outputs: Optional[Dict[str, str]] = None,
 ) -> GateCheck:
-    """LLM-based deep quality evaluation."""
+    """LLM-based deep quality evaluation.
+
+    Supports multi-model voting: when ``quality_gate_voting_models`` is set
+    in config (comma-separated list of model IDs), we call each model and
+    aggregate via majority vote. When only ``quality_gate_model`` is set, a
+    single model is used. Falls back to the default pipeline model.
+    """
     label = config.get("label", stage_id)
 
     system_prompt = f"""你是一位资深的质量审查专家。请对以下「{label}」产出进行深度质量评估。
@@ -535,8 +542,129 @@ ISSUES: <主要问题列表，每行一条，以 - 开头>"""
 
     try:
         from ..config import settings as app_settings
-        model = app_settings.llm_model or "glm-4-flash"
-        api_url = app_settings.llm_api_url or ""
+
+        # Resolve voting models from config (comma-separated)
+        voting_models_raw = getattr(app_settings, "quality_gate_voting_models", "") or ""
+        voting_api_url_raw = getattr(app_settings, "quality_gate_voting_api_url", "") or ""
+        voting_models = [m.strip() for m in voting_models_raw.split(",") if m.strip()]
+        voting_api_urls = [u.strip() for u in voting_api_url_raw.split(",") if u.strip()]
+
+        if voting_models:
+            # Multi-model voting mode
+            models = voting_models[:3]  # max 3 voting models
+            api_urls = voting_api_urls[:3] if voting_api_urls else [""] * len(models)
+            # Pad api_urls if fewer than models
+            while len(api_urls) < len(models):
+                api_urls.append(api_urls[-1] if api_urls else "")
+
+            tasks = []
+            for i, model in enumerate(models):
+                url = api_urls[i] if i < len(api_urls) else ""
+                tasks.append(_single_llm_call(model, url, system_prompt, user_msg))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            parsed_results = []
+            for r in results:
+                if isinstance(r, Exception) or r is None:
+                    continue
+                score, verdict, summary, issues = _parse_llm_evaluation(r.content)
+                parsed_results.append({
+                    "score": score,
+                    "verdict": verdict,
+                    "summary": summary,
+                    "issues": issues,
+                })
+
+            if not parsed_results:
+                # All models failed — degraded fallback
+                return GateCheck(
+                    name="llm_quality", category="llm",
+                    status=GateStatus.WARNING, score=0.5,
+                    message="多模型 LLM 评估全部不可用，已跳过",
+                )
+
+            # Aggregate via majority vote
+            verdict_votes = {"PASS": 0, "WARN": 0, "FAIL": 0}
+            avg_scores = []
+            all_issues = []
+            for pr in parsed_results:
+                verdict_votes[pr["verdict"]] = verdict_votes.get(pr["verdict"], 0) + 1
+                avg_scores.append(pr["score"])
+                if pr.get("issues"):
+                    all_issues.append(pr["issues"])
+
+            # Majority winner (ties break toward WARN)
+            majority_verdict = max(verdict_votes, key=lambda k: (verdict_votes[k], k == "WARN"))
+            avg_score = sum(avg_scores) / len(avg_scores)
+
+            score_normalized = avg_score / 10.0
+            status = {
+                "PASS": GateStatus.PASSED,
+                "WARN": GateStatus.WARNING,
+                "FAIL": GateStatus.FAILED,
+            }.get(majority_verdict, GateStatus.WARNING)
+
+            details_parts = [
+                f"多模型投票 ({len(parsed_results)} 个模型): "
+                f"PASS={verdict_votes.get('PASS', 0)}, "
+                f"WARN={verdict_votes.get('WARN', 0)}, "
+                f"FAIL={verdict_votes.get('FAIL', 0)}, "
+                f"平均分 {avg_score:.1f}/10"
+            ]
+            if all_issues:
+                # Deduplicate issues across models
+                unique_issues = list(dict.fromkeys("\n".join(all_issues).split("\n")))
+                details_parts.append("综合问题: " + "; ".join(unique_issues[:5]))
+
+            return GateCheck(
+                name="llm_quality", category="llm",
+                status=status, score=score_normalized,
+                message=f"多模型 LLM 评估: {majority_verdict} (均分 {avg_score:.1f}/10)",
+                details="\n".join(details_parts),
+            )
+        else:
+            # Single model evaluation (existing path)
+            model = app_settings.quality_gate_model or app_settings.llm_model or "glm-4-flash"
+            api_url = app_settings.quality_gate_api_url or app_settings.llm_api_url or ""
+
+            single = await _single_llm_call(model, api_url, system_prompt, user_msg)
+            if single is None:
+                raise RuntimeError("LLM evaluation returned no content")
+            score, verdict, summary, issues = _parse_llm_evaluation(single.content)
+
+            score_normalized = score / 10.0
+            status = {
+                "PASS": GateStatus.PASSED,
+                "WARN": GateStatus.WARNING,
+                "FAIL": GateStatus.FAILED,
+            }.get(verdict, GateStatus.WARNING)
+
+            return GateCheck(
+                name="llm_quality", category="llm",
+                status=status, score=score_normalized,
+                message=f"LLM 质量评估: {score}/10 — {summary}",
+                details=issues if issues else None,
+            )
+    except Exception as e:
+        logger.warning(f"[quality_gates] LLM evaluation failed for {stage_id}: {e}")
+        return GateCheck(
+            name="llm_quality", category="llm",
+            status=GateStatus.WARNING, score=0.5,
+            message=f"LLM 评估不可用（{e}），已跳过",
+        )
+
+
+async def _single_llm_call(
+    model: str, api_url: str, system_prompt: str, user_msg: str,
+) -> Optional[Any]:
+    """Execute a single LLM quality evaluation call."""
+    try:
+        from dataclasses import dataclass
+
+        @dataclass
+        class _EvalResult:
+            content: str
 
         result = await llm_chat(
             model=model,
@@ -546,33 +674,13 @@ ISSUES: <主要问题列表，每行一条，以 - 开头>"""
             ],
             api_url=api_url,
         )
-
         if result.get("error"):
             raise RuntimeError(result["error"])
-
         content = result.get("content", "")
-        score, verdict, summary, issues = _parse_llm_evaluation(content)
-
-        score_normalized = score / 10.0
-        status = {
-            "PASS": GateStatus.PASSED,
-            "WARN": GateStatus.WARNING,
-            "FAIL": GateStatus.FAILED,
-        }.get(verdict, GateStatus.WARNING)
-
-        return GateCheck(
-            name="llm_quality", category="llm",
-            status=status, score=score_normalized,
-            message=f"LLM 质量评估: {score}/10 — {summary}",
-            details=issues if issues else None,
-        )
+        return _EvalResult(content=content)
     except Exception as e:
-        logger.warning(f"[quality_gates] LLM evaluation failed for {stage_id}: {e}")
-        return GateCheck(
-            name="llm_quality", category="llm",
-            status=GateStatus.WARNING, score=0.5,
-            message=f"LLM 评估不可用（{e}），已跳过",
-        )
+        logger.warning(f"[quality_gates] single LLM call failed ({model}): {e}")
+        return None
 
 
 def _parse_llm_evaluation(content: str) -> tuple[int, str, str, str]:

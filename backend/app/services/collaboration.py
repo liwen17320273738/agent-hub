@@ -68,7 +68,7 @@ AGENT_TEAM = {
         "icon": "🏗️",
         "expertise": "30年系统架构设计",
         "responsibilities": ["技术选型", "系统架构", "数据模型", "API设计", "性能规划"],
-        "stages": ["architecture"],
+        "stages": ["architecture", "data-modeling"],
         "tier": "planning",
     },
     "developer-agent": {
@@ -122,7 +122,7 @@ AGENT_TEAM = {
         "icon": "📊",
         "expertise": "30年数据工程与分析",
         "responsibilities": ["数据建模", "指标设计", "SQL优化", "ETL管道", "报表设计"],
-        "stages": ["data-modeling"],
+        "stages": [],
         "tier": "execution",
     },
     "marketing-agent": {
@@ -131,7 +131,7 @@ AGENT_TEAM = {
         "icon": "📣",
         "expertise": "30年品牌营销与增长",
         "responsibilities": ["品牌文案", "产品定位", "渠道策略", "获客方案", "A/B测试"],
-        "stages": ["marketing-launch"],
+        "stages": [],
         "tier": "routine",
     },
     "finance-agent": {
@@ -140,7 +140,7 @@ AGENT_TEAM = {
         "icon": "💰",
         "expertise": "30年财务分析与成本管控",
         "responsibilities": ["成本分析", "ROI评估", "定价策略", "预算规划", "商业可持续性"],
-        "stages": ["finance-review"],
+        "stages": [],
         "tier": "execution",
     },
     "legal-agent": {
@@ -149,7 +149,7 @@ AGENT_TEAM = {
         "icon": "⚖️",
         "expertise": "30年科技法律与合规",
         "responsibilities": ["合规审查", "隐私条款", "知识产权", "服务条款", "数据合规"],
-        "stages": ["legal-review"],
+        "stages": [],
         "tier": "planning",
     },
 }
@@ -204,17 +204,22 @@ PIPELINE_STAGES = [
     {"id": "development", "label": "开发实现", "role": "developer", "agent": "developer-agent"},
     {"id": "testing", "label": "测试验证", "role": "qa-lead", "agent": "qa-agent"},
     {"id": "security-review", "label": "安全审查", "role": "security", "agent": "security-agent"},
-    {"id": "data-modeling", "label": "数据建模", "role": "data-analyst", "agent": "data-agent"},
-    {"id": "marketing-launch", "label": "上线运营", "role": "marketing", "agent": "marketing-agent"},
-    {"id": "finance-review", "label": "财务评估", "role": "finance", "agent": "finance-agent"},
-    {"id": "legal-review", "label": "法务审查", "role": "legal", "agent": "legal-agent"},
     {"id": "reviewing", "label": "审查验收", "role": "acceptance", "agent": "acceptance-agent"},
     {"id": "deployment", "label": "部署上线", "role": "devops", "agent": "devops-agent"},
 ]
 
-STAGE_LABELS = {s["id"]: s["label"] for s in PIPELINE_STAGES}
-STAGE_ROLES = {s["id"]: s["role"] for s in PIPELINE_STAGES}
-STAGE_AGENTS = {s["id"]: s["agent"] for s in PIPELINE_STAGES}
+# 辅助/可选阶段（不参与默认串行管道，按需手动触发或通过 DAG 并行执行）
+SUPPLEMENTARY_STAGES = [
+    {"id": "data-modeling", "label": "数据建模", "role": "data-analyst", "agent": "data-agent"},
+    {"id": "marketing-launch", "label": "上线运营", "role": "marketing", "agent": "marketing-agent"},
+    {"id": "finance-review", "label": "财务评估", "role": "finance", "agent": "finance-agent"},
+    {"id": "legal-review", "label": "法务审查", "role": "legal", "agent": "legal-agent"},
+]
+
+_ALL_STAGES = PIPELINE_STAGES + SUPPLEMENTARY_STAGES
+STAGE_LABELS = {s["id"]: s["label"] for s in _ALL_STAGES}
+STAGE_ROLES = {s["id"]: s["role"] for s in _ALL_STAGES}
+STAGE_AGENTS = {s["id"]: s["agent"] for s in _ALL_STAGES}
 
 
 def get_agent_for_stage(stage_id: str) -> Optional[Dict[str, Any]]:

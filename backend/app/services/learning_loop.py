@@ -322,7 +322,8 @@ async def distill_signals_for_stage(
         title=(parsed.get("title") or f"{stage_id} 自动复盘补丁 v{new_version}")[:200],
         addendum=parsed["addendum"][:8000],
         rationale=(parsed.get("rationale") or "")[:2000],
-        status="active" if auto_apply else "proposed",
+        # New overrides land in shadow mode (A/B canary) regardless of auto_apply
+        status="shadow",
         auto_apply=bool(auto_apply),
         sample_signal_ids=[str(s.id) for s in signals],
         distilled_from_n=len(signals),
@@ -1154,3 +1155,129 @@ def _extract_common_keywords(texts: List[str], min_freq: int = 2) -> List[str]:
         key=lambda w: word_count[w],
         reverse=True,
     )[:10]
+
+
+# ── Cross-Project Knowledge Accumulation ──────────────────────────────
+# Maps task domain to accumulated patterns. Domains are extracted from
+# task titles/descriptions at signal capture time using keyword heuristics.
+# When a new task enters the pipeline, patterns from the same domain
+# are injected into the system prompt automatically.
+
+DOMAIN_KEYWORDS: Dict[str, List[str]] = {
+    "auth": ["登录", "注册", "认证", "OAuth", "JWT", "login", "signup", "password", "auth", "permission", "权限", "角色", "role"],
+    "payment": ["支付", "付款", "交易", "订单", "stripe", "alipay", "wechat", "bill", "invoice", "subscription", "订阅", "缴费"],
+    "data": ["数据", "报表", "统计", "分析", "analytics", "report", "dashboard", "chart", "export", "ETL", "pipeline", "埋点", "指标"],
+    "communication": ["消息", "通知", "推送", "chat", "notification", "email", "短信", "SMS", "webhook", "message", "邮件", "聊天"],
+    "storage": ["存储", "文件", "上传", "upload", "download", "S3", "storage", "blob", "file", "备份", "backup"],
+    "ui": ["页面", "组件", "UI", "UX", "前端", "landing", "dashboard", "form", "table", "菜单", "导航", "nav", "layout", "布局"],
+    "search": ["搜索", "search", "检索", "index", "elasticsearch", "algolia", "推荐", "recommendation"],
+    "deploy": ["部署", "deploy", "CI/CD", "docker", "k8s", "kubernetes", "release", "上线", "运维", "ops"],
+}
+
+DOMAIN_PATTERN_STORE_KEY = "learning:domain_patterns"
+
+
+def _classify_domain(title: str, description: str = "") -> str:
+    """Classify a task into a functional domain based on keyword matching."""
+    text = f"{title} {description}".lower()
+    scores: Dict[str, int] = {}
+    for domain, keywords in DOMAIN_KEYWORDS.items():
+        count = sum(1 for kw in keywords if kw.lower() in text)
+        if count > 0:
+            scores[domain] = count
+    if not scores:
+        return "general"
+    return max(scores, key=scores.get)
+
+
+async def capture_domain_signal(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    stage_id: str,
+    role: str = "",
+    signal_type: str,
+    severity: str = "info",
+    reviewer_feedback: Optional[str] = None,
+    task_title: str = "",
+    task_description: str = "",
+) -> None:
+    """Capture a learning signal AND store it in the cross-project domain
+    knowledge store so future tasks in the same domain benefit."""
+    try:
+        domain = _classify_domain(task_title, task_description)
+        domain_key = f"{DOMAIN_PATTERN_STORE_KEY}:{domain}:{stage_id}"
+
+        from ..redis_client import cache_get, cache_set
+        existing = await cache_get(domain_key)
+        patterns: List[Dict[str, Any]] = list(existing) if isinstance(existing, list) else []
+
+        pattern = {
+            "task_id": task_id,
+            "stage_id": stage_id,
+            "role": role,
+            "signal_type": signal_type,
+            "severity": severity,
+            "feedback": (reviewer_feedback or "")[:500],
+            "domain": domain,
+            "recorded_at": datetime.utcnow().isoformat(),
+        }
+        patterns.append(pattern)
+        # Keep last 20 patterns per domain+stage
+        await cache_set(domain_key, patterns[-20:], ttl=86400 * 30)
+
+        logger.debug(
+            "[learning][cross-project] domain=%s stage=%s stored pattern (total=%d)",
+            domain, stage_id, min(len(patterns), 20),
+        )
+    except Exception as e:
+        logger.debug("[learning][cross-project] capture failed: %s", e)
+
+
+async def get_domain_addendum(
+    db: AsyncSession,
+    *,
+    task_title: str,
+    task_description: str = "",
+    stage_id: str,
+) -> Optional[str]:
+    """Retrieve accumulated cross-project knowledge for the same domain+stage.
+
+    Returns a formatted markdown addendum to inject, or None if no patterns
+    exist for this domain yet.
+    """
+    domain = _classify_domain(task_title, task_description)
+    domain_key = f"{DOMAIN_PATTERN_STORE_KEY}:{domain}:{stage_id}"
+
+    try:
+        from ..redis_client import cache_get
+        patterns = await cache_get(domain_key)
+        if not patterns or not isinstance(patterns, list) or not patterns:
+            return None
+
+        # Deduplicate by feedback content
+        seen = set()
+        unique: List[Dict[str, Any]] = []
+        for p in patterns:
+            fb = (p.get("feedback") or "")[:80]
+            if fb and fb not in seen:
+                seen.add(fb)
+                unique.append(p)
+
+        if not unique:
+            return None
+
+        lines = [
+            f"## 该 {domain} 领域的注意事项（来自过往任务复盘）",
+        ]
+        for p in unique[:5]:
+            fb = p.get("feedback", "")
+            sev = p.get("severity", "info")
+            emoji = {"error": "🔴", "warn": "🟡", "info": "🔵"}.get(sev, "⚪")
+            lines.append(f"- {emoji} [{p.get('signal_type', '?')}] {fb[:200]}")
+        lines.append("")
+        lines.append("请针对上述已知问题进行针对性检查，避免历史问题在新任务中重现。")
+
+        return "\n".join(lines)
+    except Exception:
+        return None

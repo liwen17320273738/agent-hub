@@ -28,13 +28,14 @@ const props = defineProps<{
 }>()
 
 const ARTIFACT_MAP: { stageId: string; icon: string; label: string }[] = [
-  { stageId: 'planning',     icon: '📋', label: '需求' },
-  { stageId: 'design',       icon: '🎨', label: 'UI' },
-  { stageId: 'architecture', icon: '🏗', label: '架构' },
-  { stageId: 'development',  icon: '💻', label: '代码' },
-  { stageId: 'testing',      icon: '🧪', label: '测试' },
-  { stageId: 'reviewing',    icon: '✅', label: '验收' },
-  { stageId: 'deployment',   icon: '🚀', label: '运维' },
+  { stageId: 'planning',       icon: '📋', label: '需求' },
+  { stageId: 'design',         icon: '🎨', label: 'UI' },
+  { stageId: 'architecture',   icon: '🏗', label: '架构' },
+  { stageId: 'development',    icon: '💻', label: '代码' },
+  { stageId: 'testing',        icon: '🧪', label: '测试' },
+  { stageId: 'security-review',icon: '🔒', label: '安全' },
+  { stageId: 'reviewing',      icon: '✅', label: '验收' },
+  { stageId: 'deployment',     icon: '🚀', label: '运维' },
 ]
 
 const items = computed(() => {

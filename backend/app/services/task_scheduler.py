@@ -594,7 +594,16 @@ class TaskScheduler:
 
         ok = True
         try:
-            await self._with_session(coro_factory, meta["label"], meta)
+            await asyncio.wait_for(
+                self._with_session(coro_factory, meta["label"], meta),
+                timeout=TASK_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            ok = False
+            logger.error(
+                "[scheduler] task %s TIMEOUT after %ds — force-terminated",
+                meta["label"], TASK_TIMEOUT_SECONDS,
+            )
         except Exception as exc:
             ok = False
             logger.exception("[scheduler] task %s crashed: %s", meta["label"], exc)

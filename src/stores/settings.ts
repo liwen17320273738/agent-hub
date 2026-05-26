@@ -4,6 +4,7 @@ import { defaultSettings, type LLMSettings } from '@/services/llm'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { useAuthStore } from '@/stores/auth'
 import { coerceModelForProvider, detectProviderFromApiUrl } from '@/services/modelCatalog'
+import i18n from '@/i18n'
 
 const STORAGE_KEY = 'agent-hub-settings'
 
@@ -58,7 +59,7 @@ function createProfile(name: string, settings: LLMSettings): ModelProfile {
 }
 
 function defaultProfileName(index = 1) {
-  return index === 1 ? '默认模型档案' : `模型档案 ${index}`
+  return index === 1 ? i18n.global.t('settings.defaultProfileName') : i18n.global.t('settings.profileNameIndex', { index })
 }
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -174,7 +175,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function duplicateActiveProfile() {
     const profile = activeProfile.value
     if (!profile) return null
-    const copy = createProfile(`${profile.name} 副本`, { ...profile.settings })
+    const copy = createProfile(`${profile.name}${i18n.global.t('settings.copySuffix')}`, { ...profile.settings })
     profiles.value.push(copy)
     activeProfileId.value = copy.id
     persist()

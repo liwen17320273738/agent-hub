@@ -15,7 +15,7 @@ POST /planner/estimate-cost     — 管线成本估算
 """
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -316,3 +316,83 @@ async def execute_full_pipeline_endpoint(
     )
     await db.commit()
     return result
+
+
+@router.get("/agent-capabilities")
+async def get_agent_capabilities(
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """Compute real agent capability metrics from learning signals and task history.
+
+    Returns per-role stats:
+    - taskCount: number of tasks involving this role
+    - passRate: ratio of approved signal outcomes
+    - rejectRate: ratio of rejected outcomes
+    - avgRetries: average retry count per signal
+    - qualityScore: average quality score (0-1)
+    """
+    from sqlalchemy import select
+    from ..models.learning import LearningSignal
+    from ..models.pipeline import PipelineStage
+
+    # Fetch all learning signals with non-empty role
+    sig_result = await db.execute(
+        select(LearningSignal).where(LearningSignal.role != "")
+    )
+    signals = sig_result.scalars().all()
+
+    # Aggregate per-role in Python (simpler than complex SQL expressions)
+    role_data: Dict[str, Dict[str, Any]] = {}
+    for s in signals:
+        role = s.role or ""
+        if not role:
+            continue
+        entry = role_data.setdefault(role, {
+            "signal_count": 0, "reject_count": 0,
+            "decision_count": 0, "retry_sum": 0,
+            "quality_sum": 0, "quality_count": 0,
+        })
+        entry["signal_count"] += 1
+        entry["retry_sum"] += (s.retry_count or 0)
+        if s.quality_score is not None:
+            entry["quality_sum"] += s.quality_score
+            entry["quality_count"] += 1
+        if s.signal_type == "REJECT":
+            entry["reject_count"] += 1
+            entry["decision_count"] += 1
+        elif s.signal_type == "APPROVE_AFTER_RETRY":
+            entry["decision_count"] += 1
+
+    # Per-role task counts from pipeline_stages table
+    stage_result = await db.execute(
+        select(PipelineStage.task_id, PipelineStage.owner_role, PipelineStage.stage_id)
+    )
+    role_task_counts: Dict[str, set] = {}
+    for row in stage_result.all():
+        role = row.owner_role or row.stage_id or ""
+        if role:
+            role_task_counts.setdefault(role, set()).add(str(row.task_id))
+
+    capabilities = {}
+    for role, d in role_data.items():
+        decision_count = d["decision_count"]
+        reject_count = d["reject_count"]
+        pass_count = decision_count - reject_count
+        pass_rate = pass_count / decision_count if decision_count > 0 else None
+        reject_rate = reject_count / decision_count if decision_count > 0 else None
+        avg_retries = d["retry_sum"] / d["signal_count"] if d["signal_count"] > 0 else 0.0
+        quality = d["quality_sum"] / d["quality_count"] if d["quality_count"] > 0 else None
+        task_count = len(role_task_counts.get(role, set())) if role in role_task_counts else 0
+
+        capabilities[role] = {
+            "role": role,
+            "taskCount": task_count,
+            "signalCount": d["signal_count"],
+            "passRate": round(pass_rate, 3) if pass_rate is not None else None,
+            "rejectRate": round(reject_rate, 3) if reject_rate is not None else None,
+            "avgRetries": round(avg_retries, 2),
+            "qualityScore": round(quality, 3) if quality is not None else None,
+        }
+
+    return {"capabilities": capabilities}

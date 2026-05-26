@@ -76,6 +76,21 @@ class Settings(BaseSettings):
     llm_api_url: str = ""
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
+    # Stronger model for quality gates (separate from default to avoid slow pipeline loops)
+    quality_gate_model: str = ""
+    quality_gate_api_url: str = ""
+    # Comma-separated list of models for multi-model voting in quality gate
+    quality_gate_voting_models: str = ""
+    # Comma-separated list of API URLs (parallel to voting_models)
+    quality_gate_voting_api_url: str = ""
+    # Lightweight model for self-verify content quality filter (cheap, fast)
+    quality_check_model: str = ""
+    quality_check_api_url: str = ""
+    # Agent runtime: timeout (seconds), retry max, backoff delay, tool result truncation
+    agent_runtime_llm_timeout: int = 120
+    agent_runtime_retry_max: int = 2
+    agent_runtime_retry_delay: float = 2.0
+    agent_runtime_tool_result_max: int = 8000
     # Strong local model (reasoning-distilled) for planning/architecture tiers
     local_llm_model_strong: str = ""
     # Comma-separated hostnames allowed for llm_api_url (e.g. localhost,127.0.0.1 for Ollama).

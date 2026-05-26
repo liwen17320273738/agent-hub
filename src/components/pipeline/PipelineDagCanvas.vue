@@ -26,7 +26,7 @@
     <div class="canvas-header">
       <h2 class="section-title">
         <el-icon><Connection /></el-icon>
-        任务编排图
+        {{ $t('PipelineDagCanvas.dagTitle') }}
       </h2>
       <div class="canvas-actions">
         <el-tag

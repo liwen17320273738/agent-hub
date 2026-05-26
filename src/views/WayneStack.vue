@@ -4,7 +4,7 @@
       <div>
         <h1>{{ t('AgentStack.text_1') }}</h1>
         <p class="subtitle">
-          以 Claude Code 为执行中枢、Cursor 为驾驶舱、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
+          以 Claude Code {{ $t('WayneStack.execHub') }}、Cursor {{ $t('WayneStack.cockpit') }}、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
         </p>
       </div>
       <div class="header-badges">

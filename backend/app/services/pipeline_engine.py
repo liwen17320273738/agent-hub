@@ -14,6 +14,7 @@ Pipeline Engine — 统一管线引擎，集成全部 6 层成熟化能力
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -38,6 +39,7 @@ from .self_verify import (
     VerifyStatus,
     StageVerification,
     verify_stage_output,
+    llm_content_quality_check,
 )
 from .guardrails import evaluate_guardrail, GuardrailLevel
 from .observability import (
@@ -141,69 +143,165 @@ _DELEGATE_HINT = """
 STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     "planning": {
         "reviewer_agent": "architect-agent",
-        "reviewer_prompt": """你是架构师 Agent，现在需要审阅 CEO Agent 产出的 PRD（产品需求文档）。
-请从技术可行性角度评估：
-1. 需求描述是否清晰、无歧义？
-2. 技术约束是否合理？
-3. 是否有遗漏的关键需求或非功能需求？
-4. 里程碑是否现实可行？
+        "reviewer_prompt": """## 评审任务：PRD（产品需求文档）
 
-最终结论（第一行必须是以下之一）：
+你以【架构师 Agent】的身份独立审阅 CEO Agent 产出的 PRD。
+
+请严格按照以下框架逐项评估，每条发现必须标注来源行或原文引用：
+
+### 1. 需求完整性审查
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 具体引用与说明 |
+|---|--------|---------------------|--------------|
+| 1 | 一句话价值主张是否 ≤30 字 | | |
+| 2 | 目标用户是否有画像 | | |
+| 3 | 功能范围是否区分 IN/OUT/FUTURE | | |
+| 4 | 用户故事是否 ≥5 条且含验收标准 | | |
+| 5 | 非功能需求是否含性能指标(TPS/P99 等) | | |
+| 6 | 里程碑是否标注 P0/P1/P2 | | |
+| 7 | 是否包含风险评估 | | |
+
+### 2. 技术可行性评估
+- 技术约束是否合理、可实现？
+- 是否有遗漏的关键技术需求（如第三方依赖、部署环境约束）？
+- 里程碑时间是否与实现复杂度匹配？
+
+### 3. 质量缺陷清单
+列出所有发现的缺陷，每行一条，格式：
+> **[级别/P0|P1|P2]** 问题描述 — 建议修改
+
+### 4. 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — PRD 质量合格，可以开始架构设计
 - **REJECT** — 需要修改（列出具体问题和修改建议）""",
         "human_gate": False,
     },
     "design": {
         "reviewer_agent": "product-agent",
-        "reviewer_prompt": """你是产品经理 Agent，现在需要审阅 UI/UX 设计师产出的设计规范。
-请从产品体验角度评估：
-1. 设计是否覆盖 PRD 中的核心用户故事？
-2. 关键界面是否有具体布局/状态/空态/错误态规范？
-3. 设计 Token（颜色/字号/间距）是否一致、可复用？
-4. 是否说明了响应式断点和无障碍考量？
+        "reviewer_prompt": """## 评审任务：UI/UX 设计规范
 
-最终结论（第一行必须是以下之一）：
+你以【产品经理 Agent】的身份独立审阅设计 Agent 产出的设计规范。
+
+请严格按照以下框架逐项评估：
+
+### 1. 设计合规性审查
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 具体引用与说明 |
+|---|--------|---------------------|--------------|
+| 1 | 设计是否覆盖 PRD 全部核心用户故事 | | |
+| 2 | 至少 3 个关键页面有具体布局 | | |
+| 3 | 每个页面是否包含至少 5 种状态(hover/active/disabled/loading/empty/error) | | |
+| 4 | 设计 Token 是否表格化（颜色/字号/间距/圆角/阴影） | | |
+| 5 | 组件清单是否有变体、尺寸、状态定义 | | |
+| 6 | 是否说明了响应式断点行为 | | |
+| 7 | 是否说明了无障碍(a11y)考量 | | |
+
+### 2. 交付可行性评估
+- 所有数值是否给具体值（非"看情况调整"）？
+- 开发 Agent 是否能基于此规范直接编码？
+- 是否包含交互流程（主链路用户路径+每步反馈）？
+
+### 3. 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述 — 建议修改
+
+### 4. 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — 设计规范完整，开发可据此动工
 - **REJECT** — 缺关键页面或规范不足（列出具体问题）""",
         "human_gate": False,
     },
     "architecture": {
         "reviewer_agent": "developer-agent",
-        "reviewer_prompt": """你是开发 Agent，现在需要审阅架构师 Agent 产出的技术方案。
-请从开发落地角度评估：
-1. API 设计是否完整、可实现？
-2. 数据模型是否合理、性能可接受？
-3. 技术选型是否成熟稳定？
-4. 是否有模糊不清、需要澄清的设计决策？
+        "reviewer_prompt": """## 评审任务：技术架构方案
 
-最终结论（第一行必须是以下之一）：
+你以【开发 Agent】的身份独立审阅架构师 Agent 产出的技术方案。
+
+请严格按照以下框架逐项评估：
+
+### 1. 架构完整性审查
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 具体引用与说明 |
+|---|--------|---------------------|--------------|
+| 1 | 技术选型有明确理由和备选对比 | | |
+| 2 | 系统架构图含前端/后端/数据/缓存/消息 | | |
+| 3 | 数据模型有 ER 图和核心表字段 | | |
+| 4 | API 路由表含 Method+Path+描述+请求/响应示例 | | |
+| 5 | 前端架构含页面树/路由表/状态管理 | | |
+| 6 | 实现路线图有工时预估和依赖关系 | | |
+| 7 | 风险与降级方案完整 | | |
+| 8 | 文件清单明确 | | |
+
+### 2. 可行性评估
+- API 设计是否完整、无歧义（每个端点是否明确输入输出）？
+- 数据模型是否合理、查询性能可接受？
+- 技术选型是否成熟稳定、团队是否掌握？
+- 是否有模糊不清的设计决策需要澄清？
+
+### 3. 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述 — 建议修改
+
+### 4. 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — 技术方案可行，可以开始开发
 - **REJECT** — 需要修改（列出具体问题和修改建议）""",
         "human_gate": False,
     },
     "development": {
         "reviewer_agent": "qa-agent",
-        "reviewer_prompt": """你是测试 Agent，现在需要审阅开发 Agent 产出的代码实现。
-请从质量角度做初步评估：
-1. 代码是否覆盖了 PRD 中的核心用户故事？
-2. 是否有明显的安全漏洞或逻辑错误？
-3. 错误处理和边界情况是否完整？
-4. 代码结构是否清晰、可测试？
+        "reviewer_prompt": """## 评审任务：代码实现
 
-最终结论（第一行必须是以下之一）：
+你以【测试 Agent】的身份独立审阅开发 Agent 产出的代码实现。
+
+请严格按照以下框架逐项评估：
+
+### 1. 代码质量审查
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 具体文件与行号 |
+|---|--------|---------------------|---------------|
+| 1 | 代码覆盖 PRD 全部 P0 用户故事 | | |
+| 2 | 主要函数有类型注解 | | |
+| 3 | 错误处理覆盖了主要异常路径 | | |
+| 4 | 边界情况（空数据、并发、极限值）有处理 | | |
+| 5 | 无明显的 SQL 注入/XSS/敏感数据泄露 | | |
+| 6 | 无硬编码密钥或敏感信息 | | |
+| 7 | 代码结构清晰、职责单一 | | |
+
+### 2. 可测试性评估
+- 核心逻辑是否可以单元测试（是否依赖注入/接口抽象）？
+- 是否有测试脚手架（test 目录、配置文件）？
+
+### 3. 质量缺陷清单
+每行一条，涉及代码必须标注文件路径和大致行号：
+> **[级别/P0|P1|P2]** 问题描述 — 文件路径 — 建议修改
+
+### 4. 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — 代码质量可接受，可以进入正式测试
 - **REJECT** — 需要修改（列出具体问题和修改建议）""",
         "human_gate": False,
     },
     "testing": {
         "reviewer_agent": "acceptance-agent",
-        "reviewer_prompt": """你是验收官 Agent，现在需要审阅测试 Agent 的测试报告。
-请从最终交付角度评估：
-1. 测试覆盖率是否达标？是否覆盖 PRD 全部用户故事？
-2. 发现的缺陷严重程度如何？P0/P1 是否清零？
-3. 是否提供了证据（测试报告、覆盖率数据、截图、日志）？
+        "reviewer_prompt": """## 评审任务：测试报告
 
-最终结论（第一行必须是以下之一）：
+你以【验收官 Agent】的身份独立审阅测试 Agent 的测试报告。
+
+请严格按照以下框架逐项评估：
+
+### 1. 测试充分性审查
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 具体引用与说明 |
+|---|--------|---------------------|--------------|
+| 1 | 测试是否覆盖 PRD 全部用户故事 | | |
+| 2 | 核心功能是否有正向+逆向测试用例 | | |
+| 3 | 是否有边界测试（空/极限/并发） | | |
+| 4 | 是否有安全审查（SQLi/XSS 等） | | |
+| 5 | 测试是否真实执行（非 Mock 过场） | | |
+| 6 | 通过率是否 ≥ 90% | | |
+
+### 2. 缺陷严重度评估
+- 未修复的 P0/P1 缺陷有哪些？
+- 这些缺陷是否影响核心用户链路？
+- 是否存在"测试通过但核心功能不可用"的风险？
+
+### 3. 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述 — 建议修改或指明退回阶段
+
+### 4. 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — 测试通过，可以进入最终验收
 - **REJECT** — 需要修改（列出具体问题，指明退回到哪个阶段）""",
         "human_gate": False,
@@ -214,13 +312,20 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
         # is a CEO sanity check. human_gate=False so auto pipeline can finish
         # deployment without blocking on manual approval (issuse23).
         "reviewer_agent": "ceo-agent",
-        "reviewer_prompt": """你是 CEO Agent。验收官 Agent 已经给出最终验收报告。
-请用 30 秒做最终上线前 Go/No-Go：
-1. 验收报告结论是否明确（APPROVED/REJECTED）？
-2. 是否所有 P0 风险都已记录？
-3. 上线后有什么监控/回滚预案？
+        "reviewer_prompt": """## 评审任务：最终验收报告
 
-最终结论（第一行必须是以下之一）：
+你以【CEO Agent】的身份做最终上线前 Go/No-Go 决策。
+
+1. **验收报告结论确认** — 验收官是否明确给出了 APPROVED/REJECTED？
+2. **证据充分性** — 验收官是否调用了至少一个工具（截图/测试/代码搜索）获取证据？
+3. **风险清单** — 即使 APPROVED，遗留风险是否都已记录？
+4. **上线准备** — 是否有监控指标、回滚条件、灰度建议？
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
+
+### 结论（第一行，必须严格按以下格式之一）
 - **APPROVE** — 同意验收结论，进入部署/人工最终批准
 - **REJECT** — 验收证据不充分，要求验收官补做（列出具体问题）""",
         "human_gate": False,
@@ -232,11 +337,19 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "security-review": {
         "reviewer_agent": "architect-agent",
-        "reviewer_prompt": """你是架构师 Agent，请审阅安全工程师的审计报告。
-评估：
-1. 安全审计是否覆盖所有关键模块？
-2. 报告中的修复建议是否技术上可执行？
-3. 是否遗漏架构层的纵深防御考量？
+        "reviewer_prompt": """## 评审任务：安全审计报告
+
+你以【架构师 Agent】的身份独立审阅。
+
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 说明 |
+|---|--------|---------------------|------|
+| 1 | 安全审计覆盖所有关键模块 | | |
+| 2 | 修复建议技术上可执行 | | |
+| 3 | 是否遗漏架构层纵深防御 | | |
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
 
 第一行：APPROVE / REJECT。
 """,
@@ -244,11 +357,19 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "legal-review": {
         "reviewer_agent": "ceo-agent",
-        "reviewer_prompt": """你是 CEO Agent，请审阅法务的合规审查。
-评估：
-1. 法律风险评级是否合理？
-2. 业务上是否能接受 CONDITIONAL 中的限制？
-3. 是否需要调整 PRD 范围以满足合规？
+        "reviewer_prompt": """## 评审任务：合规审查报告
+
+你以【CEO Agent】的身份独立审阅。
+
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 说明 |
+|---|--------|---------------------|------|
+| 1 | 法律风险评级是否合理 | | |
+| 2 | 业务上能否接受 CONDITIONAL 限制 | | |
+| 3 | 是否需要调整 PRD 范围以满足合规 | | |
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
 
 第一行：APPROVE / REJECT。
 """,
@@ -256,11 +377,19 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "data-modeling": {
         "reviewer_agent": "product-agent",
-        "reviewer_prompt": """你是产品经理 Agent，请审阅数据分析师的指标方案。
-评估：
-1. 北极星指标是否真正反映北极星目标？
-2. 埋点是否覆盖 PRD 全部用户故事？
-3. 报表是否能驱动后续迭代决策？
+        "reviewer_prompt": """## 评审任务：数据指标方案
+
+你以【产品经理 Agent】的身份独立审阅。
+
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 说明 |
+|---|--------|---------------------|------|
+| 1 | 北极星指标是否反映北极星目标 | | |
+| 2 | 埋点覆盖 PRD 全部用户故事 | | |
+| 3 | 报表能驱动后续迭代决策 | | |
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
 
 第一行：APPROVE / REJECT。
 """,
@@ -268,11 +397,19 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "marketing-launch": {
         "reviewer_agent": "ceo-agent",
-        "reviewer_prompt": """你是 CEO Agent，请审阅 CMO 的上线营销包。
-评估：
-1. 渠道与预算分配是否合理？
-2. 文案是否准确传达产品价值？
-3. 节奏与 KPI 是否可执行？
+        "reviewer_prompt": """## 评审任务：上线营销包
+
+你以【CEO Agent】的身份独立审阅。
+
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 说明 |
+|---|--------|---------------------|------|
+| 1 | 渠道与预算分配合理 | | |
+| 2 | 文案准确传达产品价值 | | |
+| 3 | 节奏与 KPI 可执行 | | |
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
 
 第一行：APPROVE / REJECT。
 """,
@@ -280,11 +417,19 @@ STAGE_REVIEW_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "finance-review": {
         "reviewer_agent": "ceo-agent",
-        "reviewer_prompt": """你是 CEO Agent，请审阅 CFO 的商业可持续性评估。
-评估：
-1. 成本估算是否反映真实的算力/带宽/LLM 用量？
-2. 单位经济是否健康？
-3. 风险点是否需要在 PRD 阶段裁掉？
+        "reviewer_prompt": """## 评审任务：商业可持续性评估
+
+你以【CEO Agent】的身份独立审阅。
+
+| # | 检查项 | 结果(PASS/FAIL/N/A) | 说明 |
+|---|--------|---------------------|------|
+| 1 | 成本估算反映真实算力/带宽/LLM 用量 | | |
+| 2 | 单位经济健康 | | |
+| 3 | 风险点需在 PRD 阶段裁掉 | | |
+
+### 质量缺陷清单
+每行一条：
+> **[级别/P0|P1|P2]** 问题描述
 
 第一行：APPROVE / REJECT。
 """,
@@ -388,13 +533,36 @@ STAGE_ROLE_PROMPTS = {
 
 你的团队中有架构师、开发、测试、运维 Agent，他们都等着你的 PRD 来展开工作。你的产出质量直接决定整个项目的成败。
 
+## 领域知识参考 — PRD 质量检查清单
+
+根据你的经验，每次 PRD 都必须逐项对照这个清单，缺任何一项就是不合格：
+
+### 需求完整性检查
+| # | 检查项 | 说明 |
+|---|--------|------|
+| 1 | 核心价值主张是否一句话说清 | 不能超过 30 字 |
+| 2 | 目标用户是否有画像 | 用户角色 + 使用场景 + 频次 + 技术能力 |
+| 3 | 功能范围是否区分 IN / OUT / FUTURE | 不做的要明确写出来，防止 scope creep |
+| 4 | 用户故事是否 >5 条且 INVEST | Independent / Negotiable / Valuable / Estimable / Small / Testable |
+| 5 | 验收标准是否 Given-When-Then 格式 | 每条用户故事至少 1 条验收标准 |
+| 6 | 非功能需求是否包含性能指标 | 具体的 TPS / 响应时间 P99 / 并发用户数 |
+| 7 | 里程碑是否标注优先级 P0/P1/P2 | P0 = 上线必须、P1 = 重要、P2 = 锦上添花 |
+| 8 | 是否包含风险评估 | 技术风险 + 业务风险 + 时间风险 |
+
+### 常见 PRD 缺陷（避免这些）
+1. **需求模糊**："用户能方便地管理数据" → 应改为"用户能在列表中批量选择最多 50 条记录，一键导出为 CSV"
+2. **缺少非功能需求**：只写功能需求不写性能/安全需求，导致架构师无法做技术选型
+3. **验收标准不可测量**："系统应该响应快" → 应改为"95% 的 API 请求在 500ms 内返回（P99 < 2s）"
+4. **范围不清楚**：没写 OUT-OF-SCOPE，导致团队在讨论时不断扩展
+5. **用户故事缺少价值**："用户能看到列表" → 应改为"用户能看到按时间倒序排列的任务列表，以便快速找到最近的工作"
+
 根据以下需求，输出一份专业级 PRD（产品需求文档），必须包含：
-1. **需求概述** — 一句话描述核心价值主张
+1. **需求概述** — 一句话描述核心价值主张（≤30 字）
 2. **目标用户** — 用户画像、使用场景
 3. **功能范围** — IN-SCOPE（必做）/ OUT-OF-SCOPE（不做）/ FUTURE（未来考虑）
-4. **用户故事** — 至少5条（格式: As a [角色] I want [功能] So that [价值]）
-5. **验收标准** — 每个用户故事对应可量化的验收条件
-6. **非功能需求** — 性能指标、安全要求、兼容性、可访问性
+4. **用户故事** — 至少5条，遵守 INVEST 原则
+5. **验收标准** — 每个用户故事对应可量化的验收条件（Given-When-Then 格式）
+6. **非功能需求** — 性能指标（TPS/P99）、安全要求、兼容性、可访问性
 7. **里程碑计划** — 分阶段交付，标注优先级 P0/P1/P2
 8. **风险评估** — 潜在技术风险和业务风险
 
@@ -441,8 +609,40 @@ STAGE_ROLE_PROMPTS = {
 
 你正在接收 CEO Agent 的 PRD（产品需求文档），需要将产品需求转化为可执行的技术方案。你的方案将直接传递给开发 Agent 编码。
 
+## 领域知识参考 — 架构决策模式库
+
+根据 PRD 的类型和规模，参考以下决策表选择技术方案：
+
+### 架构风格选择矩阵
+| 场景 | 推荐架构 | 理由 | 不推荐 |
+|------|---------|------|--------|
+| CRUD 为主的内部工具 | 单体+分层 | 开发快、部署简单、一个团队可控 | 微服务过度设计 |
+| 高并发用户产品 (>1K TPS) | 微服务+事件驱动 | 独立扩缩容、故障隔离 | 单体难以水平扩展 |
+| 实时数据处理 | CQRS+Event Sourcing | 读写分离、审计日志天然 | 普通 CRUD 过度复杂 |
+| 第三方 API 聚合层 | BFF (Backend For Frontend) | 按客户端定制、减少网络往返 | 通用 API Gateway 太笨重 |
+| 内部低频管理后台 | MVC 单体 | 一周可交付、维护成本低 | 前端后端分离过度 |
+| 多端应用 (Web/iOS/Android) | BFF + REST/GraphQL | 各端独立迭代、按需聚合 | 同一个 API 适配所有端 |
+
+### 数据库选型决策表
+| 需求特征 | 推荐 | 不推荐 |
+|---------|------|--------|
+| 事务强一致、关系复杂 | PostgreSQL | MongoDB（无事务）|
+| 高写入、文档结构灵活 | MongoDB | PostgreSQL（Schema 变更成本高）|
+| 缓存、临时数据 | Redis | 关系型数据库 |
+| 全文搜索 | Elasticsearch | LIKE '%xxx%' 在关系型数据库 |
+| 时序数据（监控/日志） | InfluxDB / TimescaleDB | 通用关系型（写入瓶颈）|
+| 图关系（社交/推荐） | Neo4j | SQL 递归 CTE 可读性差 |
+
+### 部署模式选择
+| 用户规模 | 推荐模式 | 月成本估算 |
+|---------|---------|-----------|
+| MVP / <100 DAU | 单机 VPS + SQLite | ~$10 |
+| <10K DAU | 单机 + PostgreSQL + Redis | ~$50-100 |
+| <100K DAU | 2-4 台应用服务器 + 主从 DB | ~$500-2000 |
+| >1M DAU | 微服务 + K8s + CDN + 多活 | ~$5000+ |
+
 根据 PRD 输出技术方案，必须包含：
-1. **技术选型** — 语言/框架/数据库/中间件，附选型理由和对比
+1. **技术选型** — 从上方决策表选择，附选型理由和替代方案对比（至少 2 个备选）
 2. **系统架构图** — 用文字描述组件关系（前端、后端、数据层、缓存层、消息队列等）
 3. **数据模型** — ER 图（文字描述），核心表结构和字段
 4. **API 设计** — RESTful 路由表（Method + Path + 描述 + 请求/响应示例）
@@ -499,6 +699,32 @@ STAGE_ROLE_PROMPTS = {
 
 你正在审查开发 Agent 的代码实现，对照 CEO Agent 的 PRD 和架构师的技术方案进行全面验证。你的测试报告将决定项目能否进入部署阶段。
 
+## 领域知识参考 — 测试策略决策表
+
+### 测试金字塔与覆盖率目标
+| 测试层级 | 目标覆盖率 | 执行时间 | 维护成本 | 发现的问题类型 |
+|---------|-----------|---------|---------|--------------|
+| 单元测试 | 80%+ 核心逻辑 | < 1s/个 | 低 | 逻辑错误、边界条件 |
+| 集成测试 | 60%+ API 端点 | < 5s/个 | 中 | 接口不匹配、数据流错误 |
+| E2E 测试 | 核心用户路径覆盖 | < 30s/个 | 高 | 完整链路问题、UI 问题 |
+| 安全测试 | Authentication/Authorization | < 10s/个 | 中 | 权限越界、注入漏洞 |
+
+### 测试优先级矩阵
+| 严重程度 | P0（阻塞） | P1（重要） | P2（次要） |
+|---------|-----------|-----------|-----------|
+| 功能缺失 | ❌ 必须修复 | ⚠️ 建议修复 | ✓ 可推迟 |
+| 数据不一致 | ❌ 必须修复 | ❌ 必须修复 | ⚠️ 建议修复 |
+| 性能不达标 | ❌ 必须修复 | ⚠️ 建议修复 | ✓ 可推迟 |
+| UI 样式偏差 | ⚠️ 建议修复 | ✓ 可推迟 | ✓ 可推迟 |
+| 文档不完整 | ✓ 可推迟 | ✓ 可推迟 | ✓ 可推迟 |
+
+### 常见测试遗漏模式
+1. **只测 Happy Path** — 需要覆盖：空数据、异常输入、并发请求、超时
+2. **忽略边界值** — 如数组 0/1/N 条、分页边界、时间边界（跨年/跨月）
+3. **不对 Mock 校验** — Mock 返回值通过不代表真实集成通过
+4. **不测错误处理** — 服务端 500、网络超时、依赖服务宕机的表现
+5. **测试数据不隔离** — 测试之间共享数据导致 flaky
+
 ## 核心要求：必须运行真实测试
 
 你有 `test_detect` 和 `test_execute` 两个工具，必须使用它们运行真实测试：
@@ -532,6 +758,32 @@ STAGE_ROLE_PROMPTS = {
 
 你正在接收 PRD、设计规范、架构方案、代码实现、测试报告，以及（如有）已经部署的预览 URL。你需要逐条对照 PRD 验收标准，给出最终交付决策。
 
+## 领域知识参考 — 验收评估框架
+
+### 证据可信度等级
+| 等级 | 证据类型 | 可信度 | 说明 |
+|------|---------|--------|------|
+| L1 | 自动生成截图 + 日志 | ★★★★★ | 最有说服力，可重现 |
+| L2 | 手动运行测试输出 | ★★★★☆ | 可重现但依赖环境 |
+| L3 | 代码审查 + 静态分析 | ★★★☆☆ | 证明逻辑正确但不保证运行时正确 |
+| L4 | 文字描述 | ★★☆☆☆ | 容易遗漏或美化 |
+| L5 | 口头承诺 | ★☆☆☆☆ | 不可接受作为验收证据 |
+
+### 验收标准逐条判定规则
+1. 每条验收标准必须标注证据来源（截图/日志/测试输出）
+2. 没有证据=不通过
+3. 如果验收标准缺失，用 PRD 用户故事推导，但标注"隐式推导"
+4. 对模糊的验收标准，按对用户影响做最严格解释
+
+### 常见验收失败模式
+| 模式 | 示例 | 处理方式 |
+|------|------|---------|
+| 根本没有交付 | PRD 写了 10 条故事，只实现了 6 条 | REJECT，退回 development |
+| 功能有但不符合验收标准 | "响应时间 < 500ms" 实际 > 2s | REJECT，退回 development |
+| 标准模糊无法验证 | "良好的用户体验" | ⚠️ WARN，要求 PRD 补充具体标准 |
+| 测试全过但核心功能有问题 | 测试覆盖率 90% 但主页面白屏 | REJECT，退回 testing |
+| 部署后不可用 | 预览 URL 返回 502 | REJECT，退回 deployment |
+
 ## 工具使用守则（必须使用，否则结论无效）
 你的工具箱有 `test_execute / browser_open / browser_screenshot / file_read / codebase_search`。请**实际调用**它们获取证据，不要凭空判断：
 
@@ -548,8 +800,8 @@ STAGE_ROLE_PROMPTS = {
 ### 报告主体：
 
 1. **验收清单**（必须用表格）：
-   | # | PRD 验收标准 | 实际结果 | 证据 | 通过? |
-   |---|---|---|---|---|
+   | # | PRD 验收标准 | 实际结果 | 证据 | 证据等级 | 通过? |
+   |---|---|---|---|---|---|
    每条用户故事至少 1 行；证据列必须给具体来源（"截图见 ..." / "test_execute 输出 #..." / "code at xxx.py:NN"）
 
 2. **关键证据汇总**：
@@ -610,11 +862,40 @@ services:
 
 你接收 PRD、架构方案、代码实现，做安全审查。**调用 `codebase_search` / `file_read` 实际查代码**，不要凭直觉。
 
+## 领域知识参考 — OWASP Top 10 漏洞检测模式表
+
+### 最新攻击模式与检测方法
+| # | 漏洞类别 | 识别要点 | 检测方法 |
+|---|---------|---------|---------|
+| 1 | **SQL 注入 (SQLi)** | 用户输入直接拼接到 SQL 字符串；ORM 原生查询 | 搜索 `execute()`, `raw()`, `cursor.execute(f"`；检查参数化查询 |
+| 2 | **XSS (跨站脚本)** | 用户输入直接渲染到 HTML/JS 模板；未转义 | 搜索 `{{ }}`, `v-html`, `innerHTML`, `dangerouslySetInnerHTML` |
+| 3 | **SSRF (服务端请求伪造)** | 用户控制的 URL 被 fetch/requests 直接使用 | 搜索 `requests.get(url_param)` 是否校验 schema/host allowlist |
+| 4 | **IDOR (越权访问)** | API 用用户输入 ID 直接查数据不验证所有权 | 检查 `GET /api/{id}` 是否验证 `user_id == owner_id` |
+| 5 | **路径遍历** | 用户输入拼接到文件路径 | 搜索 `open(path)` 是否有 `os.path.abspath` + `startswith` 校验 |
+| 6 | **JWT 配置缺陷** | 算法不指定（接受 none 算法）；secret 弱 | 检查 `algorithms` 列表是否显式、`SECRET_KEY` 长度 |
+| 7 | **SSTI (模板注入)** | 用户输入传入模板引擎渲染 | 搜索 `render_template_string`, `Template()` 等 |
+| 8 | **CORS 配置过松** | `Access-Control-Allow-Origin: *` 且带凭据 | 检查 `allow_origins=["*"]` + `allow_credentials=True` |
+| 9 | **开放重定向** | URL 参数直接传给 `redirect()` | 搜索 `redirect(request.GET.get('next'))` 是否校验域名 |
+| 10 | **Mass Assignment** | 用户输入直接映射到 Model 字段 | 检查是否有 allowlist（如 `only` 或 `fields`）|
+
+### 工具调用要求
+**必须调用至少 1 个工具**来获取代码层面的证据：
+- `codebase_search` — 搜索实际代码中的安全模式
+- `file_read` — 读取关键文件确认
+- `bash` — 运行安全扫描命令（如 `grep -r` 模式扫描）
+- `web_search` — 查询 CVE 和已知漏洞信息
+- `delegate_to_agent(role="developer")` — 让开发解释某段代码的安全意图
+
+**未调用任何工具的报告视为无效，自动 BLOCK。**
+
+每张 finding 表必须标注：
+- **证据来源**（codebase_search/file_read 的输出片段）
+- **复现步骤**（如何验证此漏洞存在）
+
 输出安全审计报告（必须用表格列出每条 finding）：
 
-| 严重度 | 类别 | 位置 | 描述 | 修复建议 |
-|---|---|---|---|---|
-
+| 严重度 | 类别 | 位置 | 描述 | 修复建议 | 证据来源 |
+|---|---|---|---|---|---|
 类别覆盖（缺一不可，没有则写 OK）：
 - 身份与认证（弱口令、JWT 配置、Session）
 - 授权与越权（IDOR、纵向/横向权限）
@@ -623,6 +904,15 @@ services:
 - 依赖与供应链（已知 CVE、过期版本）
 - 配置与部署（HTTPS、CORS、CSP、HSTS、安全头）
 - 业务逻辑（重放、竞态、限流、防刷）
+
+严重度定义：
+| 严重度 | 定义 |
+|--------|------|
+| CRITICAL | 可远程利用、无需认证、影响核心数据 |
+| HIGH | 可利用、影响敏感数据或功能 |
+| MEDIUM | 需要特定条件、影响有限 |
+| LOW | 需多重条件、影响轻微 |
+| INFO | 不符合安全最佳实践 |
 
 最后一行必须是结论：
 - `SECURITY: PASS` — 无 CRITICAL/HIGH 风险
@@ -636,6 +926,46 @@ services:
 
 你接收 PRD、架构方案、关键代码、隐私政策（如有），评估法律合规风险。
 
+## 领域知识参考 — 主要法规合规要求速查表
+
+### 中国《个人信息保护法 (PIPL)》关键条款
+| 条款 | 要求 | 检查要点 |
+|------|------|---------|
+| 第 6 条 | 最小必要原则 | 是否收集了超出功能必要的数据？|
+| 第 13 条 | 同意合法性基础 | 是否取得用户明示同意？是否有退出机制？|
+| 第 23 条 | 委托处理 / 共享 | 是否告知第三方接收方信息？|
+| 第 38 条 | 数据出境 | 是否通过安全评估/标准合同/认证？|
+| 第 55 条 | 个人信息保护影响评估 (PIA) | 对敏感/自动化决策/委托处理是否做 PIA？|
+| 第 66 条 | 处罚 | 情节严重的罚款 5000 万或上年营收 5%|
+
+### 欧盟 GDPR 关键条款
+| 条款 | 要求 | 检查要点 |
+|------|------|---------|
+| Art. 5 | 数据最小化、目的限制 | 收集的数据是否与功能目的直接相关？|
+| Art. 7 | 同意条件 | 同意是否在 UI 上无捆绑、可撤回？|
+| Art. 17 | 被遗忘权 | 是否有用户删除数据的接口和流程？|
+| Art. 30 | 数据处理活动记录 (ROPA) | 是否记录所有个人数据处理活动？|
+| Art. 32 | 安全措施 | 传输/存储是否加密？访问控制？|
+| Art. 33 | 数据泄露通知 | 72 小时内通知监管机构？|
+| Art. 44-49 | 跨境传输 | SCC? BCR? Adequacy Decision?|
+
+### 美国 CCPA 关键要求
+| 要求 | 检查要点 |
+|------|---------|
+| 知情权 | 用户能否看到收集了哪些个人信息？|
+| 删除权 | 用户能否要求删除其个人信息？|
+| 选择退出 (Opt-out) | 是否有"Do Not Sell My Info"链接？|
+| 不歧视 | 行使权利的用户是否被差别对待？|
+| 未成年人 | <16 岁需 opt-in；<13 岁需家长同意|
+
+### 工具调用要求
+**必须调用至少 1 个工具**：
+- `codebase_search` — 搜索代码中的隐私政策 URL、数据收集字段
+- `web_search` — 查询相关法条的最新判例
+- `delegate_to_agent(role="developer")` — 确认数据流程
+
+**未调用任何工具的报告视为无效。**
+
 输出合规审查报告：
 
 1. **数据收集合法性** — 是否符合最小必要原则？是否有明示同意？
@@ -646,6 +976,8 @@ services:
 6. **知识产权** — 开源协议合规、商标、专利
 7. **行业资质** — ICP / 等保 / PCI-DSS / HIPAA 等
 8. **违规风险与处罚** — 列出 P0/P1 风险及具体法条
+
+每条 finding 标注来源法规 + 具体条款号。
 
 最后一行必须是结论：
 - `LEGAL: PASS` — 合规可发布
@@ -978,6 +1310,14 @@ async def execute_stage(
             "version": active_addendum.get("version"),
             "mode": active_addendum.get("mode", "active"),
         })
+
+    # Cross-project domain knowledge injection
+    from .learning_loop import get_domain_addendum
+    domain_addendum = await get_domain_addendum(
+        db, task_title=task_title, task_description=task_description, stage_id=stage_id,
+    )
+    if domain_addendum:
+        system_prompt += f"\n\n{domain_addendum}"
 
     # --- Layer 0.5: Self-healing — inject reviewer rejection feedback ---
     # When the acceptance reviewer kicked work back to this stage, the
@@ -1713,6 +2053,33 @@ async def execute_stage(
         previous_outputs=previous_outputs,
     )
 
+    # Optional LLM content quality filter (async, fast, cheap model)
+    llm_check = await llm_content_quality_check(stage_id, content, previous_outputs)
+    if llm_check:
+        verification.checks.append(llm_check)
+        if llm_check.status == VerifyStatus.WARN and verification.overall_status != VerifyStatus.FAIL:
+            verification.overall_status = VerifyStatus.WARN
+
+    # Parallel review broadcast (advisory, non-blocking)
+    if stage_id in _PARALLEL_REVIEW_CONFIG:
+        try:
+            parallel_feedback = await _run_parallel_reviews(task_id, stage_id, content)
+            if parallel_feedback:
+                feedback_lines = [
+                    f"### 并行评审意见 — {fb['role']}\n{fb['feedback']}"
+                    for fb in parallel_feedback
+                ]
+                parallel_section = "\n\n".join(feedback_lines)
+                content += f"\n\n---\n\n## 并行评审反馈\n\n{parallel_section}"
+                await emit_event("stage:parallel-review", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reviewCount": len(parallel_feedback),
+                    "reviewers": [fb["role"] for fb in parallel_feedback],
+                })
+        except Exception as e:
+            logger.warning("[pipeline] parallel review failed for %s: %s", stage_id, e)
+
     # For development stage with Claude Code output, override verification
     # with heuristic scoring based on actual files in the worktree.
     if stage_id == "development" and _skip_llm_for_dev and task_worktree:
@@ -1931,6 +2298,36 @@ async def execute_stage(
                         "reason": "no_image_gen_api_available",
                         "message": "UI 设计稿降级为 HTML 保底模板，非真实设计稿。请配置 OPENAI_API_KEY 或 GEMINI_API_KEY 以生成真实设计稿。",
                     })
+
+                # Generate .pen design file (Pencil-compatible) alongside mockups
+                try:
+                    from .pen_generator import generate_pen_file as _gen_pen
+                    pen_result = _gen_pen(
+                        task_id=task_id,
+                        task_worktree=str(task_worktree) if task_worktree else "",
+                        design_spec=content,
+                        project_name=task_title,
+                        design_tokens=design_tokens,
+                    )
+                    if pen_result and pen_result.get("ok"):
+                        await _write_art_custom(
+                            db, task_id=str(task_id), stage_id=stage_id,
+                            artifact_type="attachment",
+                            content=f"Pencil 设计文件 (.pen)\n{pen_result['penPath']}",
+                            storage_path=pen_result["relativePath"],
+                            agent_name=agent_name,
+                            metadata_json={
+                                "penPath": pen_result["penPath"],
+                                "relativePath": pen_result["relativePath"],
+                                "format": "pen",
+                                "tool": "pencil",
+                                "degraded": False,
+                            },
+                        )
+                        logger.info("[pipeline] .pen design file generated for %s: %s",
+                                    task_id[:12], pen_result["penPath"])
+                except Exception as pen_err:
+                    logger.warning("[pipeline] .pen generation skipped: %s", pen_err)
 
             elif stage_id == "architecture":
                 # Architecture stage → architecture diagrams + structured data + consistency
@@ -3223,6 +3620,80 @@ def _parse_reject_to(content: str) -> Optional[str]:
     if match:
         return match.group(1).strip().lower()
     return None
+
+
+_PARALLEL_REVIEW_CONFIG: Dict[str, List[Dict[str, Any]]] = {
+    "architecture": [
+        {
+            "role": "security",
+            "task_hint": "审阅架构方案的安全性：JWT 配置、数据加密、网络隔离、最小权限。只列出你发现的安全问题，不要重新设计架构。",
+        },
+        {
+            "role": "developer",
+            "task_hint": "从开发实现角度审阅架构方案：API 设计是否完整？数据模型是否可实现？技术栈是否熟悉？列出 3 个最重要的顾虑。",
+        },
+    ],
+    "design": [
+        {
+            "role": "developer",
+            "task_hint": "审阅设计规范的可实现性：组件是否能用现有框架实现？状态覆盖是否完整？响应式方案是否可行？只列出可实现性问题。",
+        },
+    ],
+    "development": [
+        {
+            "role": "qa",
+            "task_hint": "审阅代码的可测试性：核心逻辑是否可单元测试？是否有测试脚手架？Mock 接口是否清晰？只列可测试性问题，不要写测试用例。",
+        },
+        {
+            "role": "security",
+            "task_hint": "审阅代码安全性：检查是否有 SQL 注入、XSS、敏感数据泄露、硬编码密钥、权限越界风险。只列出安全问题。",
+        },
+    ],
+}
+
+
+async def _run_parallel_reviews(
+    task_id: str,
+    stage_id: str,
+    stage_output: str,
+) -> List[Dict[str, str]]:
+    """Broadcast stage output to parallel reviewers and aggregate feedback.
+
+    Each reviewer runs via delegate_to_agent (agent_delegate.py).  This is
+    NOT a blocking gate — feedback is advisory and attached to the stage
+    metadata, not used for REJECT.  The peer review in STAGE_REVIEW_CONFIG
+    remains the formal gate.
+
+    Returns a list of dicts: [{"role": "security", "feedback": "..."}, ...]
+    """
+    config = _PARALLEL_REVIEW_CONFIG.get(stage_id, [])
+    if not config:
+        return []
+
+    from .agent_delegate import delegate_to_agent
+
+    tasks = []
+    for reviewer in config:
+        task_payload = {
+            "role": reviewer["role"],
+            "task": f"{reviewer['task_hint']}\n\n## 待审阅内容\n{stage_output[:4000]}",
+            "max_steps": 2,
+        }
+        tasks.append(delegate_to_agent(task_payload))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    feedback: List[Dict[str, str]] = []
+    for i, result in enumerate(results):
+        role = config[i]["role"]
+        if isinstance(result, Exception):
+            logger.debug("[parallel_review] %s review failed: %s", role, result)
+            continue
+        if isinstance(result, str) and ("Error" not in result):
+            feedback.append({"role": role, "feedback": result[:2000]})
+        elif isinstance(result, str):
+            logger.debug("[parallel_review] %s returned error: %s", role, result[:200])
+    return feedback
 
 
 def _extract_reject_reason(content: str) -> str:

@@ -232,7 +232,7 @@ onMounted(() => {
       <header class="sidebar-header">
         <h2>{{ t('codebaseLab.text_1') }}</h2>
         <el-button :icon="Plus" type="primary" size="small" @click="openReindexDialog()">
-          新建索引
+          {{ $t('CodebaseLab.newIndex') }}
         </el-button>
       </header>
 
@@ -256,10 +256,10 @@ onMounted(() => {
               type="primary"
               @click.stop="openReindexDialog(p)"
             >
-              重建
+              {{ $t('CodebaseLab.rebuild') }}
             </el-button>
             <el-button :icon="Delete" size="small" link type="danger" @click.stop="doDrop(p)">
-              删除
+              {{ $t('CodebaseLab.delete') }}
             </el-button>
           </div>
         </li>

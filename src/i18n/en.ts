@@ -13,6 +13,8 @@ export default {
     logout: "Logout",
     searchPlaceholder: "Search all conversations…",
     searchEmpty: "No matching conversation",
+    darkMode: "Dark",
+    lightMode: "Light",
   },
   dashboard: {
     title: "AI Delivery Platform",
@@ -57,6 +59,8 @@ export default {
       support: "Build a smart support Q&A system backed by the product docs",
       analytics: "Analyze the last 30 days of user behavior data and output growth recommendations",
     },
+  
+    submitted: "Task submitted, AI team is now working...",
   },
   inbox: {
     title: "Inbox",
@@ -74,6 +78,8 @@ export default {
     emptyFailed: "No failed tasks",
     emptyCancelled: "No cancelled tasks",
     offlineMode: "Pipeline backend is unavailable. Inbox only shows real backend tasks; offline demo data is disabled.",
+  
+    queued: "{n} queued",
   },
   taskTable: {
     task: "Task",
@@ -255,6 +261,11 @@ export default {
       policyNote:
         "Listed models use the internal price table; others use fallback × markup. See token usage under Models → usage for relay_openai rows.",
     },
+  
+    modelProviders: "Model Providers",
+    modelTotal: "Total Models",
+    skillsEnabled: "Skills Enabled",
+    skillsTotal: "Total Skills",
   },
   team: {
     title: "Team",
@@ -262,6 +273,14 @@ export default {
     agents: "Agent List",
     categoryCore: "Core",
     categorySupport: "Support",
+  
+    active: "Active",
+    tasks: "Tasks",
+    collaboration: "Collaboration",
+  
+    agentCountActive: "{total} Agents · {active} Active",
+    passRate: "Pass Rate",
+    pipelineStatus: "Pipeline Status",
   },
   workspace: {
     title: "Workspace",
@@ -292,6 +311,8 @@ export default {
     errEmpty: "Please enter email and password",
     errInvalidEmail: "Enter a complete email address (e.g. admin@example.com)",
     errGeneric: "Sign-in failed",
+    noAccountHint: "No account? Contact your admin",
+    contactAdmin: "Enterprise accounts are provisioned by your administrator",
   },
   workflow: {
     title: "Workflow",
@@ -415,6 +436,11 @@ export default {
     search: "Search",
     noData: "No data",
     switchLang: "中文",
+  
+    renderError: "Component render error",
+    retry: "Retry",
+  
+    enabled: "Enabled", disabled: "Disabled",
   },
   notFound: {
     text_1: "Page not found",
@@ -426,10 +452,43 @@ export default {
     text_3: "💡 Tip:",
     text_4: "· Drag to canvas = Add stage",
     text_5: "· Right handle of stage → Left handle = Dependency",
+    clickNode: "· Click node = Config panel",
+  
+    clickNode: "Click node",
+    configPanel: "Config panel",
+  },
+  stages: {
+    planning: "Planning",
+    design: "UI/UX Design",
+    architecture: "Architecture",
+    development: "Development",
+    testing: "Testing",
+    security: "Security Audit",
+    legal: "Legal Compliance",
+    finance: "Financial Review",
+    data: "Data Modeling",
+    marketing: "Growth Marketing",
+    reviewing: "Review & Acceptance",
+    deployment: "Deployment",
+  },
+  roleSwimlane: {
+    pending: "Not Started",
+    done: "Done",
+    active: "In Progress",
+    rejected: "Rejected",
+    failed: "Failed",
+    skipped: "Skipped",
   },
   agentCard: {
     text_1: "Profile",
     text_2: "Start conversation →",
+  
+    tools: "Tools",
+    skills: "Skills",
+    deliverables: "Deliverables",
+  
+    qualityStandards: "Quality Standards",
+    chat: "Chat",
   },
   chatMessage: {
     text_1: "Copy",
@@ -507,8 +566,14 @@ export default {
   taskDocTab: {
     text_1: "Loading...",
     text_2: "This artifact will be automatically produced after the corresponding stage is executed",
+  
+    superseded: "Superseded",
+    notGenerated: "Not yet generated",
+    current: "Current",
   },
   artifactTabs: {
+    runningHintTitle: "Pipeline is running",
+    runningHintBody: "Deliverables appear as each stage completes. Use the execution progress panel above for live status; missing artifacts during execution are expected.",
     supersededBadge: "Sent back",
     tooltipEmpty: "{label}: not generated",
     tooltipSuperseded: "{label}: sent back (v{version})",
@@ -644,6 +709,10 @@ export default {
     text_16: "Expertise in Handling",
     text_17: "Delegated to Other Experts",
     text_18: "Quality Standards",
+  
+    bindSkills: "Bind Skills",
+    availableTools: "Available Tools",
+    startChat: "Start Chat",
   },
   agentsConsole: {
     text_1: "Expert Workspace",
@@ -1107,7 +1176,17 @@ export default {
       connected: "Connected",
     },
   },
+  executionLive: {
+    title: "Execution progress",
+    progress: "{done}/{total} stages complete",
+    viewOverview: "Stage details",
+    viewLog: "Execution log",
+    recentEvents: "Live events",
+    noEventsYet: "Waiting for the first execution event…",
+  },
   pipelineTaskDetail: {
+    runPipeline: "Run Pipeline",
+    runPipelineHint: "Start AI team to complete all deliverables",
     text_1: "7 Days Valid",
     text_2: "30 Days Valid",
     text_3: "Permanent Valid",
@@ -1315,6 +1394,7 @@ export default {
     execBannerGateFail: "Quality gate did not pass: {label}",
     execBannerCurrent: "Current stage: {label}",
     execSubRunBg: "Background run in progress. Switch pages; logs and progress will refresh when you return.",
+    execSubNotStarted: "AI team is preparing, please wait. If no progress for a while, click “Run pipeline” to retry.",
     execSubMaybeBg: "The stage may still be running in the background. If nothing changes, check the live log or re-trigger.",
     execSubDoneDocs: "You can build and download the delivery document below.",
     execSubScrollApproval: "Scroll to the stage card above to approve or reject.",
@@ -1440,6 +1520,16 @@ export default {
     openPreview: "Open Preview",
     deployedScreenshot: "Deployed Screenshot",
     noDeployData: "No deployment data yet",
+  },
+  designTokens: {
+    title: "Design Tokens",
+    badgeApplied: "Applied",
+    applyBtn: "Apply to Page",
+    clearBtn: "Clear",
+    colors: "Colors",
+    typography: "Typography",
+    spacing: "Spacing & Layout",
+    loading: "Loading…",
   },
   deliveryHeader: {
     titleLive: "Live — ready to try",
@@ -1586,6 +1676,10 @@ export default {
     test_prompt: "Hi—please reply in one short sentence to confirm the connection works.",
     user_ok: "Created {email}",
     err_create: "Create failed",
+  
+    copySuffix: " (copy)",
+    defaultProfileName: "Default Profile",
+    profileNameIndex: "Profile {n}",
   },
   sharePage: {
     text_1: "Loading...",
@@ -1710,4 +1804,89 @@ export default {
   chat: {
     elMessage_1: "The session has been updated by another member; it has been synchronized to the latest server version",
   },
+
+  contract: {
+    title: "Clarify Requirements",
+    executeDirect: "Execute Directly",
+    stepGoal: "Business Goal",
+    stepMetrics: "Success Metrics",
+    stepSign: "Sign & Execute",
+    clarifyStep0Desc: "The AI team understands your goal as follows. Confirm or modify it, then click 'Next' to set success metrics.",
+    clarifyStep1Desc: "Set quantifiable success metrics for 30/60/90 day checkpoints. At least 1 metric required.",
+    clarifyStep2Desc: "Here is your delivery contract with the AI team. Signing will start the pipeline.",
+    goalPlaceholder: "Describe your business goal...",
+    metricNamePlaceholder: "Metric name",
+    targetPlaceholder: "Target",
+    sourcePlaceholder: "Source",
+    addMetric: "Add metric",
+    suggestion: "Target",
+    withinDays: "to be reached within",
+    days: "days",
+    businessGoal: "Business Goal",
+    metrics: "Metrics",
+    refundPolicy: "Refund Policy",
+    signing: "Signing contract & starting pipeline...",
+    signAndExecute: "Sign & Execute",
+    executeWithoutContract: "Skip contract, execute directly",
+    signedSuccess: "Contract signed, task started",
+    signError: "Sign failed",
+    submitError: "Submit failed",
+    noTaskId: "Task creation failed",
+    next: "Next",
+    back: "Back",
+    skip: "Skip",
+  
+    fullRefund: "Full Refund",
+    partialRefund: "Partial Refund",
+    noRefund: "No Refund",
+  },
+
+  AgentCard: { qualityStandards: "Quality Standards", chat: "Chat" },
+  AgentStageNode: { selfHealed: "Self-healed", clickView: "Click to view" },
+  StageConfigDrawer: { configStage: "Stage Config", stableId: "Stable backend ID", lowercaseEnglish: "Lowercase English", alphanumeric: "Alphanumeric + hyphens" },ClarifyGateDialog: { partialRefund: "Partial Refund" },
+  ExecutionLogTab: { status: "Status", duration: "Duration", exitCode: "Exit Code", logCount: "Log entries", terminate: "Terminate", searchLog: "Search logs", noData: "No data", execRecords: "Records", enterStage: "Enter", devStage: "Development", stageTime: "Stage", execLog: "execution log", waiting: "Waiting", output: "Output", noMatch: "No match", logLines: "log lines", loadEarlier: "Load earlier", autoScroll: "Auto-scroll", manual: "Manual", running: "Running", completed: "Completed", failed: "Failed", error: "Error", timeout: "Timeout", terminated: "Terminated", terminateSent: "Terminate signal sent", terminateFailed: "Terminate failed" },
+  PipelineDagCanvas: { dagTitle: "Pipeline DAG", autoDowngrade: "Auto-downgrade", fitView: "Fit view", previous: "Previous", next: "Next", selfHealCount: "self-heals", reviewFeedback: "Review feedback", rejectedDraft: "Rejected draft", truncated: "Truncated", latestOutput: "Latest output", from: "From", openInPanel: "Open in panel" },
+  QualityGateConfigDrawer: { title: "Quality Gate Thresholds" },
+  AgentsConsole: { summon: "Summon", skipPipeline: "Skip pipeline", streaming: "Streaming", toolsAvailable: "tools available", blocking: "Blocking", validate: "Validate" },
+  CodebaseLab: { newIndex: "New Index", rebuild: "Rebuild", delete: "Delete" },
+  InsightsDigest: { compareWindows: "Compare windows", passRate: "Pass Rate", avgScore: "Avg Score", latency: "Latency", failRate: "Failure Rate", autoList: "Auto-list", degrading: "Degrading", recalculate: "Recalculate", optimizePrompt: "Optimize prompt", applyPrompt: "Apply prompt" },
+  McpServers: { externalTools: "External tools", fileSystem: "File System", selfHosted: "Self-hosted", via: "via", protocol: "protocol", afterMount: "After mount", pipelineAvailable: "Pipeline available", bind: "Bind", toolCount: "tools", refreshTools: "Refresh tools", debugTools: "Debug tools", autoRetrieve: "Auto-retrieve", address: "Address", rolePlaceholder: "Role placeholder", globalPreset: "Global preset", fillBelow: "Fill below", dropdown: "Dropdown", directInput: "Direct input", officialRemote: "Official remote", backendProxy: "Backend proxy", sendTo: "Send to", browserRequest: "Browser request", loginHeader: "Login header", dualAuth: "Dual auth", noToken: "No token", empty: "Empty", probeResult: "Probe result" },
+  ModelLab: { refScore: "Reference Score", samePromptLatency: "Latency comparison", localMode: "Local mode", enterpriseGateway: "Enterprise gateway" },
+  PlanInbox: { pendingDesc: "Pending plans", approveCreates: "Approve to create", task: "Task", user: "User", start: "Start", equivalent: "Equivalent", nowSupports: "Now supports", planFirst: "Plan first", planDetail: "Plan details", finalAccept: "Final acceptance", or: "or", autoDeploy: "Auto deploy", changed: "Changed", rounds: "rounds", submittedAt: "Submitted", modify: "Modify", cancel: "Cancel", sourceMsg: "Source", execPlan: "Execute plan", estimate: "Estimate", minutes: "min", confidence: "Confidence", deploy: "Deploy" },
+  WayneConsole: { clickStageCard: "Click stage card", autoRoute: "Auto-route", autoPrompt: "Auto-fill prompts", recommended: "Recommended" },
+  WayneStack: { execHub: "Execution Hub", cockpit: "Cockpit", multiModel: "Multi-model architecture", oneSentence: "One sentence" },
+
+
+  voice: {
+    label: "Voice Input",
+    recording: "Recording...",
+    micUnavailable: "Microphone unavailable",
+    recognizing: "Recognizing...",
+    unsupportedFormat: "Unsupported format: {fmt}",
+    fileTooLarge: "File too large (max 50MB)",
+    uploading: "Uploading {name}...",
+    transcribeDone: "Transcription complete",
+    fileTranscribeDone: "File transcription complete",
+    transcribeFailed: "Transcription failed",
+    uploadFailed: "File upload failed",
+    copied: "Copied",
+    clickToStart: "Click to start recording",
+    clickToStop: "Click to stop recording",
+    uploadFile: "Upload audio file for transcription",
+    fileResult: "File transcription result",
+    voiceResult: "Voice transcription result",
+    speakers: "speakers",
+    segments: "segments",
+    created: "Task created",
+  
+    copy: "Copy",
+    createTask: "Create task",
+    fillInput: "Fill input",
+    noText: "No text recognized",
+    requestFailed: "Request failed",
+  },
+
+
+  stages: { planning: "Planning", design: "Design", architecture: "Architecture", development: "Development", testing: "Testing", securityReview: "Security Review", reviewing: "Review", deployment: "Deployment" },
+
 }

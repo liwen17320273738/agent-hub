@@ -46,7 +46,7 @@
       </div>
       <div class="hero-actions">
         <el-button type="primary" @click="$router.push(`/agent/${agent.id}`)">
-          <el-icon><ChatDotRound /></el-icon> 开始对话
+          <el-icon><ChatDotRound /></el-icon> {{ $t('agentProfile.startChat') }}
         </el-button>
         <el-button @click="goBackFromProfile">
           <el-icon><Back /></el-icon> {{ t('agentProfile.back') }}
@@ -127,7 +127,7 @@
       <div class="profile-col-right">
         <!-- Tools -->
         <section class="profile-card">
-          <h2><el-icon><SetUp /></el-icon> 可用工具 ({{ agent.tools.length }})</h2>
+          <h2><el-icon><SetUp /></el-icon> {{ $t('agentProfile.availableTools') }} ({{ agent.tools.length }})</h2>
           <div class="tool-grid" v-if="agent.tools.length">
             <div v-for="tool in agent.tools" :key="tool.name" class="tool-item">
               <div class="tool-name">
@@ -142,13 +142,13 @@
 
         <!-- Skills -->
         <section class="profile-card">
-          <h2><el-icon><MagicStick /></el-icon> 绑定技能 ({{ agent.skills.length }})</h2>
+          <h2><el-icon><MagicStick /></el-icon> {{ $t('agentProfile.bindSkills') }} ({{ agent.skills.length }})</h2>
           <div class="skill-list" v-if="agent.skills.length">
             <div v-for="skill in agent.skills" :key="skill.skill_id" class="skill-item">
               <div class="skill-header">
                 <span class="skill-name">{{ skill.skill_id }}</span>
                 <el-tag :type="skill.enabled ? 'success' : 'info'" size="small" effect="plain">
-                  {{ skill.enabled ? '已启用' : '未启用' }}
+                  {{ skill.enabled ? $t('common.enabled') : $t('common.disabled') }}
                 </el-tag>
               </div>
             </div>

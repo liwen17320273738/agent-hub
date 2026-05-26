@@ -385,7 +385,8 @@ def _extract_rejection_target(content: str) -> Optional[str]:
         return explicit.group(1).lower()
     for stage_id in (
         "planning", "design", "architecture", "development", "testing",
-        "security-review", "legal-review", "data-modeling",
+        "security-review", "reviewing", "deployment",
+        "legal-review", "data-modeling", "marketing-launch", "finance-review",
     ):
         match = re.search(rf'(返回|back to|重新|redo)\s*{stage_id}', content, re.IGNORECASE)
         if match:

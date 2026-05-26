@@ -52,10 +52,12 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { fetchBackendTasks } from '@/services/pipelineApi'
+import { useAuthStore } from '@/stores/auth'
 import type { PipelineTask } from '@/agents/types'
 import TaskTable from '@/components/inbox/TaskTable.vue'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 const tasks = ref<PipelineTask[]>([])
@@ -66,7 +68,7 @@ function tabFromQuery(): InboxTab {
   const q = String(route.query.tab || '')
   return (['pending', 'running', 'done', 'failed', 'cancelled'] as InboxTab[]).includes(q as InboxTab)
     ? (q as InboxTab)
-    : 'pending'
+    : 'running'
 }
 const activeTab = ref<InboxTab>(tabFromQuery())
 
@@ -86,6 +88,10 @@ const statCards = computed<{ tab: InboxTab; label: string }[]>(() => [
 ])
 
 onMounted(async () => {
+  if (!authStore.initialized) {
+    try { await authStore.hydrate() } catch { /* ignore */ }
+  }
+  if (!authStore.isLoggedIn) return
   try {
     tasks.value = await fetchBackendTasks()
     backendOffline.value = false

@@ -148,7 +148,12 @@ export const useAgentStore = defineStore('agents', () => {
     error.value = null
     try {
       const raw = await apiFetch<Record<string, unknown>[]>('/agents/')
-      agents.value = raw.map(mapBackendAgent)
+      if (raw.length === 0) {
+        // API 返回空数组时回退到静态数据
+        agents.value = staticAgents.map(staticToProfile)
+      } else {
+        agents.value = raw.map(mapBackendAgent)
+      }
       loaded.value = true
     } catch (e) {
       error.value = (e as Error).message

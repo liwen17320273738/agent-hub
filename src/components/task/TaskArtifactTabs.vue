@@ -1,9 +1,21 @@
 <template>
   <div class="task-artifact-tabs">
+    <el-alert
+      v-if="taskStatus === 'active'"
+      type="info"
+      :closable="false"
+      show-icon
+      class="artifacts-running-hint"
+      :title="t('artifactTabs.runningHintTitle')"
+      :description="t('artifactTabs.runningHintBody')"
+    />
     <ArtifactContractPanel
       class="contract-above-bar"
       :task-id="taskId"
       :task-status="taskStatus"
+    />
+    <DesignTokenPanel
+      :task-id="taskId"
     />
     <!-- Completion bar: delivery artifact types (registry-aligned) -->
     <div class="completion-bar">
@@ -87,6 +99,7 @@ import DeployPreviewCard from './DeployPreviewCard.vue'
 import UiMockupCard from '../design/UiMockupCard.vue'
 import TaskArchDiagram from './TaskArchDiagram.vue'
 import ArtifactContractPanel from './ArtifactContractPanel.vue'
+import DesignTokenPanel from './DesignTokenPanel.vue'
 import { getAuthToken } from '@/services/api'
 
 const { t } = useI18n()

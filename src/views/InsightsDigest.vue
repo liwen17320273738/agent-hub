@@ -3,8 +3,8 @@
     <header class="digest-header">
       <h1>{{ t('insightsDigest.text_1') }}</h1>
       <p class="digest-sub">
-        对比最近窗口与上一窗口的 Eval 通过率、平均得分、span p95 延迟与 stage
-        失败率，自动列出"在退化"的 agent。
+        对比最近窗口与上一窗口的 Eval {{ $t('InsightsDigest.passRate') }}、{{ $t('InsightsDigest.avgScore') }}、span p95 延迟与 stage
+        {{ $t('InsightsDigest.failRate') }}，自动列出"在退化"的 agent。
       </p>
     </header>
 
@@ -27,7 +27,7 @@
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="loadDigest" :loading="loading">
-            <el-icon><Refresh /></el-icon> 重新计算
+            <el-icon><Refresh /></el-icon> {{ $t('InsightsDigest.recalculate') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -60,7 +60,7 @@
         <div class="reg-head">
           <span class="reg-role">{{ r.role }}</span>
           <el-button size="small" type="primary" @click="openOptimize(r.role)">
-            🔧 AI 优化提示词
+            🔧 AI {{ $t('InsightsDigest.optimizePrompt') }}
           </el-button>
         </div>
         <ul>
@@ -69,7 +69,7 @@
       </el-card>
     </section>
 
-    <el-dialog v-model="optDialog" :title="`AI 优化提示词 · ${optAgentId}`" width="780px" :close-on-click-modal="false">
+    <el-dialog v-model="optDialog" :title="`AI {{ $t('InsightsDigest.optimizePrompt') }} · ${optAgentId}`" width="780px" :close-on-click-modal="false">
       <div v-if="optLoading" class="opt-loading">
         <el-icon class="loading-icon" :size="32"><Loading /></el-icon>
         <p>{{ t('insightsDigest.text_6') }}</p>
@@ -97,7 +97,7 @@
       <template #footer>
         <el-button @click="optDialog = false">{{ t('insightsDigest.text_12') }}</el-button>
         <el-button v-if="optResult && !optResult.skipped" type="primary" @click="applyOptimization" :loading="optApplying">
-          ✅ 应用此提示词
+          ✅ {{ $t('InsightsDigest.applyPrompt') }}
         </el-button>
       </template>
     </el-dialog>
@@ -106,7 +106,7 @@
       <h2>各角色指标对比</h2>
       <el-table :data="digest.roles" stripe>
         <el-table-column prop="role" label="角色" min-width="160" />
-        <el-table-column label="通过率（当前 / 上期）" min-width="220">
+        <el-table-column label="{{ $t('InsightsDigest.passRate') }}（当前 / 上期）" min-width="220">
           <template #default="{ row }">
             <span :class="diffClass(row.deltas.eval_pass_rate.delta)">
               {{ pct(row.deltas.eval_pass_rate.current) }}
@@ -115,7 +115,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="平均得分" min-width="200">
+        <el-table-column label="{{ $t('InsightsDigest.avgScore') }}" min-width="200">
           <template #default="{ row }">
             <span :class="diffClass(row.deltas.eval_avg_score.delta)">
               {{ row.deltas.eval_avg_score.current.toFixed(2) }}
@@ -133,7 +133,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="Stage 失败率" min-width="220">
+        <el-table-column label="Stage {{ $t('InsightsDigest.failRate') }}" min-width="220">
           <template #default="{ row }">
             <span :class="diffClass(-row.deltas.stage_failure_rate.delta)">
               {{ pct(row.deltas.stage_failure_rate.current) }}
@@ -146,7 +146,7 @@
     </section>
 
     <section v-else-if="!loading" class="digest-empty">
-      <el-empty description="点击「重新计算」开始" />
+      <el-empty description="点击「{{ $t('InsightsDigest.recalculate') }}」开始" />
     </section>
   </div>
 </template>

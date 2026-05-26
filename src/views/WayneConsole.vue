@@ -13,7 +13,7 @@
     </header>
 
     <el-alert class="console-alert" type="success" :closable="false" show-icon>
-      <template #title>推荐使用方式</template>
+      <template #title>{{ $t('WayneConsole.recommended') }}</template>
       先从总控判断当前阶段，再进入产品、开发、QA 对应智能体。这样最接近真正的交付工作流。
     </el-alert>
 

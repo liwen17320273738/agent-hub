@@ -31,9 +31,9 @@ function retry() {
   <slot v-if="!hasError" />
   <div v-else class="error-boundary">
     <div class="error-boundary__icon">⚠️</div>
-    <p class="error-boundary__title">组件渲染出错</p>
+    <p class="error-boundary__title">{{ $t('common.renderError') }}</p>
     <p class="error-boundary__message">{{ errorMessage }}</p>
-    <button class="error-boundary__retry" @click="retry">重试</button>
+    <button class="error-boundary__retry" @click="retry">{{ $t('common.retry') }}</button>
   </div>
 </template>
 

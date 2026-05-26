@@ -532,6 +532,10 @@ AI Agent Hub — 全栈智能体协作平台
     application.include_router(relay_api.router, prefix="/api")
     application.include_router(crawl.router, prefix="/api")
     application.include_router(vector_api.router, prefix="/api")
+
+    # Design tokens
+    from .api.design_tokens import router as design_tokens_api
+    application.include_router(design_tokens_api, prefix="/api")
     application.include_router(outcome_contract_api.router, prefix="/api")
 
     # OpenAI-compatible proxy (no /api prefix — matches /v1/chat/completions)

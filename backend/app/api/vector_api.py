@@ -56,9 +56,14 @@ class MemoryRecallRequest(BaseModel):
 @router.get("/collections")
 async def list_collections():
     """List all vector collections"""
-    gateway = get_vector_gateway()
-    collections = await gateway.list_collections()
-    return {"collections": [c.__dict__ for c in collections], "count": len(collections)}
+    try:
+        gateway = get_vector_gateway()
+        collections = await gateway.list_collections()
+        return {"collections": [c.__dict__ for c in collections], "count": len(collections)}
+    except Exception as e:
+        logger = __import__('logging').getLogger(__name__)
+        logger.exception("vector list_collections failed")
+        raise HTTPException(status_code=503, detail="Vector search temporarily unavailable")
 
 
 @router.post("/collections")

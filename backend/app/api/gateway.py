@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets as _secrets
 import uuid
 from datetime import datetime
@@ -48,9 +49,25 @@ async def _session_org_id_from_request(request: Request, db: AsyncSession) -> Op
 
     Binds OpenClaw-created tasks to the logged-in user's org so ``GET /pipeline/tasks/{id}``
     with the same JWT does not 404 due to org scoping.
+
+    Fallback: if no session header but request has a pipeline API key auth, resolve org
+    from the first admin user in the system. This prevents API-key-only callers from
+    creating orphan tasks with org_id=null.
     """
     raw = (request.headers.get("x-agent-hub-session") or "").strip()
     if not raw.lower().startswith("bearer "):
+        # Fallback: try pipeline key auth → find default org
+        auth_header = (request.headers.get("authorization") or "").strip()
+        if auth_header.lower().startswith("bearer "):
+            # Pipeline key is not a JWT — look up first active org from any admin user
+            try:
+                result = await db.execute(
+                    select(User).where(User.is_active.is_(True), User.role == "admin").limit(1)
+                )
+                u = result.scalar_one_or_none()
+                return u.org_id if u else None
+            except Exception:
+                return None
         return None
     token = raw[7:].strip()
     if not token:
@@ -78,8 +95,12 @@ async def _create_task_from_gateway(
     source_user_id: str = "",
     org_id: Optional[uuid.UUID] = None,
 ) -> PipelineTask:
+    # Truncate title if too long (avoid DB error)
+    safe_title = title
+    if len(title.encode('utf-8')) > 500:
+        safe_title = title.encode('utf-8')[:497].decode('utf-8', errors='replace') + '...'
     task = PipelineTask(
-        title=title,
+        title=safe_title,
         description=description,
         source=source,
         source_message_id=source_message_id or None,
@@ -167,6 +188,10 @@ async def _run_pipeline_background(
             )
     except Exception as e:
         logger.error(f"[gateway] E2E failed for task {task_id}: {e}")
+
+
+def _strip_html(s: str) -> str:
+    return re.sub(r"<[^>]*>", "", s)
 
 
 def _should_use_plan_mode(source: str, explicit: Optional[bool] = None) -> bool:
@@ -1027,7 +1052,12 @@ async def openclaw_intake(
     _require_openclaw_secret(request)
     web_org_id = await _session_org_id_from_request(request, db)
 
-    if not body.title.strip():
+    # Sanitize HTML tags from user input
+    body.title = _strip_html(body.title.strip())
+    if body.description:
+        body.description = _strip_html(body.description.strip())
+
+    if not body.title:
         raise HTTPException(status_code=400, detail="title is required")
 
     source = (body.source or "api").strip() or "api"
@@ -1276,7 +1306,7 @@ async def openclaw_revise_plan(
     result = await _present_plan_and_wait(
         source=source,
         source_user_id=user_id,
-        title=title,
+        title=safe_title,
         description=description,
         feedback_addendum=body.feedback,
         metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,

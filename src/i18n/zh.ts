@@ -10,6 +10,8 @@ export default {
     logout: "退出",
     searchPlaceholder: "搜索全部会话…",
     searchEmpty: "无匹配会话",
+    darkMode: "深色",
+    lightMode: "浅色",
   },
   dashboard: {
     title: "AI 交付平台",
@@ -54,6 +56,8 @@ export default {
       support: "基于产品文档搭建一个智能客服问答系统",
       analytics: "分析过去30天的用户行为数据，输出增长建议报告",
     },
+  
+    submitted: "任务已提交，AI 团队正在执行中...",
   },
   inbox: {
     title: "收件箱",
@@ -71,6 +75,8 @@ export default {
     emptyFailed: "暂无失败任务",
     emptyCancelled: "暂无已取消任务",
     offlineMode: "后端任务服务不可用：收件箱只显示真实后端任务，已禁用离线演示数据。",
+  
+    queued: "排队中 {n} 个",
   },
   taskTable: {
     task: "任务",
@@ -249,6 +255,11 @@ export default {
       policyNote:
         "已在价目表中的模型走表内单价；其余走「兜底 × 加价」。用量可在「模型」相关用量报表中查看 endpoint 为 relay_openai 的记录。",
     },
+  
+    modelProviders: "模型供应商",
+    modelTotal: "模型总数",
+    skillsEnabled: "已启用技能",
+    skillsTotal: "技能总数",
   },
   team: {
     title: "团队",
@@ -256,6 +267,14 @@ export default {
     agents: "Agent 列表",
     categoryCore: "核心",
     categorySupport: "支撑",
+  
+    active: "活跃中",
+    tasks: "任务",
+    collaboration: "协作关系",
+  
+    agentCountActive: "{total} 个 Agent · {active} 活跃中",
+    passRate: "通过率",
+    pipelineStatus: "当前流水线状态",
   },
   workspace: {
     title: "工作区",
@@ -286,6 +305,8 @@ export default {
     errEmpty: "请输入邮箱和密码",
     errInvalidEmail: "请输入完整邮箱，例如 admin@example.com",
     errGeneric: "登录失败",
+    noAccountHint: "还没有账号？",
+    contactAdmin: "请联系管理员获取企业账号",
   },
   workflow: {
     title: "工作流",
@@ -409,6 +430,11 @@ export default {
     search: "搜索",
     noData: "暂无数据",
     switchLang: "English",
+  
+    renderError: "组件渲染出错",
+    retry: "重试",
+  
+    enabled: "已启用", disabled: "未启用",
   },
   notFound: {
     text_1: "页面未找到",
@@ -420,10 +446,43 @@ export default {
     text_3: "💡 提示：",
     text_4: "· 拖到画布 = 新增阶段",
     text_5: "· 阶段右把手 → 左把手 = 依赖",
+    clickNode: "· 点节点 = 配置面板",
+  
+    clickNode: "点节点",
+    configPanel: "配置面板",
+  },
+  stages: {
+    planning: "需求规划",
+    design: "UI/UX 设计",
+    architecture: "架构设计",
+    development: "开发实现",
+    testing: "测试验证",
+    security: "安全审计",
+    legal: "法务合规",
+    finance: "财务评估",
+    data: "数据建模",
+    marketing: "增长营销",
+    reviewing: "审查验收",
+    deployment: "部署上线",
+  },
+  roleSwimlane: {
+    pending: "未开始",
+    done: "已完成",
+    active: "进行中",
+    rejected: "被打回",
+    failed: "失败",
+    skipped: "跳过",
   },
   agentCard: {
     text_1: "档案",
     text_2: "开始对话 →",
+  
+    tools: "工具",
+    skills: "技能",
+    deliverables: "交付物",
+  
+    qualityStandards: "质量标准",
+    chat: "对话",
   },
   chatMessage: {
     text_1: "复制",
@@ -501,8 +560,14 @@ export default {
   taskDocTab: {
     text_1: "加载中...",
     text_2: "此工件将在对应阶段执行后自动产出",
+  
+    superseded: "已打回",
+    notGenerated: "尚未生成",
+    current: "当前",
   },
   artifactTabs: {
+    runningHintTitle: "流水线执行中",
+    runningHintBody: "交付物会随各阶段完成逐步生成。上方「执行进度」面板可查看当前阶段与实时事件；「缺件」是正常现象。",
     supersededBadge: "已打回",
     tooltipEmpty: "{label}：未生成",
     tooltipSuperseded: "{label}：已打回 (v{version})",
@@ -637,6 +702,10 @@ export default {
     text_16: "擅长处理",
     text_17: "委派给其他专家",
     text_18: "质量标准",
+  
+    bindSkills: "绑定技能",
+    availableTools: "可用工具",
+    startChat: "开始对话",
   },
   agentsConsole: {
     text_1: "专家工作台",
@@ -1101,7 +1170,17 @@ export default {
       connected: "连接建立",
     },
   },
+  executionLive: {
+    title: "执行进度",
+    progress: "{done}/{total} 阶段已完成",
+    viewOverview: "查看阶段详情",
+    viewLog: "查看执行日志",
+    recentEvents: "实时事件",
+    noEventsYet: "等待首个执行事件…",
+  },
   pipelineTaskDetail: {
+    runPipeline: "执行流水线",
+    runPipelineHint: "启动 AI 团队完成全部交付",
     text_1: "7 天有效",
     text_2: "30 天有效",
     text_3: "永久有效",
@@ -1309,6 +1388,7 @@ export default {
     execBannerGateFail: "质量门禁未通过：{label}",
     execBannerCurrent: "当前阶段：{label}",
     execSubRunBg: "后台执行中。可自由切换页面，回来后日志和进度会自动更新。",
+    execSubNotStarted: "AI 团队正在准备中，请稍候。如果长时间无进展，可点击「执行流水线」启动。",
     execSubMaybeBg: "检测到该阶段在后台仍可能执行中。如等待较久无进展，可点击「实时日志」或重新触发。",
     execSubDoneDocs: "可在下方生成交付文档下载。",
     execSubScrollApproval: "请滚到上方阶段卡片里点击批准 / 驳回。",
@@ -1436,6 +1516,16 @@ export default {
     openPreview: "打开预览",
     deployedScreenshot: "部署截图",
     noDeployData: "暂无部署数据",
+  },
+  designTokens: {
+    title: "设计 Token",
+    badgeApplied: "已应用",
+    applyBtn: "应用到页面",
+    clearBtn: "清除应用",
+    colors: "颜色",
+    typography: "排版",
+    spacing: "间距",
+    loading: "加载中…",
   },
   deliveryHeader: {
     titleLive: "已上线，可立即试用",
@@ -1581,6 +1671,10 @@ export default {
     test_prompt: "你好，请用一句话回复确认连接成功。",
     user_ok: "已创建 {email}",
     err_create: "创建失败",
+  
+    copySuffix: " 的副本",
+    defaultProfileName: "默认配置",
+    profileNameIndex: "配置 {n}",
   },
   sharePage: {
     text_1: "加载中…",
@@ -1705,4 +1799,89 @@ export default {
   chat: {
     elMessage_1: "会话已被其他成员更新，已同步为服务器最新版本",
   },
+
+  contract: {
+    title: "需求澄清",
+    executeDirect: "直接执行",
+    stepGoal: "业务目标",
+    stepMetrics: "成功指标",
+    stepSign: "签署执行",
+    clarifyStep0Desc: "AI 团队理解你的目标如下。确认或修改后点击「下一步」设定成功指标。",
+    clarifyStep1Desc: "设定可量化的成功指标，用于 30/60/90 天验收。至少 1 个指标。",
+    clarifyStep2Desc: "以下是你与 AI 团队的交付合同。签署后管线将自动启动。",
+    goalPlaceholder: "请描述你要达成的业务目标……",
+    metricNamePlaceholder: "指标名",
+    targetPlaceholder: "目标值",
+    sourcePlaceholder: "数据源",
+    addMetric: "添加指标",
+    suggestion: "目标",
+    withinDays: "，在",
+    days: "天内达成",
+    businessGoal: "业务目标",
+    metrics: "指标",
+    refundPolicy: "退款政策",
+    signing: "正在签署合同并启动管线…",
+    signAndExecute: "签署并执行",
+    executeWithoutContract: "跳过合同，直接执行",
+    signedSuccess: "合同已签署，任务已启动",
+    signError: "签署失败",
+    submitError: "提交失败",
+    noTaskId: "任务创建失败",
+    next: "下一步",
+    back: "上一步",
+    skip: "跳过",
+  
+    fullRefund: "全额退款",
+    partialRefund: "半额退款",
+    noRefund: "不接受退款",
+  },
+
+  AgentCard: { qualityStandards: "质量标准", chat: "对话" },
+  AgentStageNode: { selfHealed: "已自愈", clickView: "点击查看" },
+  StageConfigDrawer: { configStage: "配置阶段", stableId: "后端使用的稳定标识", lowercaseEnglish: "建议小写英文", alphanumeric: "含字母数字和短横线" },ClarifyGateDialog: { partialRefund: "部分退款" },
+  ExecutionLogTab: { status: "状态", duration: "耗时", exitCode: "退出码", logCount: "日志条数", terminate: "终止", searchLog: "搜索日志", noData: "暂无", execRecords: "执行记录", enterStage: "进入", devStage: "开发实现", stageTime: "阶段时", execLog: "的执行日志会显示", waiting: "等待", output: "输出", noMatch: "无匹配", logLines: "的日志行", loadEarlier: "加载更早的日志", autoScroll: "自动滚动", manual: "手动", running: "运行中", completed: "完成", failed: "失败", error: "错误", timeout: "超时", terminated: "已终止", terminateSent: "已发送终止信号", terminateFailed: "终止失败" },
+  PipelineDagCanvas: { dagTitle: "任务编排图", autoDowngrade: "自动降级", fitView: "适配视窗", previous: "上一次", next: "下一次", selfHealCount: "次自愈", reviewFeedback: "审阅反馈", rejectedDraft: "被打回的草稿", truncated: "已截断", latestOutput: "最新产出", from: "来自", openInPanel: "在主面板打开" },
+  QualityGateConfigDrawer: { title: "质量门禁阈值配置" },
+  AgentsConsole: { summon: "召唤", skipPipeline: "无需走完整流水线", streaming: "流式", toolsAvailable: "个工具可用", blocking: "阻塞", validate: "校验" },
+  CodebaseLab: { newIndex: "新建索引", rebuild: "重建", delete: "删除" },
+  InsightsDigest: { compareWindows: "对比最近窗口与上一窗口的", passRate: "通过率", avgScore: "平均得分", latency: "延迟与", failRate: "失败率", autoList: "自动列出", degrading: "在退化", recalculate: "重新计算", optimizePrompt: "优化提示词", applyPrompt: "应用此提示词" },
+  McpServers: { externalTools: "把外部工具", fileSystem: "文件系统", selfHosted: "自建服务", via: "通过", protocol: "协议接给某个", afterMount: "挂上以后", pipelineAvailable: "与流水线里都能直", bind: "绑定", toolCount: "个工具", refreshTools: "刷新工具", debugTools: "调试工具", autoRetrieve: "选择后将自动检索", address: "地址", rolePlaceholder: "该角色推荐占位", globalPreset: "全局预设模板", fillBelow: "并填入下方", dropdown: "下拉框", directInput: "可直接在输入框中", officialRemote: "官方远程", backendProxy: "由后端以", sendTo: "发给", browserRequest: "这与浏览器请求本", loginHeader: "时带的登录", dualAuth: "是两路认证", noToken: "无令牌时", empty: "为空", probeResult: "探测会收到" },
+  ModelLab: { refScore: "参考评分", samePromptLatency: "同一提示词下的延迟与输出对比", localMode: "个人模式使用本地", enterpriseGateway: "企业模式经服务端统一网关" },
+  PlanInbox: { pendingDesc: "投递的待确认计划都在这里", approveCreates: "批准后立即创建", task: "任务", user: "用户", start: "开干", equivalent: "等价", nowSupports: "现在也支持", planFirst: "先出方案", planDetail: "这里会显示该计划", finalAccept: "最终验收", or: "还是", autoDeploy: "自动上线", changed: "已改", rounds: "轮调整", submittedAt: "提交于", modify: "修改", cancel: "取消", sourceMsg: "来源消息", execPlan: "执行计划", estimate: "预估", minutes: "分钟", confidence: "信心", deploy: "部署" },
+  WayneConsole: { clickStageCard: "按阶段点击卡片", autoRoute: "系统会把你送到合适的", autoPrompt: "并自动带入建议提示词", recommended: "推荐使用方式" },
+  WayneStack: { execHub: "为执行中枢", cockpit: "为驾驶舱", multiModel: "为多模型总线的人机协同架构", oneSentence: "一句话总结" },
+
+
+  voice: {
+    label: "语音输入",
+    recording: "正在录音...",
+    micUnavailable: "麦克风不可用",
+    recognizing: "正在识别...",
+    unsupportedFormat: "不支持的格式: {fmt}",
+    fileTooLarge: "文件过大（最大50MB）",
+    uploading: "正在上传 {name}...",
+    transcribeDone: "✅ 识别完成",
+    fileTranscribeDone: "✅ 文件识别完成",
+    transcribeFailed: "❌ 识别失败",
+    uploadFailed: "❌ 文件上传失败",
+    copied: "✅ 已复制",
+    clickToStart: "点击开始录音",
+    clickToStop: "点击停止录音",
+    uploadFile: "上传音频文件进行转录",
+    fileResult: "文件转录结果",
+    voiceResult: "语音转录结果",
+    speakers: "位说话人",
+    segments: "段",
+    created: "已创建任务",
+  
+    copy: "复制",
+    createTask: "创建任务",
+    fillInput: "填入输入框",
+    noText: "无识别文本",
+    requestFailed: "请求失败",
+  },
+
+
+  stages: { planning: "需求规划", design: "UI设计", architecture: "架构设计", development: "开发实现", testing: "测试验证", securityReview: "安全审查", reviewing: "审查验收", deployment: "部署上线" },
+
 }

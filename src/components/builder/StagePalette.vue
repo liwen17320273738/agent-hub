@@ -35,7 +35,7 @@
     </ul>
     <div class="palette-footer">
       <p class="tip">{{ t('stagePalette.text_3') }}<br />{{ t('stagePalette.text_4') }}<br />{{ t('stagePalette.text_5') }}<br />
-        · 点节点 = 配置面板
+        {{ $t('stagePalette.clickNode') }}
       </p>
     </div>
   </aside>
@@ -75,7 +75,7 @@ const STAGE_DEFAULTS: Record<string, { stageId: string; label: string }> = {
 
 const items: PaletteItem[] = KNOWN_ROLES.map((r) => {
   const d = STAGE_DEFAULTS[r.value] || { stageId: r.value, label: r.label }
-  return { role: r.value, label: d.label, stageId: d.stageId }
+  return { role: r.value, label: t(`stages.${d.stageId}`), stageId: d.stageId }
 })
 
 const MIME = 'application/x-agenthub-stage'

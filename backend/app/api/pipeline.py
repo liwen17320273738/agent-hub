@@ -308,6 +308,18 @@ async def create_task(
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    # ── Input validation ──
+    if body.budget_usd is not None and float(body.budget_usd) < 0:
+        raise HTTPException(status_code=400, detail="预算金额不能为负数")
+    if body.title and len(body.title.encode('utf-8')) > 500:
+        raise HTTPException(status_code=400, detail="标题不能超过500字节")
+    workspace_uuid: Optional[uuid.UUID] = None
+    if body.workspace_id:
+        try:
+            workspace_uuid = uuid.UUID(body.workspace_id)
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(status_code=400, detail="workspace_id 格式无效")
+
     task = PipelineTask(
         title=body.title,
         description=body.description,
@@ -317,7 +329,7 @@ async def create_task(
         project_path=project_path or body.project_path,
         created_by=str(user.id) if user else "api",
         org_id=user.org_id if user else None,
-        workspace_id=uuid.UUID(body.workspace_id) if body.workspace_id else None,
+        workspace_id=workspace_uuid,
         budget_usd=body.budget_usd,
         current_stage_id=first_stage,
         custom_stages=persist_custom,
@@ -327,9 +339,9 @@ async def create_task(
 
     for stage_data in stages_list:
         stage = PipelineStage(task_id=task.id, **stage_data)
-        if stage_data["stage_id"] == first_stage:
-            stage.status = "active"
-            stage.started_at = datetime.utcnow()
+        # Keep the first stage pending until a run is explicitly started.
+        # Marking it active on create made the UI show "AI processing" with
+        # 0% progress and no SSE events when nothing was scheduled.
         db.add(stage)
 
     await db.flush()

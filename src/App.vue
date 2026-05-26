@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container dark" :class="{ 'is-login-route': isLoginRoute }">
+  <div class="app-container" :class="[themeClass, { 'is-login-route': isLoginRoute }]">
     <aside v-if="!isLoginRoute" class="app-sidebar">
       <div class="sidebar-header" @click="$router.push('/')">
         <el-icon :size="28"><Monitor /></el-icon>
@@ -71,6 +71,11 @@
             {{ $t('nav.logout') }}
           </el-button>
         </div>
+        <div class="nav-item theme-toggle" @click="toggleTheme">
+          <el-icon><Sunny v-if="!isDarkMode" /><Moon v-else /></el-icon>
+          <span>{{ isDarkMode ? $t('nav.darkMode') : $t('nav.lightMode') }}</span>
+        </div>
+
         <el-dropdown trigger="click" @command="onPickLocale" placement="top-start">
           <div class="nav-item lang-toggle">
             <el-icon><Opportunity /></el-icon>
@@ -108,7 +113,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ErrorBoundary from '@/components/common/ErrorBoundary.vue'
-import { SwitchButton } from '@element-plus/icons-vue'
+import { SwitchButton, Sunny, Moon } from '@element-plus/icons-vue'
 import type { ConversationSearchHit } from '@/agents/types'
 import { useAgentStore } from '@/stores/agents'
 import { useChatStore } from '@/stores/chat'
@@ -163,6 +168,29 @@ function toggleLocale() {
   setLocale(next)
 }
 void toggleLocale
+
+// ── Theme toggle ──
+const THEME_KEY = 'agent-hub-theme'
+const isDarkMode = ref(true)
+
+function loadTheme(): boolean {
+  try {
+    const saved = localStorage.getItem(THEME_KEY)
+    return saved !== 'light'  // default to dark
+  } catch { return true }
+}
+
+function toggleTheme() {
+  isDarkMode.value = !isDarkMode.value
+  try {
+    localStorage.setItem(THEME_KEY, isDarkMode.value ? 'dark' : 'light')
+  } catch { /* ignore */ }
+}
+
+const themeClass = computed(() => isDarkMode.value ? 'dark' : 'light')
+
+// Load saved theme on mount
+isDarkMode.value = loadTheme()
 
 async function handleLogout() {
   await authStore.logout()
@@ -230,6 +258,11 @@ async function handleLogout() {
   color: var(--text-muted);
   margin-top: 8px;
   padding: 0 4px;
+}
+
+.theme-toggle {
+  cursor: pointer;
+  user-select: none;
 }
 
 .sidebar-user {

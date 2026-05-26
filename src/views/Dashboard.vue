@@ -113,6 +113,15 @@
       </div>
     </section>
 
+    <!-- ── Clarify Gate Dialog ── -->
+    <ClarifyGateDialog
+      v-model="showClarify"
+      :task-text="taskInput"
+      :plan-mode="clarifyPlanMode"
+      @submitted="onContractSubmitted"
+      @cancelled="onClarifyCancelled"
+    />
+
     <!-- ── Recent tasks ── -->
     <section class="section">
       <h2 class="section-title">
@@ -148,22 +157,29 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
 import { appLocaleToBcp47 } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
+import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { fetchBackendTasks } from '@/services/pipelineApi'
 import { openClawIntake } from '@/services/gatewayApi'
 import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import VoiceInput from '@/components/voice/VoiceInput.vue'
+import ClarifyGateDialog from '@/components/contract/ClarifyGateDialog.vue'
 const { t, locale } = useI18n()
 const router = useRouter()
 const settingsStore = useSettingsStore()
+const authStore = useAuthStore()
 const tasks = ref<PipelineTask[]>([])
 const taskInput = ref('')
 /** Which CTA is in flight — avoids both buttons showing loading (shared flag looked like "both ran"). */
 const submitLoading = ref<'plan' | 'direct' | null>(null)
 const backendOffline = ref(false)
+const showClarify = ref(false)
+/** true = 先给方案 (plan gate); false = 直接执行 (auto-start pipeline). */
+const clarifyPlanMode = ref(true)
 
 // Template `label` and `text` are resolved through t() at render time so
 // they react to locale changes without a remount.
@@ -176,6 +192,10 @@ const templates = [
 ]
 
 onMounted(async () => {
+  if (!authStore.initialized) {
+    try { await authStore.hydrate() } catch { /* ignore */ }
+  }
+  if (!authStore.isLoggedIn) return
   try {
     tasks.value = await fetchBackendTasks()
     backendOffline.value = false
@@ -258,6 +278,20 @@ function formatDate(ts: number | string | undefined | null) {
   })
 }
 
+function onContractSubmitted(result: { taskId?: string; contractId?: string }) {
+  taskInput.value = ''
+  submitLoading.value = null
+  if (result.taskId) {
+    router.push(`/pipeline/task/${result.taskId}`)
+  } else {
+    router.push({ path: '/inbox', query: { tab: 'running' } })
+  }
+}
+
+function onClarifyCancelled() {
+  submitLoading.value = null
+}
+
 async function submitTask(planMode: boolean) {
   const text = taskInput.value.trim()
   if (!text) {
@@ -265,39 +299,9 @@ async function submitTask(planMode: boolean) {
     return
   }
   if (submitLoading.value !== null) return
-  submitLoading.value = planMode ? 'plan' : 'direct'
-  try {
-    const result = await openClawIntake({
-      title: text.slice(0, 80),
-      description: text,
-      source: 'web',
-      userId: 'dashboard',
-      messageId: `web-${Date.now()}`,
-      planMode,
-      autoFinalAccept: false,
-    })
-    taskInput.value = ''
-    backendOffline.value = false
 
-    if (result.task) {
-      tasks.value = [result.task, ...tasks.value.filter(t => t.id !== result.task?.id)]
-    }
-
-    if (planMode) {
-      ElMessage.success(t('dashboard.submitOkPlan'))
-      if (result.taskId) router.push(`/pipeline/task/${result.taskId}`)
-      else router.push({ path: '/inbox', query: { tab: 'pending' } })
-    } else {
-      ElMessage.success(t('dashboard.submitOkExec'))
-      if (result.taskId) router.push(`/pipeline/task/${result.taskId}`)
-      else router.push({ path: '/inbox', query: { tab: 'running' } })
-    }
-  } catch (e: any) {
-    backendOffline.value = true
-    ElMessage.error(e.message || t('dashboard.submitError'))
-  } finally {
-    submitLoading.value = null
-  }
+  clarifyPlanMode.value = planMode
+  showClarify.value = true
 }
 </script>
 

@@ -30,11 +30,19 @@
       <div class="card-footer">
         <span v-if="toolCount" class="card-meta">
           <el-icon :size="12"><SetUp /></el-icon>
-          {{ toolCount }} 工具
+          {{ $t('agentCard.tools') }}: {{ toolCount }}
         </span>
         <span v-if="skillCount" class="card-meta">
           <el-icon :size="12"><MagicStick /></el-icon>
-          {{ skillCount }} 技能
+          {{ $t('agentCard.skills') }}: {{ skillCount }}
+        </span>
+        <span v-if="deliverableCount" class="card-meta">
+          <el-icon :size="12"><Document /></el-icon>
+          {{ $t('agentCard.deliverables') }}: {{ deliverableCount }}
+        </span>
+        <span v-if="standardCount" class="card-meta">
+          <el-icon :size="12"><Finished /></el-icon>
+          {{ $t('agentCard.qualityStandards') }}: {{ standardCount }}
         </span>
         <router-link
           :to="profileLink"
@@ -43,7 +51,7 @@
         >{{ t('agentCard.text_1') }}</router-link>
         <span v-if="conversationCount" class="conv-count">
           <el-icon :size="12"><ChatDotRound /></el-icon>
-          {{ conversationCount }} 对话
+          {{ $t('agentCard.chat') }}: {{ conversationCount }}
         </span>
         <span v-else class="conv-count empty">{{ t('agentCard.text_2') }}</span>
       </div>
@@ -74,6 +82,14 @@ const seniority = computed(() => capabilities.value.seniority as string || '')
 const domainTags = computed(() => (capabilities.value.domain as string[]) || [])
 const toolCount = computed(() => props.agent.tools?.length || 0)
 const skillCount = computed(() => props.agent.skills?.length || 0)
+const deliverableCount = computed(() => {
+  const d = capabilities.value.deliverables
+  return Array.isArray(d) ? d.length : 0
+})
+const standardCount = computed(() => {
+  const s = capabilities.value.standards
+  return Array.isArray(s) ? s.length : 0
+})
 
 const profileLink = computed(() => ({
   path: `/agent/${props.agent.id}/profile`,

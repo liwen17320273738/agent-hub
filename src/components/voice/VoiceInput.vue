@@ -85,7 +85,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { apiFetch } from '@/services/api'
+
+const { t } = useI18n()
 
 withDefaults(
   defineProps<{
@@ -135,10 +138,10 @@ async function startRecording() {
     mediaRecorder.value.start()
     isRecording.value = true
     uploadMode.value = 'record'
-    statusText.value = '正在录音...'
+    statusText.value = t('voice.recording')
   } catch (err) {
-    statusText.value = '麦克风不可用'
-    setTimeout(() => { statusText.value = '语音输入' }, 2500)
+    statusText.value = t('voice.micUnavailable')
+    setTimeout(() => { statusText.value = t('voice.label') }, 2500)
   }
 }
 
@@ -147,7 +150,7 @@ function stopRecording() {
     mediaRecorder.value.stop()
     isRecording.value = false
     isProcessing.value = true
-    statusText.value = '正在识别...'
+    statusText.value = t('voice.recognizing')
   }
 }
 
@@ -169,23 +172,24 @@ async function handleFileSelected(e: Event) {
   // Some systems report audio/*, some report video/mp4 for m4a, some report empty type
   const byMime = !file.type || file.type.startsWith('audio/') || file.type === 'video/mp4' || file.type === 'video/webm'
   if (!byExtension && !byMime) {
-    statusText.value = `不支持的格式: ${file.name.split('.').pop()?.toUpperCase() || '未知'}`
-    setTimeout(() => { statusText.value = '语音输入' }, 2500)
+    const ext = file.name.split('.').pop()?.toUpperCase() || '???'
+    statusText.value = t('voice.unsupportedFormat', { fmt: ext })
+    setTimeout(() => { statusText.value = t('voice.label') }, 2500)
     target.value = ''
     return
   }
 
   // File size check (max 50MB)
   if (file.size > 50 * 1024 * 1024) {
-    statusText.value = '文件过大（最大50MB）'
-    setTimeout(() => { statusText.value = '语音输入' }, 2500)
+    statusText.value = t('voice.fileTooLarge')
+    setTimeout(() => { statusText.value = t('voice.label') }, 2500)
     target.value = ''
     return
   }
 
   isUploading.value = true
   uploadMode.value = 'file'
-  statusText.value = `正在上传 ${file.name.slice(0, 20)}...`
+  statusText.value = t('voice.uploading', { name: file.name.slice(0, 20) })
 
   await uploadAudio(file, file.name, 'file')
   isUploading.value = false
@@ -206,16 +210,16 @@ async function uploadAudio(blob: Blob, filename: string, mode: 'record' | 'file'
     })
     if (result.ok && result.transcription) {
       transcription.value = result.transcription
-      statusText.value = mode === 'file' ? '✅ 文件识别完成' : '✅ 识别完成'
+      statusText.value = mode === 'file' ? t('voice.fileTranscribeDone') : t('voice.transcribeDone')
     } else {
-      statusText.value = '❌ 识别失败'
+      statusText.value = t('voice.transcribeFailed')
     }
   } catch (err) {
-    statusText.value = mode === 'file' ? '❌ 文件上传失败' : '❌ 请求失败'
+    statusText.value = mode === 'file' ? t('voice.uploadFailed') : t('voice.requestFailed')
     console.error('[voice] transcription error:', err)
   } finally {
     isProcessing.value = false
-    setTimeout(() => { statusText.value = '语音输入' }, 3500)
+    setTimeout(() => { statusText.value = t('voice.label') }, 3500)
   }
 }
 
@@ -240,8 +244,8 @@ function refillInput() {
 function copyText() {
   if (!transcription.value?.fullText) return
   navigator.clipboard.writeText(transcription.value.fullText)
-  statusText.value = '✅ 已复制'
-  setTimeout(() => { statusText.value = '语音输入' }, 2000)
+  statusText.value = t('voice.copied')
+  setTimeout(() => { statusText.value = t('voice.label') }, 2000)
 }
 </script>
 

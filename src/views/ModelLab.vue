@@ -3,7 +3,7 @@
     <header class="page-header">
       <h1>{{ t('modelLab.text_1') }}</h1>
       <p class="subtitle">
-        参考评分 + 同一提示词下的延迟与输出对比（个人模式使用本地 API Key；企业模式经服务端统一网关）
+        {{ $t('ModelLab.refScore') }} + 同一提示词下的延迟与输出对比（个人模式使用本地 API Key；企业模式经服务端统一网关）
       </p>
     </header>
 

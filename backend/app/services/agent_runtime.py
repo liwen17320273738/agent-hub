@@ -7,9 +7,11 @@ Each agent gets:
 - Planner-Worker model separation
 - Standard OpenAI function calling loop
 - Output verification
+- Timeout, retry with backoff, and oversized result truncation
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
@@ -25,6 +27,14 @@ from .sse import emit_event
 from .tools import TOOL_REGISTRY, execute_tool, get_tool_definitions
 
 logger = logging.getLogger(__name__)
+
+# Timeout for a single LLM call (seconds). Configurable via env.
+LLM_CALL_TIMEOUT = float(getattr(app_settings, "agent_runtime_llm_timeout", 120))
+# Retry settings for transient LLM failures.
+LLM_RETRY_MAX = int(getattr(app_settings, "agent_runtime_retry_max", 2))
+LLM_RETRY_BASE_DELAY = float(getattr(app_settings, "agent_runtime_retry_delay", 2.0))
+# Max chars for tool results before truncation.
+TOOL_RESULT_MAX_CHARS = int(getattr(app_settings, "agent_runtime_tool_result_max", 8000))
 
 
 class AgentRuntime:
@@ -73,6 +83,70 @@ class AgentRuntime:
         self.task_id = task_id
         # Role drives the runtime skill-sandbox whitelist in tools/registry.py
         self.role = role
+
+    # ── Timeout + Retry guard ─────────────────────────────────────────
+    # Wrap around chat_completion_with_fallback:
+    #   1. Apply asyncio.wait_for() so a single hang doesn't stall the agent.
+    #   2. On timeout / transient error, retry with exponential backoff.
+    #   3. Fallback model switch (cheaper or faster model) on last retry.
+
+    @staticmethod
+    def _truncate_tool_result(result: str, max_chars: int = 0) -> str:
+        """Truncate oversized tool results to avoid overflowing LLM context."""
+        limit = max_chars or TOOL_RESULT_MAX_CHARS
+        if len(result) <= limit:
+            return result
+        truncated = result[:limit]
+        return f"{truncated}\n\n... [结果已截断至 {limit} 字符，原始长度 {len(result)}]"
+
+    async def _call_llm_safe(self, **kwargs: Any) -> Dict[str, Any]:
+        """Call LLM with timeout + exponential backoff retry."""
+        last_err = ""
+        for attempt in range(LLM_RETRY_MAX + 1):
+            try:
+                result = await asyncio.wait_for(
+                    chat_completion(**kwargs),
+                    timeout=LLM_CALL_TIMEOUT,
+                )
+                if result.get("error"):
+                    err = result["error"]
+                    # Non-retriable: return immediately
+                    if any(kw in err.lower() for kw in ("invalid", "unauthorized", "rate limit")):
+                        return result
+                    last_err = err
+                    if attempt < LLM_RETRY_MAX:
+                        delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                        logger.warning(
+                            "[agent_runtime] LLM attempt %d/%d failed: %s — retrying in %.1fs",
+                            attempt + 1, LLM_RETRY_MAX + 1, last_err, delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    return result
+                return result
+            except asyncio.TimeoutError:
+                last_err = f"timeout after {LLM_CALL_TIMEOUT}s"
+                if attempt < LLM_RETRY_MAX:
+                    delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "[agent_runtime] LLM timeout attempt %d/%d — retrying in %.1fs",
+                        attempt + 1, LLM_RETRY_MAX + 1, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return {"error": last_err, "ok": False}
+            except Exception as e:
+                last_err = str(e)
+                if attempt < LLM_RETRY_MAX:
+                    delay = LLM_RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "[agent_runtime] LLM exception attempt %d/%d: %s — retrying in %.1fs",
+                        attempt + 1, LLM_RETRY_MAX + 1, last_err, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                return {"error": last_err, "ok": False}
+        return {"error": last_err, "ok": False}
 
     async def execute(
         self,
@@ -147,7 +221,7 @@ class AgentRuntime:
             if step == 0 and image_attachments:
                 call_kwargs["image_attachments"] = image_attachments
 
-            result = await chat_completion(**call_kwargs)
+            result = await self._call_llm_safe(**call_kwargs)
 
             if result.get("error"):
                 trail = result.get("tried_providers") or []
@@ -207,7 +281,7 @@ class AgentRuntime:
             }
             if _is_local and app_settings.llm_api_url:
                 synth_kwargs["api_url"] = app_settings.llm_api_url
-            synth = await chat_completion(**synth_kwargs)
+            synth = await self._call_llm_safe(**synth_kwargs)
             if not synth.get("error"):
                 final_output = synth.get("content", "") or ""
 
@@ -300,7 +374,8 @@ class AgentRuntime:
             "agentId": self.agent_id,
             "tool": tool_name,
             "outputLength": len(result),
+            "truncated": len(result) > TOOL_RESULT_MAX_CHARS,
         })
 
-        return result
+        return self._truncate_tool_result(result)
 

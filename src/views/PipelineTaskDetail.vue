@@ -107,6 +107,19 @@
       </div>
     </section>
 
+    <!-- Always-visible execution panel — users land on 交付物 by default and
+         only see 缺件; this surfaces stage progress + live SSE on every tab. -->
+    <ExecutionLivePanel
+      v-if="showExecutionLive"
+      :is-running="isRunningNow"
+      :progress="stageProgressStats"
+      :banner-sub="execBannerSub"
+      :narrative="processingNarrative"
+      :logs="executionLiveLogs"
+      @open-overview="activeMainTab = 'overview'"
+      @open-log="activeMainTab = 'execution-log'"
+    />
+
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
       <el-tab-pane :label="t('pipelineTaskDetail.tabArtifacts')" name="artifacts">
         <TaskArtifactTabs :task-id="task.id" :task-status="task.status" />
@@ -495,6 +508,15 @@
         </div>
       </div>
 
+      <!-- Prominent Run Pipeline button — visible when task is runnable -->
+      <div v-if="canStartPipeline" class="run-actions">
+        <el-button type="primary" :loading="autoRunning" @click="handleAutoRun">
+          <el-icon><VideoPlay /></el-icon>
+          <span style="margin-left:4px">{{ t('pipelineTaskDetail.runPipeline') }}</span>
+        </el-button>
+        <span class="run-hint">{{ t('pipelineTaskDetail.runPipelineHint') }}</span>
+      </div>
+
       <div class="side-actions">
         <el-dropdown trigger="click" @command="handleSideAction" :disabled="isRunningNow">
           <el-button size="small" plain :disabled="isRunningNow">
@@ -833,6 +855,7 @@ import FailureCard from '@/components/task/FailureCard.vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
 import ExecutionLogTab from '@/components/executor/ExecutionLogTab.vue'
+import ExecutionLivePanel from '@/components/task/ExecutionLivePanel.vue'
 import PipelineDagCanvas from '@/components/pipeline/PipelineDagCanvas.vue'
 import QualityGateConfigDrawer from '@/components/pipeline/QualityGateConfigDrawer.vue'
 import QualityGatePanel from '@/components/pipeline/QualityGatePanel.vue'
@@ -849,7 +872,8 @@ const pipelineStore = usePipelineStore()
 
 const task = ref<PipelineTask | null>(null)
 const loadError = ref('')
-const activeMainTab = ref('artifacts')
+const activeMainTab = ref('overview')
+const tabInitialized = ref(false)
 const planGateLoading = ref<'approve' | 'reject' | null>(null)
 
 async function handlePlanGateApprove() {
@@ -922,6 +946,16 @@ const rcaReport = ref<RcaReport | null>(null)
 const anyExecutionRunning = computed(() =>
   autoRunning.value || smartRunning.value || stageRunning.value || resuming.value || resumingDag.value
 )
+
+const canStartPipeline = computed(() => {
+  if (!task.value) return false
+  if (anyExecutionRunning.value) return false
+  const t = task.value
+  if (['done', 'failed', 'cancelled'].includes(t.status)) return false
+  // Check if any stage has actually run (not all pending)
+  const allPending = (t.stages || []).every(s => s.status === 'pending')
+  return true  // Show button even if all pending — user should be able to start
+})
 const subtasks = ref<SubtaskInfo[]>([])
 const processingStage = ref<string | null>(null)
 const processingNarrative = ref<{ agent: string; icon: string; role: string; narrative: string; stageId: string; at: number } | null>(null)
@@ -1136,6 +1170,47 @@ const isRunningNow = computed(() =>
   anyExecutionRunning.value || !!processingStage.value,
 )
 
+const showExecutionLive = computed(() => {
+  const tsk = task.value
+  if (!tsk) return false
+  if (tsk.status !== 'active') return false
+  if (tsk.currentStageId === 'done') return false
+  return true
+})
+
+const stageProgressStats = computed(() => {
+  const stages = task.value?.stages ?? []
+  const total = stages.length
+  const done = stages.filter(s => s.status === 'done').length
+  const current = task.value?.stages.find(s => s.id === task.value?.currentStageId)
+  const inFlight =
+    isRunningNow.value
+    && current
+    && current.status === 'active'
+    && !current.output
+      ? 1
+      : 0
+  return {
+    done,
+    total,
+    percent: total ? Math.round(((done + inFlight * 0.5) / total) * 100) : 0,
+    currentLabel: current?.label ?? task.value?.currentStageId ?? '',
+    currentRole: current?.ownerRole ?? '',
+  }
+})
+
+const executionLiveLogs = computed(() =>
+  stageLogs.value
+    .slice(-8)
+    .reverse()
+    .map(log => ({
+      timestamp: log.timestamp,
+      time: formatLogTime(log.timestamp),
+      eventLabel: formatEventName(log.event),
+      detail: log.detail,
+    })),
+)
+
 // Surface a "your last run failed the gate" hint so the banner stops
 // looking like the page just stopped for no reason. We only count it
 // as "blocked by gate" when the stage isn't currently running anymore.
@@ -1196,6 +1271,15 @@ const execBannerSub = computed(() => {
   }
   if (anyExecutionRunning.value) {
     return t('pipelineTaskDetail.execSubRunBg')
+  }
+  if (
+    task.value?.status === 'active'
+    && !isRunningNow.value
+    && currentStage.value
+    && !currentStage.value.output
+    && currentStage.value.status !== 'awaiting_approval'
+  ) {
+    return t('pipelineTaskDetail.execSubNotStarted')
   }
   if (processingStage.value && !anyExecutionRunning.value) {
     return t('pipelineTaskDetail.execSubMaybeBg')
@@ -2018,10 +2102,13 @@ async function loadTask() {
   loadError.value = ''
   try {
     task.value = await fetchTask(id)
-    // Detect if a background run is in progress (stage is active but has no output yet)
+    await syncRunFlagsFromScheduler()
+    // Only infer background execution when the scheduler confirms a run.
+    // A stage marked active on create used to look "stuck at 0%" forever.
+    processingStage.value = null
     if (task.value && task.value.status === 'active') {
       const activeStage = task.value.stages.find(s => s.status === 'active')
-      if (activeStage && !activeStage.output) {
+      if (activeStage && !activeStage.output && anyExecutionRunning.value) {
         processingStage.value = activeStage.id
       }
     }
@@ -2031,6 +2118,13 @@ async function loadTask() {
       stageRunning.value = false
     }
     await syncRunFlagsFromScheduler()
+    if (task.value && !tabInitialized.value) {
+      activeMainTab.value =
+        task.value.status === 'active' && task.value.currentStageId !== 'done'
+          ? 'overview'
+          : 'artifacts'
+      tabInitialized.value = true
+    }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('pipelineTaskDetail.elMessage_31')
     console.error(t('pipelineTaskDetail.elMessage_31'), e)
@@ -2047,9 +2141,12 @@ onUnmounted(() => {
 })
 
 watch(() => route.params.id, () => {
+  tabInitialized.value = false
   loadTask()
   stageLogs.value = []
   processingStage.value = null
+  processingNarrative.value = null
+  narrativeFeed.value = []
 })
 </script>
 
@@ -2620,6 +2717,18 @@ watch(() => route.params.id, () => {
   color: #67c23a;
 }
 .exec-banner-idle .exec-banner-icon { color: var(--text-secondary, #8a8f99); }
+
+.run-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 8px;
+}
+
+.run-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
 
 .side-actions {
   display: flex;

@@ -1,16 +1,10 @@
 import { createI18n } from 'vue-i18n'
 import zh from './zh'
-import en from './en'
-import ja from './ja'
-import ko from './ko'
-import fr from './fr'
-import de from './de'
-import es from './es'
 
-export const SUPPORTED_LOCALES = ['zh', 'en', 'ja', 'ko', 'fr', 'de', 'es'] as const
-export type AppLocale = (typeof SUPPORTED_LOCALES)[number]
+const KNOWN_LOCALES = ['zh', 'en', 'ja', 'ko', 'fr', 'de', 'es'] as const
+type KnownLocale = (typeof KNOWN_LOCALES)[number]
 
-export const LOCALE_LABEL: Record<AppLocale, string> = {
+const LOCALE_LABEL: Record<KnownLocale, string> = {
   zh: '中文',
   en: 'English',
   ja: '日本語',
@@ -20,8 +14,7 @@ export const LOCALE_LABEL: Record<AppLocale, string> = {
   es: 'Español',
 }
 
-/** BCP-47 tag for `Intl` / `toLocaleString` from app locale code. */
-const BCP47: Record<AppLocale, string> = {
+const BCP47: Record<KnownLocale, string> = {
   zh: 'zh-CN',
   en: 'en-US',
   ja: 'ja-JP',
@@ -31,18 +24,46 @@ const BCP47: Record<AppLocale, string> = {
   es: 'es-ES',
 }
 
+export const SUPPORTED_LOCALES: readonly KnownLocale[] = KNOWN_LOCALES
+
+export type AppLocale = KnownLocale
+
+/** Static import map for lazy-loaded locale files. */
+const LOCALE_IMPORTS: Record<string, () => Promise<{ default: Record<string, unknown> }>> = {
+  en: () => import('./en'),
+  ja: () => import('./ja'),
+  ko: () => import('./ko'),
+  fr: () => import('./fr'),
+  de: () => import('./de'),
+  es: () => import('./es'),
+}
+
+async function loadLocale(locale: string): Promise<void> {
+  if (i18n.global.availableLocales.includes(locale)) return
+  const loader = LOCALE_IMPORTS[locale]
+  if (!loader) {
+    console.warn(`[i18n] locale "${locale}" has no import entry, falling back to zh`)
+    return
+  }
+  try {
+    const messages = await loader()
+    i18n.global.setLocaleMessage(locale, messages.default)
+  } catch {
+    console.warn(`[i18n] failed to load locale "${locale}", falling back to zh`)
+  }
+}
+
 export function appLocaleToBcp47(loc: AppLocale | string | undefined | null): string {
-  if (loc && (SUPPORTED_LOCALES as readonly string[]).includes(loc)) {
-    return BCP47[loc as AppLocale] ?? 'en-US'
+  if (loc && (KNOWN_LOCALES as readonly string[]).includes(loc)) {
+    return BCP47[loc as KnownLocale] ?? 'en-US'
   }
   return 'en-US'
 }
 
-function normalizeLocale(v: string | null): AppLocale {
-  if (v && (SUPPORTED_LOCALES as readonly string[]).includes(v)) {
-    return v as AppLocale
+function normalizeLocale(v: string | null): KnownLocale {
+  if (v && (KNOWN_LOCALES as readonly string[]).includes(v)) {
+    return v as KnownLocale
   }
-  // Best-effort fallback from the browser's preferred language
   const nav = (typeof navigator !== 'undefined' ? navigator.language : '') || ''
   const lc = nav.toLowerCase()
   if (lc.startsWith('ja')) return 'ja'
@@ -61,24 +82,30 @@ const savedLocale = normalizeLocale(
 const i18n = createI18n({
   legacy: false,
   locale: savedLocale,
-  // UI copy lives in this repo (versioned, fast) — not from DB. `fallbackLocale` only helps when a key
-  // is missing in the active catalog; `pnpm i18n:audit` + zh-first workflow keeps that rare.
-  fallbackLocale: ['en', 'zh'],
-  messages: { zh, en, ja, ko, fr, de, es },
-  // After audit passes, missing keys should be ~0; keep dev warnings, silence production console noise.
+  fallbackLocale: 'zh',
+  messages: { zh },
   missingWarn: import.meta.env.DEV,
   fallbackWarn: import.meta.env.DEV,
 })
 
+// Preload saved locale if it's not zh
+if (savedLocale !== 'zh') {
+  loadLocale(savedLocale)
+}
+
 export function setLocale(locale: AppLocale) {
-  ;(i18n.global.locale as any).value = locale
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('agent-hub-locale', locale)
-  }
+  loadLocale(locale).then(() => {
+    ;(i18n.global.locale as any).value = locale
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('agent-hub-locale', locale)
+    }
+  })
 }
 
 export function getLocale(): AppLocale {
   return (i18n.global.locale as any).value as AppLocale
 }
+
+export { LOCALE_LABEL }
 
 export default i18n

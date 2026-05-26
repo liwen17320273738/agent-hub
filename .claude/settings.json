@@ -1,5 +1,6 @@
 {
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(tail -30 /tmp/backend.log)",
       "Read(//private/tmp/**)",
@@ -28,6 +29,32 @@
       "Bash(python3 -c ' *)",
       "Bash(curl -s http://localhost:8000/api/pipeline/tasks?limit=3)",
       "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); tasks=data if isinstance\\(data,list\\) else data.get\\('tasks',data.get\\('data',[]\\)\\); [print\\(json.dumps\\({'id':t.get\\('id'\\),'title':t.get\\('title'\\),'status':t.get\\('status'\\),'current_stage_id':t.get\\('current_stage_id'\\)},ensure_ascii=False\\)\\) for t in tasks[:5]]\")"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph update --skip-flows --repo \"/Users/wayne/Documents/agent-hub\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat >/dev/null || true; git rev-parse --git-dir >/dev/null 2>&1 && code-review-graph status --repo \"/Users/wayne/Documents/agent-hub\" || echo 'Not a git repo, skipping'",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

@@ -1,19 +1,18 @@
 """
 Self-Verification Loop — 每个 Skill 执行后的自动验证
 
-验证链 (启发式规则，无 LLM 调用):
+验证链 (启发式规则 + 可选 LLM 快速过滤):
 1. 格式验证: 输出是否符合预期格式 (Markdown 标题/列表检测)
 2. 长度验证: 输出是否达到最低字符数要求
 3. 必要章节检测: 输出是否包含阶段要求的关键章节名
 4. 关键词检测: 输出是否包含特定结论关键词
 5. 一致性检查: 输出是否引用了前序阶段的主题
-6. 占位符检测: 输出是否残留 TODO/TBD 等占位符
+6. 占位符检测: 检测文字/TODO/语义占位符
 7. 截断检测: 输出是否被意外截断
+8. LLM 快速质量过滤: 有配置时用独立弱模型做实质性内容评估（非同一模型）
 
-每个验证步骤返回 PASS / WARN / FAIL + 具体原因
-
-NOTE: LLM-based quality evaluation is planned but not yet implemented.
-Current checks are purely heuristic (pattern matching, length, keyword).
+LLM-based quality evaluation can be enabled per-stage via
+QUALITY_CHECK_MODEL in settings.  When unset, only heuristic checks run.
 """
 from __future__ import annotations
 
@@ -141,6 +140,7 @@ def verify_stage_output(
 
     # 6. Common quality checks
     checks.append(_check_no_placeholder(output))
+    checks.append(_check_semantic_placeholder(output))
     checks.append(_check_no_truncation(output))
 
     # 7. Stage-specific structural checks
@@ -295,6 +295,53 @@ def _check_no_placeholder(output: str) -> VerifyResult:
     return VerifyResult(check_name="no_placeholder", status=VerifyStatus.PASS, message="无占位符")
 
 
+def _check_semantic_placeholder(output: str) -> VerifyResult:
+    """Detect semantic placeholders — phrases that promise future work but
+    deliver nothing concrete today."""
+    semantic_patterns = [
+        r"将在?下一[步版]?[本代]?[中里]?实现",
+        r"需[要待]进一步[讨确]?[论认定]?",
+        r"后[续期]?再[行考处]?虑理?",
+        r"(?:此功|该特)能[将在]?[于在]?(?:后续|未来|下一个?版本).*实现",
+        r"具体(?:细节|方案|实现).*(?:待定|稍后|暂无|后续)",
+        r"暂[时不]?[不考]?[考处]?虑",
+        r"这里省略\d+行",
+        r"以下(?:内容|代码|部分)省略",
+        r"代码略",
+        r"pending(?:ing)? implementation",
+        r"(?:to be|will be) implemented in future",
+        r"left as an exercise",
+        r"out of (?:the )?scope for now",
+        r"(?:this|the) feature will be added in (?:a )?(?:future|next)",
+    ]
+    found = []
+    for pattern in semantic_patterns:
+        matches = re.findall(pattern, output, re.IGNORECASE)
+        for m in matches:
+            # Find context: grab up to 60 chars around the match
+            idx = output.lower().find(m.lower())
+            start = max(0, idx - 40)
+            end = min(len(output), idx + len(m) + 40)
+            context = output[start:end].replace("\n", " ")
+            # Deduplicate by context
+            if not any(context[:30] in f for f in found):
+                found.append(context)
+    if found:
+        messages = "; ".join(f[:60] for f in found[:3])
+        if len(found) > 3:
+            messages += f" (+{len(found)-3} more)"
+        return VerifyResult(
+            check_name="semantic_placeholder",
+            status=VerifyStatus.WARN,
+            message=f"检测到语义占位符: {messages}",
+        )
+    return VerifyResult(
+        check_name="semantic_placeholder",
+        status=VerifyStatus.PASS,
+        message="无语义占位符",
+    )
+
+
 def _check_no_truncation(output: str) -> VerifyResult:
     truncation_signs = ["...", "（续）", "(continued)", "以下省略"]
     last_100 = output[-100:] if len(output) > 100 else output
@@ -405,6 +452,84 @@ def _check_user_stories(output: str, min_count: int) -> VerifyResult:
         status=VerifyStatus.WARN,
         message=f"用户故事/需求项偏少 ({count}/{min_count})",
     )
+
+
+async def llm_content_quality_check(
+    stage_id: str,
+    output: str,
+    previous_outputs: Optional[Dict[str, str]] = None,
+) -> Optional[VerifyResult]:
+    """Optional LLM-based content quality check using a dedicated lightweight model.
+
+    Only runs when QUALITY_CHECK_MODEL is set in settings.  Uses a short
+    model call to flag obviously empty / hallucinated / copy-pasta content.
+    This is NOT the deep evaluation in quality_gates.py — it's a cheap fast
+    filter for the self-verify loop.
+    """
+    try:
+        from ..config import settings
+
+        model = getattr(settings, "quality_check_model", "") or ""
+        api_url = getattr(settings, "quality_check_api_url", "") or ""
+        if not model:
+            return None  # disabled
+    except Exception:
+        return None
+
+    system_prompt = (
+        "You are a content quality filter. Read the stage output below and "
+        "answer ONLY with PASS or FAIL + one-line reason.\n\n"
+        "FAIL if ANY of:\n"
+        "- The output is mostly boilerplate / template text with no meaningful content\n"
+        "- It says 'under development' or 'coming soon' for every deliverable\n"
+        "- It's a copy-paste of the input prompt with minor rewording\n"
+        "- It's hallucinated (references real products/APIs that don't exist)\n"
+        "- It repeatedly says the same thing in different words with no substance\n\n"
+        "Otherwise PASS.\n\n"
+        "Format: PASS|FAIL: <reason>"
+    )
+    user_msg = f"## Stage: {stage_id}\n\n{output[:3000]}"
+    if previous_outputs:
+        context = "\n".join(
+            f"## {sid}\n{out[:500]}"
+            for sid, out in list(previous_outputs.items())[:2]
+            if out and sid != stage_id
+        )
+        if context:
+            user_msg = context + "\n\n" + user_msg
+
+    try:
+        from .llm_router import chat_completion
+
+        result = await chat_completion(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_msg},
+            ],
+            api_url=api_url,
+            temperature=0.1,
+            max_tokens=200,
+        )
+        if result.get("error"):
+            return None
+
+        content = (result.get("content") or "").strip()
+        if content.upper().startswith("FAIL"):
+            reason = content.split(":", 1)[1].strip() if ":" in content else "内容质量不达标"
+            return VerifyResult(
+                check_name="llm_quality",
+                status=VerifyStatus.WARN,
+                message=f"LLM 质量过滤: {reason}",
+            )
+        return VerifyResult(
+            check_name="llm_quality",
+            status=VerifyStatus.PASS,
+            message="LLM 质量过滤通过",
+        )
+    except Exception as e:
+        logger.debug(f"[self_verify] LLM content quality check skipped: {e}")
+        return None
 
 
 def _compute_overall(checks: List[VerifyResult]) -> VerifyStatus:

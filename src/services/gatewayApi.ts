@@ -4,6 +4,10 @@ import type { PipelineTask } from '@/agents/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
+function stripHtml(str: string): string {
+  return str.replace(/<[^>]*>/g, '')
+}
+
 export interface OpenClawIntakeResponse {
   ok: boolean
   action?: string
@@ -40,6 +44,12 @@ export async function openClawIntake(payload: {
     throw new Error('OpenClaw gateway key missing. Set VITE_PIPELINE_API_KEY or localStorage agent-hub-pipeline-key.')
   }
 
+  const safePayload = {
+    ...payload,
+    title: stripHtml(payload.title),
+    description: payload.description ? stripHtml(payload.description) : undefined,
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
@@ -52,7 +62,7 @@ export async function openClawIntake(payload: {
   const res = await fetch(`${API_BASE}/gateway/openclaw/intake`, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(safePayload),
   })
 
   if (!res.ok) {

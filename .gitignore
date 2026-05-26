@@ -62,3 +62,5 @@ backend/file::memory:-journal
 # aiosqlite artifacts at root level (should not exist; ignore if they do)
 /file::memory:
 /file::memory:-journal
+# Added by code-review-graph
+.code-review-graph/

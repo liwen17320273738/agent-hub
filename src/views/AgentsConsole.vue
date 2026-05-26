@@ -202,7 +202,7 @@ onMounted(loadMeta)
       <div>
         <h1>{{ t('agentsConsole.text_1') }}</h1>
         <p class="page-subtitle">
-          直接召唤任意专家完成单次任务，无需走完整流水线。支持流式查看推理与工具调用。
+          {{ $t('AgentsConsole.summon') }}，无需走完整流水线。支持流式查看推理与工具调用。
         </p>
       </div>
       <el-button :loading="loadingMeta" plain @click="loadMeta">{{ t('agentsConsole.text_2') }}</el-button>

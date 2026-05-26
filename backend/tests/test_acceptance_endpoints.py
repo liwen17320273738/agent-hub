@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.pipeline import PipelineTask, PipelineStage
+from app.models.task_artifact import TaskArtifact
 
 
 # ── shared fixture: stub out the Redis-backed SSE emitter ───────────────
@@ -37,6 +38,7 @@ def _stub_emit_event(monkeypatch):
 async def _seed_completed_task(db, user) -> str:
     """Create a task that's parked at the final-acceptance terminus,
     with a few completed stages so reject-with-restart has somewhere to go.
+    Also writes stub v2 artifacts to satisfy the delivery contract evidence check.
 
     Uses a *fresh* async session rather than the ``db`` fixture because the
     httpx ASGI client opens its own session per request and co-mingling
@@ -66,6 +68,28 @@ async def _seed_completed_task(db, user) -> str:
                 sort_order=idx,
                 status="done",
                 output=f"output-{sid}",
+            ))
+        # Write stub v2 artifacts to pass delivery contract evidence checks
+        stub_artifacts: list[tuple[str, str, str]] = [
+            ("test_report", "## 测试报告\n- 构建通过\n- 冒烟测试通过\n", "text/markdown"),
+            ("build_log", "[ACCEPTANCE_MOCK] pnpm install\n[ACCEPTANCE_MOCK] pnpm build\nexit: 0\n", "text/plain"),
+            ("test_log", "[ACCEPTANCE_MOCK] pnpm test output\nPASS tests/unit/test.spec.ts\nTests: 1 passed\n", "text/plain"),
+            ("preview_url", '{"url":"http://127.0.0.1:4173/mock","provider":"mock-local","health_status":"healthy"}\n', "application/json"),
+            ("screenshot", "[ACCEPTANCE_MOCK] screenshot placeholder\n", "text/plain"),
+            ("deploy_manifest", '{"preview_url":"http://127.0.0.1:4173/mock","provider":"mock"}\n', "application/json"),
+            ("acceptance", "## 验收\n- [x] 测试通过、构建OK、预览截图已确认\n", "text/markdown"),
+        ]
+        for atype, content, mime in stub_artifacts:
+            s.add(TaskArtifact(
+                task_id=task.id,
+                artifact_type=atype,
+                title=atype,
+                content=content,
+                mime_type=mime,
+                storage_path=f"mock/{atype}",
+                version=1,
+                is_latest=True,
+                status="active",
             ))
         await s.commit()
         task_id = str(task.id)

@@ -152,6 +152,23 @@ async def test_share_artifact_contract_public(client, auth_headers):
         headers=auth_headers,
     )
     task_id = c.json()["task"]["id"]
+
+    # Write stub artifacts so delivery contract passes share generation
+    for atype, content in (
+        ("test_report", "## 测试报告\n- 构建通过\n"),
+        ("build_log", "[MOCK] pnpm build\nexit: 0\n"),
+        ("test_log", "[MOCK] pnpm test\nPASS\n"),
+        ("preview_url", '{"url":"http://127.0.0.1:4173/mock","provider":"mock","health_status":"healthy"}\n'),
+        ("screenshot", "mock screenshot\n"),
+        ("deploy_manifest", '{"preview_url":"http://127.0.0.1:4173/mock"}\n'),
+        ("acceptance", "## 验收\n- [x] 测试通过、截图已确认\n"),
+    ):
+        await client.post(
+            f"/api/tasks/{task_id}/artifacts/{atype}",
+            json={"title": atype, "content": content, "mime_type": "text/markdown"},
+            headers=auth_headers,
+        )
+
     tok = (
         await client.post(
             "/api/share/generate",

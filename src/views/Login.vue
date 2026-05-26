@@ -29,6 +29,11 @@
         </el-button>
       </el-form>
       <p v-if="error" class="error-text">{{ error }}</p>
+
+      <div class="login-footer">
+        <p class="footer-hint">{{ t('login.noAccountHint') }}</p>
+        <p class="footer-help">{{ t('login.contactAdmin') }}</p>
+      </div>
     </div>
   </div>
 </template>
@@ -164,5 +169,24 @@ async function onSubmit() {
   margin: 16px 0 0;
   font-size: 13px;
   color: var(--el-color-danger);
+}
+
+.login-footer {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+  text-align: center;
+}
+
+.footer-hint {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.footer-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 </style>

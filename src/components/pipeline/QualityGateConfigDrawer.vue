@@ -26,7 +26,7 @@
       <div class="drawer-header">
         <h3>
           <el-icon><Setting /></el-icon>
-          质量门禁阈值配置
+          {{ $t('QualityGateConfigDrawer.title') }}
         </h3>
         <span v-if="hasUnsavedChanges" class="unsaved-tag">{{ t('qualityGateConfigDrawer.text_1') }}</span>
       </div>

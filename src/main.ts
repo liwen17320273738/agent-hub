@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 // Element Plus: on-demand import via unplugin-vue-components + unplugin-auto-import
 // CSS is auto-imported per component by the Vite plugin resolver
@@ -36,9 +36,20 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
+// Dynamically set html lang attribute based on i18n locale
+import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+
 ;(async () => {
   if (isEnterpriseBuild) {
     await useAuthStore().hydrate()
   }
   app.mount('#app')
+  // Update html lang when locale changes
+  const i18n2 = app.config.globalProperties.$i18n
+  if (i18n2) {
+    watch(() => i18n2.locale, (l: string) => {
+      document.documentElement.lang = l === 'zh' ? 'zh-CN' : l === 'en' ? 'en' : l
+    }, { immediate: true })
+  }
 })()

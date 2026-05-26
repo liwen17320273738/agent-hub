@@ -139,24 +139,22 @@ async def get_usage_summary(
     org_id: uuid.UUID,
     days: int = 30,
 ) -> dict:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
-    stmt = (
-        select(
-            TokenUsage.provider,
-            TokenUsage.model,
-            func.sum(TokenUsage.prompt_tokens).label("total_prompt"),
-            func.sum(TokenUsage.completion_tokens).label("total_completion"),
-            func.sum(TokenUsage.total_tokens).label("total_tokens"),
-            func.sum(TokenUsage.cost_usd).label("total_cost"),
-            func.count().label("request_count"),
-        )
-        .where(TokenUsage.org_id == org_id, TokenUsage.created_at >= cutoff)
-        .group_by(TokenUsage.provider, TokenUsage.model)
-        .order_by(func.sum(TokenUsage.cost_usd).desc())
-    )
+    stmt = text("""
+        SELECT provider, model,
+               SUM(prompt_tokens) AS total_prompt,
+               SUM(completion_tokens) AS total_completion,
+               SUM(total_tokens) AS total_tokens,
+               SUM(cost_usd) AS total_cost,
+               COUNT(*) AS request_count
+        FROM token_usage
+        WHERE org_id = :org_id AND created_at >= :cutoff::timestamp
+        GROUP BY provider, model
+        ORDER BY SUM(cost_usd) DESC
+    """)
 
-    result = await db.execute(stmt)
+    result = await db.execute(stmt, {"org_id": org_id, "cutoff": cutoff})
     rows = result.all()
 
     summaries = []

@@ -1,0 +1,439 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5] [cursor=pointer]:
+      - img [ref=e7]
+      - generic [ref=e9]: Agent Hub
+    - button "Workspace" [ref=e497] [cursor=pointer]:
+      - img [ref=e14]
+      - generic [ref=e18]: Workspace
+      - img [ref=e20]
+    - generic [ref=e24]:
+      - img [ref=e27]
+      - textbox "Search all conversations…" [ref=e498]
+    - navigation [ref=e30]:
+      - link "Home" [ref=e499] [cursor=pointer]:
+        - /url: "#/"
+        - img [ref=e33]
+        - generic [ref=e35]: Home
+      - link "Inbox" [ref=e500] [cursor=pointer]:
+        - /url: "#/inbox"
+        - img [ref=e38]
+        - generic [ref=e40]: Inbox
+      - link "Team" [ref=e501] [cursor=pointer]:
+        - /url: "#/team"
+        - img [ref=e43]
+        - generic [ref=e45]: Team
+      - link "Workflow" [ref=e502] [cursor=pointer]:
+        - /url: "#/workflow"
+        - img [ref=e48]
+        - generic [ref=e50]: Workflow
+      - link "Assets" [ref=e503] [cursor=pointer]:
+        - /url: "#/assets"
+        - img [ref=e53]
+        - generic [ref=e58]: Assets
+    - generic [ref=e59]:
+      - generic [ref=e60] [cursor=pointer]:
+        - img [ref=e62]
+        - generic [ref=e64]: Light
+      - button "English" [active] [ref=e504]:
+        - img [ref=e68]
+        - generic [ref=e70]: English
+      - link "Settings" [ref=e505] [cursor=pointer]:
+        - /url: "#/settings"
+        - img [ref=e73]
+        - generic [ref=e75]: Settings
+  - main [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - heading "AI Delivery Platform" [level=1] [ref=e506]
+          - paragraph [ref=e81]: Tell your AI team what you need in one sentence
+          - textbox "e.g. Create a competitive analysis report of OpenAI vs Anthropic" [ref=e507]
+          - generic [ref=e86]:
+            - generic [ref=e87]:
+              - generic [ref=e88]:
+                - generic "点击开始录音" [ref=e89] [cursor=pointer]:
+                  - img [ref=e91]
+                - generic "上传音频文件进行转录" [ref=e95] [cursor=pointer]:
+                  - img [ref=e97]
+              - generic [ref=e100]: 语音输入
+            - button "Plan First" [disabled] [ref=e508]:
+              - generic [ref=e102]: Plan First
+            - button "Execute Now" [disabled] [ref=e509]:
+              - generic [ref=e104]: Execute Now
+            - button "Inbox" [ref=e510] [cursor=pointer]:
+              - generic [ref=e106]: Inbox
+          - generic [ref=e107]:
+            - button "📊 Competitor Research" [ref=e511] [cursor=pointer]:
+              - generic [ref=e109]: 📊
+              - text: Competitor Research
+            - button "📝 Weekly Report" [ref=e512] [cursor=pointer]:
+              - generic [ref=e111]: 📝
+              - text: Weekly Report
+            - button "🛠 PRD→Code" [ref=e513] [cursor=pointer]:
+              - generic [ref=e113]: 🛠
+              - text: PRD→Code
+            - button "💬 Customer Support" [ref=e514] [cursor=pointer]:
+              - generic [ref=e115]: 💬
+              - text: Customer Support
+            - button "📈 Data Analytics" [ref=e515] [cursor=pointer]:
+              - generic [ref=e117]: 📈
+              - text: Data Analytics
+        - generic [ref=e118]:
+          - button "0 Pending" [ref=e516] [cursor=pointer]:
+            - generic [ref=e120]: "0"
+            - text: Pending
+          - button "11 Running" [ref=e517] [cursor=pointer]:
+            - generic [ref=e122]: "11"
+            - text: Running
+          - button "0 Completed" [ref=e518] [cursor=pointer]:
+            - generic [ref=e124]: "0"
+            - text: Completed
+          - button "0 Failed" [ref=e519] [cursor=pointer]:
+            - generic [ref=e126]: "0"
+            - text: Failed
+          - button "0 Cancelled" [ref=e520] [cursor=pointer]:
+            - generic [ref=e128]: "0"
+            - text: Cancelled
+      - alert [ref=e129]:
+        - img [ref=e131]
+        - generic [ref=e134]:
+          - text: No API key configured, go to
+          - link "Settings" [ref=e521] [cursor=pointer]:
+            - /url: "#/settings"
+          - text: to configure.
+      - generic [ref=e136]:
+        - heading "Recent Tasks" [level=2] [ref=e522]:
+          - img [ref=e139]
+          - text: Recent Tasks
+        - generic [ref=e143]:
+          - generic [ref=e144] [cursor=pointer]:
+            - generic [ref=e145]:
+              - generic [ref=e146]: 回归测试
+              - generic [ref=e148]: Running
+            - generic [ref=e149]:
+              - generic [ref=e150]: web
+              - generic [ref=e151]: planning
+              - generic [ref=e152]: 05/26, 01:50 PM
+            - generic [ref=e153]:
+              - generic "需求：未开始" [ref=e154]:
+                - generic [ref=e155]: 📋
+                - generic [ref=e156]: 需求
+              - generic "UI：未开始" [ref=e157]:
+                - generic [ref=e158]: 🎨
+                - generic [ref=e159]: UI
+              - generic "架构：未开始" [ref=e160]:
+                - generic [ref=e161]: 🏗
+                - generic [ref=e162]: 架构
+              - generic "代码：未开始" [ref=e163]:
+                - generic [ref=e164]: 💻
+                - generic [ref=e165]: 代码
+              - generic "测试：未开始" [ref=e166]:
+                - generic [ref=e167]: 🧪
+                - generic [ref=e168]: 测试
+              - generic "安全：未开始" [ref=e169]:
+                - generic [ref=e170]: 🔒
+                - generic [ref=e171]: 安全
+              - generic "验收：未开始" [ref=e172]:
+                - generic [ref=e173]: ✅
+                - generic [ref=e174]: 验收
+              - generic "运维：未开始" [ref=e175]:
+                - generic [ref=e176]: 🚀
+                - generic [ref=e177]: 运维
+          - generic [ref=e178] [cursor=pointer]:
+            - generic [ref=e179]:
+              - generic [ref=e180]: 验证测试
+              - generic [ref=e182]: Running
+            - generic [ref=e183]:
+              - generic [ref=e184]: web
+              - generic [ref=e185]: planning
+              - generic [ref=e186]: 05/26, 01:47 PM
+            - generic [ref=e187]:
+              - generic "需求：未开始" [ref=e188]:
+                - generic [ref=e189]: 📋
+                - generic [ref=e190]: 需求
+              - generic "UI：未开始" [ref=e191]:
+                - generic [ref=e192]: 🎨
+                - generic [ref=e193]: UI
+              - generic "架构：未开始" [ref=e194]:
+                - generic [ref=e195]: 🏗
+                - generic [ref=e196]: 架构
+              - generic "代码：未开始" [ref=e197]:
+                - generic [ref=e198]: 💻
+                - generic [ref=e199]: 代码
+              - generic "测试：未开始" [ref=e200]:
+                - generic [ref=e201]: 🧪
+                - generic [ref=e202]: 测试
+              - generic "安全：未开始" [ref=e203]:
+                - generic [ref=e204]: 🔒
+                - generic [ref=e205]: 安全
+              - generic "验收：未开始" [ref=e206]:
+                - generic [ref=e207]: ✅
+                - generic [ref=e208]: 验收
+              - generic "运维：未开始" [ref=e209]:
+                - generic [ref=e210]: 🚀
+                - generic [ref=e211]: 运维
+          - generic [ref=e212] [cursor=pointer]:
+            - generic [ref=e213]:
+              - generic [ref=e214]: <img src=x onerror=alert(1)>
+              - generic [ref=e216]: Running
+            - generic [ref=e217]:
+              - generic [ref=e218]: web
+              - generic [ref=e219]: planning
+              - generic [ref=e220]: 05/26, 01:12 PM
+            - generic [ref=e221]:
+              - generic "需求：未开始" [ref=e222]:
+                - generic [ref=e223]: 📋
+                - generic [ref=e224]: 需求
+              - generic "UI：未开始" [ref=e225]:
+                - generic [ref=e226]: 🎨
+                - generic [ref=e227]: UI
+              - generic "架构：未开始" [ref=e228]:
+                - generic [ref=e229]: 🏗
+                - generic [ref=e230]: 架构
+              - generic "代码：未开始" [ref=e231]:
+                - generic [ref=e232]: 💻
+                - generic [ref=e233]: 代码
+              - generic "测试：未开始" [ref=e234]:
+                - generic [ref=e235]: 🧪
+                - generic [ref=e236]: 测试
+              - generic "安全：未开始" [ref=e237]:
+                - generic [ref=e238]: 🔒
+                - generic [ref=e239]: 安全
+              - generic "验收：未开始" [ref=e240]:
+                - generic [ref=e241]: ✅
+                - generic [ref=e242]: 验收
+              - generic "运维：未开始" [ref=e243]:
+                - generic [ref=e244]: 🚀
+                - generic [ref=e245]: 运维
+          - generic [ref=e246] [cursor=pointer]:
+            - generic [ref=e247]:
+              - generic [ref=e248]: 正常任务
+              - generic [ref=e250]: Running
+            - generic [ref=e251]:
+              - generic [ref=e252]: web
+              - generic [ref=e253]: planning
+              - generic [ref=e254]: 05/26, 12:37 PM
+            - generic [ref=e255]:
+              - generic "需求：未开始" [ref=e256]:
+                - generic [ref=e257]: 📋
+                - generic [ref=e258]: 需求
+              - generic "UI：未开始" [ref=e259]:
+                - generic [ref=e260]: 🎨
+                - generic [ref=e261]: UI
+              - generic "架构：未开始" [ref=e262]:
+                - generic [ref=e263]: 🏗
+                - generic [ref=e264]: 架构
+              - generic "代码：未开始" [ref=e265]:
+                - generic [ref=e266]: 💻
+                - generic [ref=e267]: 代码
+              - generic "测试：未开始" [ref=e268]:
+                - generic [ref=e269]: 🧪
+                - generic [ref=e270]: 测试
+              - generic "安全：未开始" [ref=e271]:
+                - generic [ref=e272]: 🔒
+                - generic [ref=e273]: 安全
+              - generic "验收：未开始" [ref=e274]:
+                - generic [ref=e275]: ✅
+                - generic [ref=e276]: 验收
+              - generic "运维：未开始" [ref=e277]:
+                - generic [ref=e278]: 🚀
+                - generic [ref=e279]: 运维
+          - generic [ref=e280] [cursor=pointer]:
+            - generic [ref=e281]:
+              - generic [ref=e282]: Negative budget
+              - generic [ref=e284]: Running
+            - generic [ref=e285]:
+              - generic [ref=e286]: web
+              - generic [ref=e287]: planning
+              - generic [ref=e288]: 05/26, 12:32 PM
+            - generic [ref=e289]:
+              - generic "需求：未开始" [ref=e290]:
+                - generic [ref=e291]: 📋
+                - generic [ref=e292]: 需求
+              - generic "UI：未开始" [ref=e293]:
+                - generic [ref=e294]: 🎨
+                - generic [ref=e295]: UI
+              - generic "架构：未开始" [ref=e296]:
+                - generic [ref=e297]: 🏗
+                - generic [ref=e298]: 架构
+              - generic "代码：未开始" [ref=e299]:
+                - generic [ref=e300]: 💻
+                - generic [ref=e301]: 代码
+              - generic "测试：未开始" [ref=e302]:
+                - generic [ref=e303]: 🧪
+                - generic [ref=e304]: 测试
+              - generic "安全：未开始" [ref=e305]:
+                - generic [ref=e306]: 🔒
+                - generic [ref=e307]: 安全
+              - generic "验收：未开始" [ref=e308]:
+                - generic [ref=e309]: ✅
+                - generic [ref=e310]: 验收
+              - generic "运维：未开始" [ref=e311]:
+                - generic [ref=e312]: 🚀
+                - generic [ref=e313]: 运维
+          - generic [ref=e314] [cursor=pointer]:
+            - generic [ref=e315]:
+              - generic [ref=e316]: Budget test task
+              - generic [ref=e318]: Running
+            - generic [ref=e319]:
+              - generic [ref=e320]: web
+              - generic [ref=e321]: planning
+              - generic [ref=e322]: 05/26, 12:32 PM
+            - generic [ref=e323]:
+              - generic "需求：未开始" [ref=e324]:
+                - generic [ref=e325]: 📋
+                - generic [ref=e326]: 需求
+              - generic "UI：未开始" [ref=e327]:
+                - generic [ref=e328]: 🎨
+                - generic [ref=e329]: UI
+              - generic "架构：未开始" [ref=e330]:
+                - generic [ref=e331]: 🏗
+                - generic [ref=e332]: 架构
+              - generic "代码：未开始" [ref=e333]:
+                - generic [ref=e334]: 💻
+                - generic [ref=e335]: 代码
+              - generic "测试：未开始" [ref=e336]:
+                - generic [ref=e337]: 🧪
+                - generic [ref=e338]: 测试
+              - generic "安全：未开始" [ref=e339]:
+                - generic [ref=e340]: 🔒
+                - generic [ref=e341]: 安全
+              - generic "验收：未开始" [ref=e342]:
+                - generic [ref=e343]: ✅
+                - generic [ref=e344]: 验收
+              - generic "运维：未开始" [ref=e345]:
+                - generic [ref=e346]: 🚀
+                - generic [ref=e347]: 运维
+          - generic [ref=e348] [cursor=pointer]:
+            - generic [ref=e349]:
+              - generic [ref=e350]: 做一个用户登录和注册页面
+              - generic [ref=e352]: Running
+            - generic [ref=e353]:
+              - generic [ref=e354]: web
+              - generic [ref=e355]: planning
+              - generic [ref=e356]: 05/26, 12:27 PM
+            - generic [ref=e357]:
+              - generic "需求：未开始" [ref=e358]:
+                - generic [ref=e359]: 📋
+                - generic [ref=e360]: 需求
+              - generic "UI：未开始" [ref=e361]:
+                - generic [ref=e362]: 🎨
+                - generic [ref=e363]: UI
+              - generic "架构：未开始" [ref=e364]:
+                - generic [ref=e365]: 🏗
+                - generic [ref=e366]: 架构
+              - generic "代码：未开始" [ref=e367]:
+                - generic [ref=e368]: 💻
+                - generic [ref=e369]: 代码
+              - generic "测试：未开始" [ref=e370]:
+                - generic [ref=e371]: 🧪
+                - generic [ref=e372]: 测试
+              - generic "安全：未开始" [ref=e373]:
+                - generic [ref=e374]: 🔒
+                - generic [ref=e375]: 安全
+              - generic "验收：未开始" [ref=e376]:
+                - generic [ref=e377]: ✅
+                - generic [ref=e378]: 验收
+              - generic "运维：未开始" [ref=e379]:
+                - generic [ref=e380]: 🚀
+                - generic [ref=e381]: 运维
+          - generic [ref=e382] [cursor=pointer]:
+            - generic [ref=e383]:
+              - generic [ref=e384]: 做一个用户登录和注册页面
+              - generic [ref=e386]: Running
+            - generic [ref=e387]:
+              - generic [ref=e388]: web
+              - generic [ref=e389]: planning
+              - generic [ref=e390]: 05/26, 12:27 PM
+            - generic [ref=e391]:
+              - generic "需求：未开始" [ref=e392]:
+                - generic [ref=e393]: 📋
+                - generic [ref=e394]: 需求
+              - generic "UI：未开始" [ref=e395]:
+                - generic [ref=e396]: 🎨
+                - generic [ref=e397]: UI
+              - generic "架构：未开始" [ref=e398]:
+                - generic [ref=e399]: 🏗
+                - generic [ref=e400]: 架构
+              - generic "代码：未开始" [ref=e401]:
+                - generic [ref=e402]: 💻
+                - generic [ref=e403]: 代码
+              - generic "测试：未开始" [ref=e404]:
+                - generic [ref=e405]: 🧪
+                - generic [ref=e406]: 测试
+              - generic "安全：未开始" [ref=e407]:
+                - generic [ref=e408]: 🔒
+                - generic [ref=e409]: 安全
+              - generic "验收：未开始" [ref=e410]:
+                - generic [ref=e411]: ✅
+                - generic [ref=e412]: 验收
+              - generic "运维：未开始" [ref=e413]:
+                - generic [ref=e414]: 🚀
+                - generic [ref=e415]: 运维
+          - generic [ref=e416] [cursor=pointer]:
+            - generic [ref=e417]:
+              - generic [ref=e418]: Build a SaaS landing page
+              - generic [ref=e420]: Running
+            - generic [ref=e421]:
+              - generic [ref=e422]: web
+              - generic [ref=e423]: planning
+              - generic [ref=e424]: 05/26, 11:46 AM
+            - generic [ref=e425]:
+              - generic "需求：未开始" [ref=e426]:
+                - generic [ref=e427]: 📋
+                - generic [ref=e428]: 需求
+              - generic "UI：未开始" [ref=e429]:
+                - generic [ref=e430]: 🎨
+                - generic [ref=e431]: UI
+              - generic "架构：未开始" [ref=e432]:
+                - generic [ref=e433]: 🏗
+                - generic [ref=e434]: 架构
+              - generic "代码：未开始" [ref=e435]:
+                - generic [ref=e436]: 💻
+                - generic [ref=e437]: 代码
+              - generic "测试：未开始" [ref=e438]:
+                - generic [ref=e439]: 🧪
+                - generic [ref=e440]: 测试
+              - generic "安全：未开始" [ref=e441]:
+                - generic [ref=e442]: 🔒
+                - generic [ref=e443]: 安全
+              - generic "验收：未开始" [ref=e444]:
+                - generic [ref=e445]: ✅
+                - generic [ref=e446]: 验收
+              - generic "运维：未开始" [ref=e447]:
+                - generic [ref=e448]: 🚀
+                - generic [ref=e449]: 运维
+          - generic [ref=e450] [cursor=pointer]:
+            - generic [ref=e451]:
+              - generic [ref=e452]: 做一个简单的待办事项页面
+              - generic [ref=e454]: Running
+            - generic [ref=e455]:
+              - generic [ref=e456]: web
+              - generic [ref=e457]: planning
+              - generic [ref=e458]: 05/26, 11:28 AM
+            - generic [ref=e459]:
+              - generic "需求：未开始" [ref=e460]:
+                - generic [ref=e461]: 📋
+                - generic [ref=e462]: 需求
+              - generic "UI：未开始" [ref=e463]:
+                - generic [ref=e464]: 🎨
+                - generic [ref=e465]: UI
+              - generic "架构：未开始" [ref=e466]:
+                - generic [ref=e467]: 🏗
+                - generic [ref=e468]: 架构
+              - generic "代码：未开始" [ref=e469]:
+                - generic [ref=e470]: 💻
+                - generic [ref=e471]: 代码
+              - generic "测试：未开始" [ref=e472]:
+                - generic [ref=e473]: 🧪
+                - generic [ref=e474]: 测试
+              - generic "安全：未开始" [ref=e475]:
+                - generic [ref=e476]: 🔒
+                - generic [ref=e477]: 安全
+              - generic "验收：未开始" [ref=e478]:
+                - generic [ref=e479]: ✅
+                - generic [ref=e480]: 验收
+              - generic "运维：未开始" [ref=e481]:
+                - generic [ref=e482]: 🚀
+                - generic [ref=e483]: 运维
