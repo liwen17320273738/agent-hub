@@ -1,5 +1,6 @@
 import { createI18n } from 'vue-i18n'
 import zh from './zh'
+import en from './en'
 
 const KNOWN_LOCALES = ['zh', 'en', 'ja', 'ko', 'fr', 'de', 'es'] as const
 type KnownLocale = (typeof KNOWN_LOCALES)[number]
@@ -30,12 +31,8 @@ export type AppLocale = KnownLocale
 
 /** Static import map for lazy-loaded locale files. */
 const LOCALE_IMPORTS: Record<string, () => Promise<{ default: Record<string, unknown> }>> = {
-  en: () => import('./en'),
   ja: () => import('./ja'),
   ko: () => import('./ko'),
-  fr: () => import('./fr'),
-  de: () => import('./de'),
-  es: () => import('./es'),
 }
 
 async function loadLocale(locale: string): Promise<void> {
@@ -83,7 +80,13 @@ const i18n = createI18n({
   legacy: false,
   locale: savedLocale,
   fallbackLocale: 'zh',
-  messages: { zh },
+  messages: {
+    zh,
+    en,
+    fr: en,
+    de: en,
+    es: en,
+  },
   missingWarn: import.meta.env.DEV,
   fallbackWarn: import.meta.env.DEV,
 })

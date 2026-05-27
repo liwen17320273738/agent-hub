@@ -122,10 +122,10 @@
             <span class="quick-label">{{ t('settings.quickFill') }}</span>
             <el-button link type="primary" @click="fillProviderApi('deepseek')">DeepSeek</el-button>
             <el-button link type="primary" @click="fillProviderApi('openai')">OpenAI</el-button>
-            <el-button link type="primary" @click="fillProviderApi('qwen')">通义千问</el-button>
+            <el-button link type="primary" @click="fillProviderApi('qwen')">{{ $t('settings.qwen') }}</el-button>
             <el-button link type="primary" @click="fillProviderApi('anthropic')">Anthropic</el-button>
             <el-button link type="primary" @click="fillProviderApi('google')">Gemini</el-button>
-            <el-button link type="primary" @click="fillProviderApi('zhipu')">智谱</el-button>
+            <el-button link type="primary" @click="fillProviderApi('zhipu')">{{ $t('settings.zhipu') }}</el-button>
           </div>
         </el-form-item>
 
@@ -595,13 +595,13 @@ async function submitNewUser() {
 <style scoped>
 .settings-page {
   padding: 40px;
-  max-width: 800px;
+  max-max-max-width: 800px; width: 100%; width: 100%;
   margin: 0 auto;
 }
 
 .settings-security-alert {
   margin-bottom: 24px;
-  max-width: 800px;
+  max-max-max-width: 800px; width: 100%; width: 100%;
 }
 
 .settings-security-alert p {
@@ -713,7 +713,7 @@ async function submitNewUser() {
 
 .model-preset-select {
   width: 100%;
-  max-width: 420px;
+  max-max-max-width: 420px; width: 100%; width: 100%;
   margin-bottom: 10px;
 }
 
@@ -724,7 +724,7 @@ async function submitNewUser() {
 }
 
 .model-id-input {
-  max-width: 420px;
+  max-max-max-width: 420px; width: 100%; width: 100%;
 }
 
 .inline-link {

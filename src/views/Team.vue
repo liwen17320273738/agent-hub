@@ -14,7 +14,7 @@
     <section class="pipeline-status" v-if="pipelineTasks.length">
       <h2 class="section-title">
         <el-icon><Connection /></el-icon>
-        当前流水线状态
+        {{ $t('team.currentPipeline') }}
       </h2>
       <div class="pipeline-bar">
         <div
@@ -76,7 +76,7 @@
     <section class="collab-section" v-if="collabLinks.length">
       <h2 class="section-title">
         <el-icon><Share /></el-icon>
-        协作关系
+        {{ $t('team.collaboration') }}
       </h2>
       <div class="collab-grid">
         <div v-for="link in collabLinks" :key="link.from + link.to" class="collab-card">
@@ -279,7 +279,7 @@ const collabLinks = computed(() => {
         fromName: nameMap.get(role) || role,
         to: reviewer,
         toName: nameMap.get(reviewer) || reviewer,
-        actionLabel: '输出由',
+        actionLabel: t('team.outputBy'),
       })
     }
   }
@@ -306,7 +306,7 @@ const collabLinks = computed(() => {
           fromName: nameMap.get(role) || role,
           to: target,
           toName: nameMap.get(target) || target,
-          actionLabel: '可升级至',
+          actionLabel: t('team.canUpgradeTo'),
         })
       }
     }
@@ -388,47 +388,59 @@ function goAgent(id: string) {
 .team-view {
   box-sizing: border-box;
   width: 100%;
-  padding: clamp(16px, 2.5vw, 28px) clamp(16px, 3vw, 36px);
+  padding: clamp(16px, 2.5vw, 32px) clamp(16px, 3vw, 40px);
 }
 
 .team-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .team-header h1 {
-  font-size: 22px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
   margin-bottom: 4px;
+  background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .view-subtitle {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 12px 0;
+  font-weight: 700;
+  margin: 0 0 14px 0;
+  color: var(--text-primary);
+}
+
+.section-title .el-icon {
+  color: var(--accent);
 }
 
 /* Pipeline Status */
 .pipeline-status {
-  margin-bottom: 24px;
-  padding: 16px;
-  background: var(--el-bg-color-page);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
+  margin-bottom: 26px;
+  padding: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
 }
 
 .pipeline-bar {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   overflow-x: auto;
   padding-bottom: 4px;
 }
@@ -439,67 +451,98 @@ function goAgent(id: string) {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  min-width: 100px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  min-width: 110px;
+  transition: all 0.2s;
 }
 
 .pipeline-node.ps-active,
 .pipeline-node.ps-running,
 .pipeline-node.ps-processing {
-  border-color: var(--el-color-warning);
-  background: rgba(230, 162, 60, 0.06);
+  border-color: rgba(251, 191, 36, 0.3);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08), rgba(245, 158, 11, 0.04));
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.08);
 }
 
 .ps-icon { font-size: 18px; }
-.ps-label { font-size: 12px; font-weight: 600; }
-.ps-agent { font-size: 10px; color: var(--el-text-color-secondary); }
+.ps-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.ps-agent { font-size: 11px; color: var(--text-muted); }
 
-/* Agent Grid — fill main width; column count follows viewport */
+/* Agent Grid */
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
-  gap: clamp(10px, 1.8vw, 16px);
-  margin-bottom: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: clamp(10px, 1.8vw, 14px);
+  margin-bottom: 26px;
 }
 
 .agent-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 12px;
-  border: 1.5px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
 }
 
 .agent-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-3px);
+  border-color: var(--card-border-hover);
 }
 
 .agent-card.agent-active {
-  border-color: var(--el-color-warning);
-  box-shadow: 0 0 0 1px rgba(230, 162, 60, 0.15);
+  border-color: rgba(251, 191, 36, 0.25);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.1), var(--card-shadow-hover);
+}
+
+.agent-card.agent-active::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
 }
 
 .agent-card.agent-idle {
-  opacity: 0.8;
+  opacity: 0.75;
+}
+
+.agent-card.agent-idle:hover {
+  opacity: 1;
 }
 
 .agent-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  pointer-events: none;
 }
 
 .agent-info {
@@ -514,29 +557,30 @@ function goAgent(id: string) {
 }
 
 .agent-name {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 14px;
+  color: var(--text-primary);
 }
 
 .agent-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .agent-status-dot.on {
-  background: #67c23a;
-  box-shadow: 0 0 6px rgba(103, 194, 58, 0.5);
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(52, 211, 153, 0.5);
 }
 
 .agent-status-dot.off {
-  background: #dcdfe6;
+  background: var(--border-light);
 }
 
 .agent-role {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
   margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -558,9 +602,9 @@ function goAgent(id: string) {
 .agent-task-count {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   font-size: 11px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
 }
 
 .agent-cap-stat {
@@ -572,24 +616,25 @@ function goAgent(id: string) {
 }
 
 .agent-cap-stat .stat-label {
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
 }
 
 .agent-cap-stat .stat-value {
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.agent-cap-stat .pass-high { color: var(--el-color-success); }
-.agent-cap-stat .pass-mid { color: var(--el-color-warning); }
-.agent-cap-stat .pass-low { color: var(--el-color-danger); }
+.agent-cap-stat .pass-high { color: var(--green); }
+.agent-cap-stat .pass-mid { color: var(--amber); }
+.agent-cap-stat .pass-low { color: var(--red); }
 
 /* Collaboration Map */
 .collab-section {
-  margin-bottom: 24px;
-  padding: 16px;
-  background: var(--el-bg-color-page);
-  border: 1px solid var(--el-border-color-light);
-  border-radius: 12px;
+  margin-bottom: 26px;
+  padding: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
 }
 
 .collab-grid {
@@ -602,27 +647,34 @@ function goAgent(id: string) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 8px;
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
   font-size: 12px;
+  transition: all 0.15s;
+}
+
+.collab-card:hover {
+  border-color: var(--border-light);
+  background: var(--bg-hover);
 }
 
 .collab-agent {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .collab-from {
-  color: var(--el-color-primary);
+  color: var(--accent);
 }
 
 .collab-to {
-  color: var(--el-color-success);
+  color: var(--green);
 }
 
 .collab-arrow {
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
   font-size: 11px;
+  font-weight: 500;
 }
 </style>

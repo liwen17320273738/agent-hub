@@ -23,7 +23,7 @@
               ? t('artifactContract.collapseDetails')
               : t('artifactContract.expandDetails') }}
           </el-button>
-          <el-button size="small" text :loading="loading" @click="load">
+          <el-button size="small" text :loading="loading" @click="load" aria-label="action">
             <el-icon><Refresh /></el-icon>
             {{ t('artifactContract.refresh') }}
           </el-button>
@@ -559,6 +559,6 @@ defineExpose({ reload: load })
 }
 .meta-line {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
 }
 </style>

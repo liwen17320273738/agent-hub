@@ -74,6 +74,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_MAX_CONCURRENT = max(1, int(os.getenv("SCHED_MAX_CONCURRENT", "4")))
+TASK_TIMEOUT_SECONDS = int(os.getenv("SCHED_TASK_TIMEOUT_SECONDS", "1800"))
 
 
 CoroFactory = Callable[[AsyncSession], Awaitable[None]]
@@ -319,14 +320,43 @@ class TaskScheduler:
             "kinds": sorted({p["kind"] for p in recoverable}),
         })
 
+        # Validate task existence before recovering — avoids zombie
+        # submissions for deleted tasks consuming scheduler slots forever.
+        from ..database import async_session as _sf
+        from ..models.pipeline import PipelineTask as _PT
+        from sqlalchemy import select as _sel
+        valid_tids: set[str] = set()
+        try:
+            async with _sf() as _db:
+                _rows = await _db.execute(
+                    _sel(_PT.id).where(
+                        _PT.id.in_([p["task_id"] for p in recoverable if p.get("task_id")])
+                    )
+                )
+                valid_tids = {str(r[0]) for r in _rows.all()}
+        except Exception as _exc:
+            logger.warning("[scheduler] task existence check failed, recovering all: %s", _exc)
+            valid_tids = {p.get("task_id", "") for p in recoverable}
+
+        zombie_count = 0
         for p in recoverable:
+            tid = p.get("task_id", "")
+            if tid and tid not in valid_tids:
+                logger.warning(
+                    "[scheduler] dropping zombie submission %s — task %s no longer exists",
+                    p.get("submission_id"), tid,
+                )
+                zombie_count += 1
+                await _persist_dequeue(p["submission_id"])
+                continue
+
             try:
                 # Drop the old persisted record; submit() will write a new
                 # one with a fresh submission_id (we don't want to keep the
                 # old id lest two processes race).
                 await _persist_dequeue(p["submission_id"])
                 await self.submit(
-                    task_id=p.get("task_id", ""),
+                    task_id=tid,
                     label=f"[resumed] {p.get('label', '?')}",
                     kind=p["kind"],
                     params=p.get("params") or {},
@@ -338,6 +368,11 @@ class TaskScheduler:
                     "[scheduler] failed to resume submission %s: %s",
                     p.get("submission_id"), exc,
                 )
+        if zombie_count:
+            logger.info(
+                "[scheduler] dropped %d zombie submissions (tasks deleted from DB)",
+                zombie_count,
+            )
 
     async def _scan_orphan_tasks(self) -> None:
         """Scan DB for tasks stuck in active/paused without a scheduler entry.

@@ -313,7 +313,7 @@ watch(
 
 <style scoped>
 .admin-review-page {
-  max-width: 1100px;
+  max-max-width: 1100px; width: 100%;
   margin: 0 auto;
   padding: 24px 28px 48px;
 }
@@ -479,7 +479,7 @@ watch(
   margin: 6px 0 0;
   white-space: pre-wrap;
   font-family: ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-text-color-secondary, #64748b);
 }
 
@@ -556,7 +556,7 @@ watch(
   font-family: ui-monospace, monospace;
 }
 .chip {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 7px;
   border-radius: 999px;
   background: var(--el-fill-color-light, #f3f4f6);
@@ -593,7 +593,7 @@ watch(
 
 .actions { display: flex; flex-direction: column; gap: 6px; min-width: 96px; }
 
-@media (max-width: 720px) {
+@media (max-max-width: 720px; width: 100%) {
   .review-card { grid-template-columns: 40px 1fr; }
   .actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
   .toolbar { flex-direction: column; align-items: stretch; }

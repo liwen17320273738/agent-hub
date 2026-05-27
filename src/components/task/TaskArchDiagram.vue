@@ -231,7 +231,7 @@ watch(() => [props.taskId, props.shareToken], () => fetchArchDiagram())
 
 .empty-desc {
   font-size: 13px;
-  max-width: 360px;
+  max-max-width: 360px; width: 100%;
   margin: 0 auto;
 }
 </style>

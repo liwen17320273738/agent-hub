@@ -128,24 +128,30 @@ watch(activeTab, (name) => {
 }
 
 .assets-view h1 {
-  font-size: 22px;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
   margin-bottom: 4px;
+  background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .view-subtitle {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
+  color: var(--text-muted);
+  font-size: 14px;
   margin-bottom: 24px;
 }
 
 .asset-action {
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .tab-lead {
   margin: 0 0 16px;
   font-size: 13px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.5;
+  color: var(--text-muted);
+  line-height: 1.6;
 }
 </style>

@@ -33,13 +33,13 @@
     <div
       v-if="(props.data?.selfHealAttempts ?? 0) > 0"
       class="self-heal-pill"
-      :title="`已自愈 ${props.data?.selfHealAttempts} 次（点击查看 before/after）`"
+      :title="$t('agentStageNode.selfHealed', { n: props.data?.selfHealAttempts })"
     >
       🔁 ×{{ props.data?.selfHealAttempts }}
     </div>
     <div class="row title-row">
       <span class="emoji">{{ roleEmoji(props.data?.role) }}</span>
-      <span class="label" :title="props.data?.label">{{ props.data?.label || '未命名' }}</span>
+      <span class="label" :title="props.data?.label">{{ props.data?.label || $t('agentStageNode.unnamed') }}</span>
     </div>
     <div class="row meta-row">
       <span class="role-pill">{{ roleLabel(props.data?.role) }}</span>
@@ -60,7 +60,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { Handle, Position } from '@vue-flow/core'
 import { roleEmoji, roleLabel } from '@/services/workflowBuilder'
 
@@ -103,25 +104,27 @@ function shortModel(m: string): string {
   return slash >= 0 ? m.slice(slash + 1) : m
 }
 
-const RUN_STATUS_LABELS: Record<RunStatus, string> = {
+const { t } = useI18n()
+
+const RUN_STATUS_LABELS = computed<Record<RunStatus, string>>(() => ({
   idle: '',
-  running: '运行中',
-  done: '已完成',
-  failed: '失败',
-  rejected: '被打回',
-  awaiting: '待审批',
-  skipped: '跳过',
-}
+  running: t('agentStageNode.running'),
+  done: t('agentStageNode.done'),
+  failed: t('agentStageNode.failed'),
+  rejected: t('agentStageNode.rejected'),
+  awaiting: t('agentStageNode.awaiting'),
+  skipped: t('agentStageNode.skipped'),
+}))
 
 const runStatusBadge = computed(() => {
   const s = (props.data?.runStatus || 'idle') as RunStatus
   if (s === 'idle') return null
   return {
-    text: RUN_STATUS_LABELS[s],
+    text: RUN_STATUS_LABELS.value[s],
     title:
       s === 'failed' && props.data?.lastError
-        ? `失败：${props.data.lastError}`
-        : RUN_STATUS_LABELS[s],
+        ? t('agentStageNode.failedMsg', { msg: props.data.lastError })
+        : RUN_STATUS_LABELS.value[s],
   }
 })
 
@@ -130,23 +133,23 @@ const badges = computed(() => {
   if (props.data?.qualityGateMin) {
     out.push({
       text: `≥ ${(props.data.qualityGateMin * 100).toFixed(0)}%`,
-      title: `质量阈值 ${(props.data.qualityGateMin * 100).toFixed(0)}% — 低于则触发 reject self-heal`,
+      title: t('agentStageNode.qualityGateTip', { pct: (props.data.qualityGateMin * 100).toFixed(0) }),
     })
   }
   if (props.data?.rejectAction && props.data.rejectAction !== 'self-heal') {
     out.push({
       text: props.data.rejectAction,
-      title: `Reject 时执行: ${props.data.rejectAction}`,
+      title: t('agentStageNode.rejectActionTip', { action: props.data.rejectAction }),
     })
   }
   if (props.data?.onFailure && props.data.onFailure !== 'halt') {
     out.push({
       text: `fail: ${props.data.onFailure}`,
-      title: `失败策略: ${props.data.onFailure}`,
+      title: t('agentStageNode.onFailureTip', { strategy: props.data.onFailure }),
     })
   }
   if (props.data?.humanGate) {
-    out.push({ text: '👤', title: '该阶段需要人工审批' })
+    out.push({ text: '👤', title: t('agentStageNode.manualApproval') })
   }
   return out
 })
@@ -218,7 +221,7 @@ const badges = computed(() => {
   align-items: center;
   gap: 5px;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: 12px;
   border-radius: 999px;
   background: #0f172a;
   color: #f8fafc;
@@ -249,7 +252,7 @@ const badges = computed(() => {
   display: inline-flex;
   align-items: center;
   padding: 1px 8px;
-  font-size: 10px;
+  font-size: 12px;
   border-radius: 999px;
   background: #422006;
   color: #fbbf24;
@@ -299,7 +302,7 @@ const badges = computed(() => {
   display: inline-block;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   background: #0f172a;
   color: #94a3b8;
   border: 1px solid #1e293b;
@@ -328,7 +331,7 @@ const badges = computed(() => {
   margin-top: 6px;
 }
 .badge {
-  font-size: 10px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 4px;
   background: #0f172a;

@@ -327,7 +327,7 @@ function onImageError() {
 .empty-desc {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.5);
-  max-width: 400px;
+  max-max-width: 400px; width: 100%;
   margin: 0 auto;
 }
 </style>

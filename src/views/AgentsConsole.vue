@@ -57,7 +57,7 @@ async function loadMeta() {
       selectedRole.value = primaryRoles.value[0].role
     }
   } catch (e) {
-    ElMessage.error(`加载元数据失败：${(e as Error).message}`)
+    ElMessage.error(t('agentsConsole.loadMetaFailed', { msg: (e as Error).message }))
   } finally {
     loadingMeta.value = false
   }
@@ -94,13 +94,13 @@ async function runOnce() {
 
   try {
     if (!useStream.value) {
-      pushProgress({ kind: 'started', label: `调用 ${selectedRole.value}` })
+      pushProgress({ kind: 'started', label: t('agentsConsole.callingRole', { role: selectedRole.value }) })
       const res = await runAgentByRole(selectedRole.value, body)
       finalResult.value = res
       pushProgress({
         kind: 'completed',
-        label: res.ok ? '执行完成' : `失败：${res.error || ''}`,
-        detail: `${res.steps} 步 / ${res.elapsed_ms}ms / ${res.model}`,
+        label: res.ok ? t('agentsConsole.execDone') : t('agentsConsole.execFailed', { error: res.error || '' }),
+        detail: t('agentsConsole.statsDetail', { steps: res.steps, ms: res.elapsed_ms, model: res.model }),
       })
     } else {
       const ctrl = new AbortController()
@@ -112,7 +112,7 @@ async function runOnce() {
     }
   } catch (e) {
     finalError.value = (e as Error).message
-    pushProgress({ kind: 'error', label: '请求失败', detail: finalError.value })
+    pushProgress({ kind: 'error', label: t('agentsConsole.requestFailed'), detail: finalError.value })
   } finally {
     isRunning.value = false
     abortCtrl.value = null
@@ -121,7 +121,7 @@ async function runOnce() {
 
 function handleStreamEvent(evt: AgentStreamEvent) {
   if (evt.event === 'started') {
-    pushProgress({ kind: 'started', label: `调用 ${evt.agent_id}`, detail: evt.task })
+    pushProgress({ kind: 'started', label: t('agentsConsole.callingRole', { role: evt.agent_id }), detail: evt.task })
     return
   }
   if (evt.event === 'progress') {
@@ -130,16 +130,16 @@ function handleStreamEvent(evt: AgentStreamEvent) {
     if (phase === 'agent:tool-call') {
       pushProgress({
         kind: 'tool-call',
-        label: `工具：${(data as { tool?: string }).tool || '?'}`,
+        label: t('agentsConsole.toolCall', { tool: (data as { tool?: string }).tool || '?' }),
         detail: JSON.stringify((data as { input?: unknown }).input || {}, null, 0).slice(0, 200),
       })
     } else if (phase === 'agent:execute-start') {
-      pushProgress({ kind: 'phase', label: '思考中…' })
+      pushProgress({ kind: 'phase', label: t('agentsConsole.thinking') })
     } else if (phase === 'agent:execute-complete') {
       pushProgress({
         kind: 'phase',
-        label: '总结中…',
-        detail: `${(data as { steps?: number }).steps ?? 0} 步`,
+        label: t('agentsConsole.summarizing'),
+        detail: t('agentsConsole.stepsCount', { n: (data as { steps?: number }).steps ?? 0 }),
       })
     } else {
       pushProgress({ kind: 'phase', label: phase, detail: JSON.stringify(data).slice(0, 200) })
@@ -161,21 +161,21 @@ function handleStreamEvent(evt: AgentStreamEvent) {
     }
     pushProgress({
       kind: 'completed',
-      label: evt.ok ? '完成' : `失败：${evt.error || ''}`,
-      detail: `${evt.steps} 步 / ${evt.elapsed_ms}ms`,
+      label: evt.ok ? t('agentsConsole.done') : t('agentsConsole.failedWithError', { error: evt.error || '' }),
+      detail: t('agentsConsole.statsDetailMs', { steps: evt.steps, ms: evt.elapsed_ms }),
     })
     return
   }
   if (evt.event === 'error') {
     finalError.value = evt.error
-    pushProgress({ kind: 'error', label: '错误', detail: evt.error })
+    pushProgress({ kind: 'error', label: t('agentsConsole.error'), detail: evt.error })
   }
 }
 
 function abort() {
   abortCtrl.value?.abort()
   isRunning.value = false
-  pushProgress({ kind: 'error', label: '已中止' })
+  pushProgress({ kind: 'error', label: t('agentsConsole.aborted') })
 }
 
 function pickQuickPrompt(p: string) {
@@ -183,12 +183,25 @@ function pickQuickPrompt(p: string) {
 }
 
 const QUICK_PROMPTS: Record<string, string[]> = {
-  developer: ['给现有 backend/app/api/auth.py 写一份 pytest 测试', '把 README 翻译为英文'],
-  security: ['审一下 backend/app/api/auth.py 的 JWT 处理流程，找潜在安全风险'],
-  qa: ['为登录流程设计 5 条端到端测试用例（含异常场景）'],
-  architect: ['对当前后端给一份 3 层架构图说明（mermaid）'],
-  product: ['基于"AI 一句话生成 PPT"的需求，输出 PRD 大纲'],
-  designer: ['为一个极简 Todo 应用，给出色板 + 主页布局描述'],
+  developer: [
+    t('agentsConsole.quickPrompt.dev1'),
+    t('agentsConsole.quickPrompt.dev2'),
+  ],
+  security: [
+    t('agentsConsole.quickPrompt.sec1'),
+  ],
+  qa: [
+    t('agentsConsole.quickPrompt.qa1'),
+  ],
+  architect: [
+    t('agentsConsole.quickPrompt.arch1'),
+  ],
+  product: [
+    t('agentsConsole.quickPrompt.pm1'),
+  ],
+  designer: [
+    t('agentsConsole.quickPrompt.design1'),
+  ],
 }
 
 const quickList = computed(() => QUICK_PROMPTS[selectedRole.value] || [])
@@ -202,7 +215,7 @@ onMounted(loadMeta)
       <div>
         <h1>{{ t('agentsConsole.text_1') }}</h1>
         <p class="page-subtitle">
-          {{ $t('AgentsConsole.summon') }}，无需走完整流水线。支持流式查看推理与工具调用。
+          {{ $t('agentsConsole.subtitle') }}
         </p>
       </div>
       <el-button :loading="loadingMeta" plain @click="loadMeta">{{ t('agentsConsole.text_2') }}</el-button>
@@ -246,12 +259,12 @@ onMounted(loadMeta)
           <div class="card-header">
             <div>
               <div class="card-title">
-                {{ selectedRoleMeta?.role || '请选择专家' }}
+                {{ selectedRoleMeta?.role || $t('agentsConsole.selectExpert') }}
               </div>
               <div class="card-subtitle">{{ selectedRoleMeta?.short_prompt || '' }}</div>
             </div>
             <div class="meta">
-              <el-tag size="small" type="info">{{ tools.length }} 个工具可用</el-tag>
+              <el-tag size="small" type="info">{{ $t('agentsConsole.toolsAvailable', { n: tools.length }) }}</el-tag>
             </div>
           </div>
 
@@ -303,7 +316,7 @@ onMounted(loadMeta)
               />
             </div>
             <div class="config-item">
-              <el-switch v-model="useStream" active-text="流式" inactive-text="阻塞" />
+              <el-switch v-model="useStream" :active-text="$t('agentsConsole.stream')" :inactive-text="$t('agentsConsole.blocking')" />
             </div>
           </div>
 
@@ -315,7 +328,7 @@ onMounted(loadMeta)
               :disabled="!selectedRole || !taskInput.trim()"
               @click="runOnce"
             >
-              召唤
+              {{ $t('agentsConsole.summon') }}
             </el-button>
             <el-button v-if="isRunning && useStream" size="large" @click="abort">{{ t('agentsConsole.text_9') }}</el-button>
           </div>
@@ -337,11 +350,11 @@ onMounted(loadMeta)
         <div v-if="finalResult" class="card result-card">
           <div class="card-header">
             <div class="card-title">
-              {{ finalResult.ok ? '✓ 执行结果' : '✗ 执行失败' }}
+              {{ finalResult.ok ? $t('agentsConsole.resultSuccess') : $t('agentsConsole.resultFailed') }}
             </div>
             <div class="meta">
               <el-tag size="small" :type="finalResult.ok ? 'success' : 'danger'">
-                {{ finalResult.steps }} 步 / {{ finalResult.elapsed_ms }}ms
+                {{ $t('agentsConsole.resultStats', { steps: finalResult.steps, ms: finalResult.elapsed_ms }) }}
               </el-tag>
               <el-tag v-if="finalResult.model" size="small" type="info" class="model-tag">
                 {{ finalResult.model }}
@@ -352,7 +365,7 @@ onMounted(loadMeta)
                 :type="finalResult.verification === 'pass' ? 'success' : 'warning'"
                 class="model-tag"
               >
-                校验：{{ finalResult.verification }}
+                {{ $t('agentsConsole.verification', { result: finalResult.verification }) }}
               </el-tag>
             </div>
           </div>
@@ -385,7 +398,7 @@ onMounted(loadMeta)
 
 <style scoped>
 .agents-console {
-  max-width: 1200px;
+  max-max-width: 1200px; width: 100%;
   margin: 0 auto;
   padding: 24px;
 }
@@ -452,7 +465,7 @@ onMounted(loadMeta)
   font-size: 13px;
 }
 .role-seed {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   margin-top: 2px;
 }
@@ -463,7 +476,7 @@ onMounted(loadMeta)
 }
 .alias-tag {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
 }
 .main {
   display: flex;
@@ -493,7 +506,7 @@ onMounted(loadMeta)
   font-size: 12px;
   color: var(--text-secondary, #909399);
   line-height: 1.5;
-  max-width: 600px;
+  max-max-width: 600px; width: 100%;
 }
 .meta {
   display: flex;
@@ -516,7 +529,7 @@ onMounted(loadMeta)
 }
 .qp-tag {
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
 }
 .config-row {
   display: flex;
@@ -580,7 +593,7 @@ onMounted(loadMeta)
   font-weight: 500;
 }
 .p-detail {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   margin-top: 2px;
   word-break: break-all;

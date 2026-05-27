@@ -38,6 +38,11 @@
           >{{ ref.ciStatus }}</el-tag>
         </div>
       </div>
+      <!-- SSE 连接状态指示器 — 让用户知道实时更新是否在线 -->
+      <div class="sse-indicator" :class="sseStatus" :title="$t('pipelineTaskDetail.sseStatus', { status: sseStatus })">
+        <span class="sse-dot" :class="sseStatus"></span>
+        <span class="sse-label">{{ $t('pipelineTaskDetail.sseStatus', { status: sseStatus }) }}</span>
+      </div>
       <div class="header-share">
         <el-button size="small" @click="downloadDeliverables">
           <el-icon><Download /></el-icon> {{ $t('task.download') }}
@@ -118,6 +123,15 @@
       :logs="executionLiveLogs"
       @open-overview="activeMainTab = 'overview'"
       @open-log="activeMainTab = 'execution-log'"
+    />
+
+    <!-- 实时流式输出面板 — 显示当前 agent 正在生成的内容 -->
+    <StageLiveOutput
+      ref="stageLiveRef"
+      :stage-id="processingStage || task.currentStageId || ''"
+      :agent-name="processingNarrative?.agent || currentStage?.ownerRole || ''"
+      :agent-icon="processingNarrative?.icon || '🤖'"
+      :phase-label="currentStage?.label || ''"
     />
 
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
@@ -839,7 +853,7 @@ import {
   retryDagStage,
   shouldRetryStageViaDag,
 } from '@/services/pipelineApi'
-import type { RcaReport } from '@/services/pipelineApi'
+import type { RcaReport, SSEStatus } from '@/services/pipelineApi'
 import type { TaskArtifact } from '@/agents/types'
 import type { UploadRequestOptions } from 'element-plus'
 import type { QualityReport } from '@/services/pipelineApi'
@@ -851,6 +865,7 @@ import TaskArtifactTabs from '@/components/task/TaskArtifactTabs.vue'
 import DeliveryHeader from '@/components/task/DeliveryHeader.vue'
 import SoftWarningBanner from '@/components/task/SoftWarningBanner.vue'
 import DraftDeliveryBanner from '@/components/task/DraftDeliveryBanner.vue'
+import StageLiveOutput from '@/components/task/StageLiveOutput.vue'
 import FailureCard from '@/components/task/FailureCard.vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import RoleSwimlane from '@/components/task/RoleSwimlane.vue'
@@ -1178,6 +1193,18 @@ const showExecutionLive = computed(() => {
   return true
 })
 
+// 检测任务是否在调度器队列中等待执行（非 running 但 active）
+const isSchedulerQueued = computed(() => {
+  const tsk = task.value
+  if (!tsk) return false
+  if (tsk.status !== 'active') return false
+  // 有调度提交记录但尚未开始执行
+  if (tsk.schedulerRunKind && !tsk.schedulerRunStartedAt) return true
+  // 活跃但没有阶段在处理中 = 大概率在排队
+  if (showExecutionLive.value && !isRunningNow.value) return true
+  return false
+})
+
 const stageProgressStats = computed(() => {
   const stages = task.value?.stages ?? []
   const total = stages.length
@@ -1279,6 +1306,11 @@ const execBannerSub = computed(() => {
     && !currentStage.value.output
     && currentStage.value.status !== 'awaiting_approval'
   ) {
+    // 区分调度器排队 vs 通用准备中
+    if (isSchedulerQueued.value) {
+      const kind = task.value.schedulerRunKind === 'dag-run' ? 'DAG' : t('pipelineTaskDetail.pipeline')
+      return t('pipelineTaskDetail.execSubQueued', { kind })
+    }
     return t('pipelineTaskDetail.execSubNotStarted')
   }
   if (processingStage.value && !anyExecutionRunning.value) {
@@ -1622,9 +1654,14 @@ function addLog(event: string, data?: Record<string, unknown>) {
   })
 }
 
+const stageLiveRef = ref<InstanceType<typeof StageLiveOutput> | null>(null)
 let unsubSSE: (() => void) | null = null
 
+// SSE connection status — surfaced so the user knows if live updates are active
+const sseStatus = ref<SSEStatus>('disconnected')
+
 function setupSSE() {
+  sseStatus.value = 'connecting'
   unsubSSE = subscribePipelineEvents((evt: PipelineEvent) => {
     const taskId = route.params.id as string
     const data = evt.data as Record<string, unknown> | undefined
@@ -1640,6 +1677,17 @@ function setupSSE() {
         ElMessage.info(t('pipelineTaskDetail.msgCancelQueueRemoved', { n: removed }))
       }
       loadTask()
+    }
+
+    // ── Stage live output streaming ──
+    if (evt.event === 'stage:output-start') {
+      stageLiveRef.value?.onOutputStart(data as Record<string, unknown>)
+    }
+    if (evt.event === 'stage:output-chunk') {
+      stageLiveRef.value?.onOutputChunk(data as Record<string, unknown>)
+    }
+    if (evt.event === 'stage:output-end') {
+      stageLiveRef.value?.onOutputEnd(data as Record<string, unknown>)
     }
 
     if (evt.event === 'stage:processing') {
@@ -1787,6 +1835,8 @@ function setupSSE() {
         t('pipelineTaskDetail.elMessage_18', { err: String(data?.error || t('pipelineTaskDetail.unknownError')) }),
       )
     }
+  }, (status) => {
+    sseStatus.value = status
   })
 }
 
@@ -2154,34 +2204,35 @@ watch(() => route.params.id, () => {
 .task-detail {
   padding: 32px;
   max-width: 960px;
+  width: 100%;
   margin: 0 auto;
 }
 
 .live-narrative {
   margin: 16px 0 24px;
   padding: 14px 18px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #eef4ff 0%, #f5f0ff 100%);
-  border: 1px solid #d4e0ff;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.08) 0%, rgba(244, 114, 182, 0.04) 100%);
+  border: 1px solid rgba(129, 140, 248, 0.2);
 }
 .live-narrative-head {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 14px;
-  color: #1f2937;
+  color: var(--text-primary);
 }
 .live-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #22c55e;
-  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6);
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6);
   animation: live-pulse 1.4s infinite;
 }
 .live-icon { font-size: 18px; }
 .live-agent { font-weight: 600; }
-.live-text { color: #4b5563; }
+.live-text { color: var(--text-secondary); }
 .live-narrative-feed {
   margin: 10px 0 0;
   padding: 0;
@@ -2192,15 +2243,15 @@ watch(() => route.params.id, () => {
 }
 .live-narrative-feed li {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-muted);
   display: flex;
   gap: 6px;
 }
 .feed-icon { width: 16px; text-align: center; }
 @keyframes live-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6); }
-  70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
 }
 
 .detail-header { margin-bottom: 32px; }
@@ -2271,9 +2322,12 @@ watch(() => route.params.id, () => {
 }
 
 .header-main h1 {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .header-tags { display: flex; gap: 8px; }
@@ -2334,8 +2388,8 @@ watch(() => route.params.id, () => {
 }
 
 .timeline-item.status-done .timeline-dot {
-  background: #22c55e;
-  border-color: #22c55e;
+  background: var(--green);
+  border-color: var(--green);
   color: #fff;
 }
 
@@ -2347,11 +2401,11 @@ watch(() => route.params.id, () => {
 }
 
 .timeline-item.processing .timeline-dot {
-  background: #f59e0b;
-  border-color: #f59e0b;
+  background: var(--amber);
+  border-color: var(--amber);
   color: #fff;
   animation: none;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3);
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.3);
 }
 
 .timeline-item.current .timeline-dot {
@@ -2368,14 +2422,14 @@ watch(() => route.params.id, () => {
 }
 
 .timeline-item.status-reviewing .timeline-dot {
-  background: #f59e0b;
-  border-color: #f59e0b;
+  background: var(--amber);
+  border-color: var(--amber);
   color: #fff;
   animation: pulse 2s infinite;
 }
 .timeline-item.status-rejected .timeline-dot {
-  background: #ef4444;
-  border-color: #ef4444;
+  background: var(--red);
+  border-color: var(--red);
   color: #fff;
 }
 .timeline-item.status-awaiting_approval .timeline-dot {
@@ -2386,20 +2440,20 @@ watch(() => route.params.id, () => {
 }
 
 .reviewer-info {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   font-weight: 400;
 }
 .attempt-badge {
-  font-size: 10px;
-  color: #f59e0b;
+  font-size: 12px;
+  color: var(--amber);
   margin-left: 4px;
 }
 
 .review-feedback {
   margin-top: 8px;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 10px;
   overflow: hidden;
 }
 .feedback-header {
@@ -2410,16 +2464,16 @@ watch(() => route.params.id, () => {
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.08);
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.08);
 }
 .feedback-header:hover {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(251, 191, 36, 0.15);
 }
 .feedback-body {
   padding: 12px;
   font-size: 13px;
-  border-top: 1px solid rgba(245, 158, 11, 0.2);
+  border-top: 1px solid rgba(251, 191, 36, 0.15);
   max-height: 400px;
   overflow-y: auto;
 }
@@ -2481,7 +2535,7 @@ watch(() => route.params.id, () => {
 }
 
 .timeline-item.status-done .timeline-connector {
-  background: #22c55e;
+  background: var(--green);
 }
 
 .timeline-content { flex: 1; }
@@ -2509,7 +2563,7 @@ watch(() => route.params.id, () => {
 }
 
 .stage-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -2810,20 +2864,20 @@ watch(() => route.params.id, () => {
 
 .log-entry.stage\:error .log-event,
 .log-entry.pipeline\:auto-error .log-event {
-  color: #ef4444;
+  color: var(--red);
 }
 
 .log-entry.stage\:completed .log-event,
 .log-entry.pipeline\:auto-completed .log-event {
-  color: #22c55e;
+  color: var(--green);
 }
 
 .subtask-tracking {
   margin-bottom: 24px;
   padding: 16px;
-  background: linear-gradient(135deg, #f8f9ff 0%, #f0f7ff 100%);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.06) 0%, rgba(34, 211, 238, 0.04) 100%);
   border-radius: 12px;
-  border: 1px solid #d9ecff;
+  border: 1px solid rgba(129, 140, 248, 0.15);
 }
 .subtask-tracking .section-title {
   display: flex;
@@ -2874,9 +2928,14 @@ watch(() => route.params.id, () => {
 
 .artifact-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
   overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.artifact-card:hover {
+  border-color: var(--accent);
+  box-shadow: var(--card-shadow);
 }
 
 .artifact-header {
@@ -2955,14 +3014,68 @@ watch(() => route.params.id, () => {
 .loading-icon { animation: spin 1s linear infinite; }
 .spin-icon { animation: spin 1s linear infinite; }
 
+/* ── SSE connection indicator ── */
+.sse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 10px;
+}
+
+.sse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sse-dot.connected {
+  background: var(--green);
+  box-shadow: 0 0 6px var(--green);
+}
+
+.sse-dot.connecting {
+  background: var(--amber);
+  animation: sse-pulse 1s infinite;
+}
+
+.sse-dot.disconnected {
+  background: var(--red);
+}
+
+.sse-indicator.connected {
+  background: rgba(52, 211, 153, 0.08);
+  color: var(--green);
+}
+
+.sse-indicator.connecting {
+  background: rgba(251, 191, 36, 0.08);
+  color: var(--amber);
+}
+
+.sse-indicator.disconnected {
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--red);
+}
+
+@keyframes sse-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 /* Deliverable section */
 .deliverable-section {
-  background: var(--bg-secondary, #f5f7fa);
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
   padding: 20px;
   margin-bottom: 24px;
 }
@@ -2974,8 +3087,9 @@ watch(() => route.params.id, () => {
 }
 .deliverable-actions { display: flex; gap: 8px; }
 .compiled-preview {
-  background: var(--bg-primary, #fff);
-  border-radius: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
   padding: 16px 20px;
   max-height: 600px;
   overflow-y: auto;
@@ -3000,24 +3114,25 @@ watch(() => route.params.id, () => {
   gap: 4px;
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
-.verify-badge.pass { background: #dcfce7; color: #166534; }
-.verify-badge.warn { background: #fef3c7; color: #92400e; }
-.verify-badge.fail { background: #fecaca; color: #991b1b; }
+.verify-badge.pass { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.verify-badge.warn { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+.verify-badge.fail { background: rgba(248, 113, 113, 0.15); color: var(--red); }
 
 .quality-score {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted, #909399);
   margin-left: 6px;
 }
 
 /* Quality summary bar */
 .quality-summary {
-  background: var(--bg-secondary, #f5f7fa);
-  border-radius: 10px;
-  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 14px 18px;
   margin-bottom: 20px;
 }
 .quality-bar {
@@ -3037,9 +3152,9 @@ watch(() => route.params.id, () => {
   font-size: 12px;
   font-weight: 600;
 }
-.quality-pill.pass { background: #dcfce7; color: #166534; }
-.quality-pill.warn { background: #fef3c7; color: #92400e; }
-.quality-pill.fail { background: #fecaca; color: #991b1b; }
+.quality-pill.pass { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.quality-pill.warn { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+.quality-pill.fail { background: rgba(248, 113, 113, 0.15); color: var(--red); }
 .quality-avg { font-size: 13px; color: var(--text-muted, #909399); margin-left: auto; }
 
 .task-meta-row { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
@@ -3055,17 +3170,17 @@ watch(() => route.params.id, () => {
   gap: 3px;
   padding: 2px 8px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
 }
-.gate-passed { background: #dcfce7; color: #166534; }
-.gate-warning { background: #fef3c7; color: #92400e; }
-.gate-failed { background: #fecaca; color: #991b1b; }
-.gate-bypassed { background: #e0e7ff; color: #3730a3; }
-.gate-pending { background: #f3f4f6; color: #6b7280; }
+.gate-passed { background: rgba(52, 211, 153, 0.15); color: var(--green); }
+.gate-warning { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+.gate-failed { background: rgba(248, 113, 113, 0.15); color: var(--red); }
+.gate-bypassed { background: rgba(129, 140, 248, 0.12); color: var(--accent); }
+.gate-pending { background: var(--bg-tertiary); color: var(--text-muted); }
 
 .gate-score {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--accent);
   margin-left: 4px;
@@ -3150,7 +3265,7 @@ watch(() => route.params.id, () => {
 /* Gate override info */
 .gate-override-info {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: #3730a3;
   display: flex;
   align-items: center;
@@ -3167,8 +3282,9 @@ watch(() => route.params.id, () => {
 
 /* Quality Report Section */
 .quality-report-section {
-  background: var(--bg-secondary, #f5f7fa);
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
   padding: 20px;
   margin-bottom: 24px;
 }
@@ -3224,10 +3340,10 @@ watch(() => route.params.id, () => {
   border-radius: 3px;
   transition: width 0.3s;
 }
-.qr-score-fill.passed { background: #22c55e; }
-.qr-score-fill.warning { background: #f59e0b; }
-.qr-score-fill.failed { background: #ef4444; }
-.qr-score-fill.bypassed { background: #6366f1; }
+.qr-score-fill.passed { background: var(--green); }
+.qr-score-fill.warning { background: var(--amber); }
+.qr-score-fill.failed { background: var(--red); }
+.qr-score-fill.bypassed { background: var(--accent); }
 .qr-score-text {
   font-size: 12px;
   font-weight: 600;
@@ -3236,7 +3352,7 @@ watch(() => route.params.id, () => {
   text-align: right;
 }
 .qr-threshold {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   min-width: 70px;
 }
@@ -3288,7 +3404,7 @@ watch(() => route.params.id, () => {
   margin: 4px 0 0;
   white-space: pre-wrap;
   word-break: break-word;
-  color: #ff7875;
+  color: var(--red);
 }
 .rca-details {
   margin-top: 14px;

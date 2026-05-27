@@ -248,7 +248,7 @@ const standardsCount = computed(() => standards.value.length)
 const boundary = computed(() => caps.value.boundary as Record<string, unknown> | undefined)
 const collaboration = computed(() => caps.value.collaboration as Record<string, string[]> | undefined)
 
-const radarLabels = ['分析', '设计', '编码', '测试', '运维', '沟通']
+const radarLabels = [t('agentProfile.analysis'), t('agentProfile.design'), t('agentProfile.coding'), t('agentProfile.testing'), t('agentProfile.ops'), t('agentProfile.communication')]
 const radarValues = computed(() => {
   const radar = (caps.value.radar || {}) as Record<string, number>
   return radarLabels.map(l => radar[l] || 0)
@@ -288,7 +288,7 @@ function agentName(id: string) {
 
 <style scoped>
 .profile-page {
-  max-width: 1200px;
+  max-max-width: 1200px; width: 100%;
   margin: 0 auto;
   padding: 32px 40px;
 }
@@ -328,7 +328,7 @@ function agentName(id: string) {
 .hero-stats { display: flex; gap: 24px; }
 .stat-item { display: flex; flex-direction: column; align-items: center; }
 .stat-num { font-size: 20px; font-weight: 700; color: var(--text-primary); }
-.stat-label { font-size: 11px; color: var(--text-muted); }
+.stat-label { font-size: 12px; color: var(--text-muted); }
 .hero-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
 
 /* Body grid */
@@ -359,7 +359,7 @@ function agentName(id: string) {
 .radar-grid { fill: none; stroke: var(--border-color); stroke-width: 0.5; }
 .radar-axis { stroke: var(--border-color); stroke-width: 0.3; }
 .radar-data { stroke-width: 2; fill-opacity: 0.3; }
-.radar-label { font-size: 11px; fill: var(--text-secondary); }
+.radar-label { font-size: 12px; fill: var(--text-secondary); }
 
 /* Tools */
 .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -370,7 +370,7 @@ function agentName(id: string) {
   border: 1px solid var(--border-color);
 }
 .tool-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.tool-desc { font-size: 11px; color: var(--text-muted); margin: 0; line-height: 1.4; }
+.tool-desc { font-size: 12px; color: var(--text-muted); margin: 0; line-height: 1.4; }
 
 /* Skills */
 .skill-list { display: flex; flex-direction: column; gap: 8px; }
@@ -408,7 +408,7 @@ function agentName(id: string) {
 
 .empty-hint { font-size: 13px; color: var(--text-muted); text-align: center; padding: 16px 0; }
 
-@media (max-width: 900px) {
+@media (max-max-width: 900px; width: 100%) {
   .profile-body { grid-template-columns: 1fr; }
   .profile-hero { flex-direction: column; }
 }

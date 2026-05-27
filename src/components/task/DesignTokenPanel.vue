@@ -139,7 +139,7 @@ watch(() => props.taskId, async () => {
 
 .token-applied-badge {
   display: inline-block;
-  font-size: 11px;
+  font-size: 12px;
   background: #e1f3d8;
   color: #529b2e;
   padding: 1px 8px;

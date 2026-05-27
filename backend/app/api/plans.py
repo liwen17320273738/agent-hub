@@ -148,7 +148,7 @@ async def approve_plan(
             task = None
 
     if task:
-        if admin.org_id and task.org_id is None:
+        if admin.org_id:
             task.org_id = admin.org_id
         task.status = "active"
         task.current_stage_id = "planning"

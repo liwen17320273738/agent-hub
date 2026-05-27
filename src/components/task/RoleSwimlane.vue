@@ -35,6 +35,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
+
 interface StageInfo {
   id: string
   label: string
@@ -49,12 +51,12 @@ const props = defineProps<{
 }>()
 
 const LANE_META: { stageId: string; icon: string; label: string; defaultAgent: string }[] = [
-  { stageId: 'planning',     icon: '📋', defaultAgent: 'CEO / 产品经理' },
-  { stageId: 'design',       icon: '🎨', defaultAgent: '设计师' },
-  { stageId: 'architecture', icon: '🏗', defaultAgent: '架构师' },
-  { stageId: 'development',  icon: '💻', defaultAgent: '开发工程师' },
-  { stageId: 'testing',      icon: '🧪', defaultAgent: 'QA 负责人' },
-  { stageId: 'reviewing',    icon: '✅', defaultAgent: '验收官' },
+  { stageId: 'planning',     icon: '📋', defaultAgent: t('roleSwimlane.planningAgent') },
+  { stageId: 'design',       icon: '🎨', defaultAgent: t('roleSwimlane.designAgent') },
+  { stageId: 'architecture', icon: '🏗', defaultAgent: t('roleSwimlane.architectureAgent') },
+  { stageId: 'development',  icon: '💻', defaultAgent: t('roleSwimlane.developmentAgent') },
+  { stageId: 'testing',      icon: '🧪', defaultAgent: t('roleSwimlane.testingAgent') },
+  { stageId: 'reviewing',    icon: '✅', defaultAgent: t('roleSwimlane.reviewingAgent') },
   { stageId: 'deployment',   icon: '🚀', defaultAgent: 'DevOps' },
 ]
 
@@ -147,7 +149,7 @@ const lanes = computed(() => {
 }
 
 .lane-body {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
@@ -160,7 +162,7 @@ const lanes = computed(() => {
 }
 
 .lane-output-preview {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-text-color-regular);
   line-height: 1.4;
   display: -webkit-box;
@@ -174,7 +176,7 @@ const lanes = computed(() => {
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--el-color-warning);
   background: rgba(230, 162, 60, 0.08);
   border-radius: 6px;

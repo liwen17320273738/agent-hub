@@ -38,37 +38,21 @@ def _soft_failure_enabled() -> bool:
     return os.getenv("SOFT_FAILURE_DETECTION_ENABLED", "true").lower() not in ("0", "false", "no")
 
 
-_TERM_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}|`[^`]+`|[一-鿿]{2,}")
+def _parse_coverage(message: str) -> float:
+    """从 _heuristic_cross_check 的消息中解析覆盖率。
 
-
-def _extract_key_terms(text: str, limit: int = 80) -> Set[str]:
-    """Pull a coarse bag of identifiers / quoted names / CJK terms.
-
-    Used for cross-stage consistency (a downstream stage that shares few
-    terms with its upstream signals "PRD says X, code talks about Y"
-    drift). Intentionally lexical, not semantic — embeddings get added
-    later as a P1 follow-up.
+    消息格式: "术语覆盖率 65%（39/60）"
+    返回 0.0~1.0 的覆盖率值。
     """
-    if not text:
-        return set()
-    raw = _TERM_PATTERN.findall(text)
-    cleaned = {t.strip("` ").lower() for t in raw if t.strip("` ")}
-    cleaned.discard("")
-    if len(cleaned) <= limit:
-        return cleaned
-    return set(list(cleaned)[:limit])
-
-
-# Pairs of stages where lexical overlap is meaningful — i.e. downstream
-# stage should retain noticeable terminology from upstream. Tuned to be
-# conservative to avoid noisy warnings.
-_CONSISTENCY_PAIRS: Dict[str, List[str]] = {
-    "design": ["planning"],
-    "architecture": ["planning", "design"],
-    "development": ["architecture", "planning"],
-    "testing": ["development", "architecture"],
-    "acceptance": ["planning", "development"],
-}
+    import re
+    m = re.search(r'覆盖率\s*(\d+)%', message)
+    if m:
+        return float(m.group(1)) / 100.0
+    # fallback: 尝试提取百分比前的数字
+    m2 = re.search(r'(\d+)%', message)
+    if m2:
+        return float(m2.group(1)) / 100.0
+    return 0.5
 
 
 class GateStatus(str, Enum):
@@ -106,54 +90,47 @@ def _check_cross_stage_consistency(
 ) -> Optional[GateCheck]:
     """Return a WARNING check when output drifts lexically from upstream.
 
-    Only fires when *every* expected upstream stage has below-threshold
-    overlap; partial overlap is treated as healthy.
+    Delegates to cross_stage_verify._heuristic_cross_check for the actual
+    term extraction and coverage computation, avoiding duplicate logic.
     """
     if not _soft_failure_enabled():
         return None
-    upstream_stages = _CONSISTENCY_PAIRS.get(stage_id)
+
+    from .cross_stage_verify import _heuristic_cross_check, _CONSISTENCY_UPSTREAM
+
+    upstream_stages = _CONSISTENCY_UPSTREAM.get(stage_id)
     if not upstream_stages or not previous_outputs:
         return None
 
-    cur_terms = _extract_key_terms(output)
-    if len(cur_terms) < 8:
-        # too little signal — abstain rather than false-positive
+    # 只传递与当前阶段相关的上游产出，避免噪音
+    relevant_upstream = {
+        up: out for up, out in previous_outputs.items()
+        if up in upstream_stages and out.strip()
+    }
+    if not relevant_upstream:
         return None
 
-    overlap_scores: List[float] = []
-    weakest_upstream = ""
-    weakest_score = 1.0
-    for up in upstream_stages:
-        up_text = previous_outputs.get(up) or ""
-        up_terms = _extract_key_terms(up_text)
-        if len(up_terms) < 8:
-            continue
-        inter = len(cur_terms & up_terms)
-        union = len(cur_terms | up_terms)
-        score = inter / union if union else 0.0
-        overlap_scores.append(score)
-        if score < weakest_score:
-            weakest_score = score
-            weakest_upstream = up
-
-    if not overlap_scores:
+    results = _heuristic_cross_check(stage_id, output, relevant_upstream)
+    if not results:
         return None
-    avg = sum(overlap_scores) / len(overlap_scores)
-    # Threshold 0.06 chosen empirically: typical aligned stages land 0.10-0.25,
-    # genuinely drifted outputs land < 0.04.
-    if avg >= 0.06:
+
+    # 取最低覆盖率作为评分
+    worst = min(results, key=lambda r: _parse_coverage(r.message))
+    coverage = _parse_coverage(worst.message)
+
+    if coverage >= 0.06:
         return None
 
     return GateCheck(
         name="cross_stage_consistency",
         category="heuristic",
         status=GateStatus.WARNING,
-        score=round(avg, 3),
+        score=round(coverage, 3),
         message=(
-            f"本阶段输出与上游 {weakest_upstream} 的关键词重合度偏低 "
-            f"(score={avg:.2f})，可能存在偏离需求/架构的风险，建议人工复核。"
+            f"本阶段输出与上游产出关键词重合度偏低 "
+            f"(score={coverage:.2f})，可能存在偏离需求/架构的风险，建议人工复核。"
         ),
-        details="cross_stage_consistency soft-warning",
+        details=worst.details if worst.details else "cross_stage_consistency soft-warning",
     )
 
 

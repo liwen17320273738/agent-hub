@@ -1123,6 +1123,8 @@ export type SSEStatus = 'connecting' | 'connected' | 'disconnected'
 
 async function fetchSSETicket(): Promise<string | null> {
   try {
+    const token = getAuthToken()
+    if (!token) return null  // 没有token时不尝试获取ticket
     const res = await apiFetch<{ ticket: string }>('/pipeline/events/ticket', { method: 'POST' })
     return res.ticket
   } catch {
@@ -1135,6 +1137,13 @@ export function subscribePipelineEvents(
   onStatusChange?: (status: SSEStatus) => void,
 ): () => void {
   if (serverAvailable === false) return () => {}
+
+  // 检查是否有认证token,没有则不建立连接
+  const token = getAuthToken()
+  if (!token) {
+    onStatusChange?.('disconnected')
+    return () => {}
+  }
 
   let source: EventSource | null = null
   let cancelled = false

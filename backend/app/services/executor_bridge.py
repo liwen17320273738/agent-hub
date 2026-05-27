@@ -248,6 +248,142 @@ async def execute_claude_code(
     return job
 
 
+async def execute_codex(
+    *,
+    task_id: str,
+    prompt: str,
+    work_dir: str = "",
+    timeout_seconds: int = 900,
+    created_by: str = "",
+) -> Dict[str, Any]:
+    """Launch Codex CLI (codex exec) as a subprocess — 备选代码生成引擎。
+
+    Claude Code 不可用时自动降级到此引擎。
+    """
+    job_id = str(uuid.uuid4())
+    try:
+        safe_dir = _validate_work_dir(work_dir or os.getcwd())
+    except ValueError as e:
+        return {
+            "id": job_id, "taskId": task_id, "status": "error",
+            "output": str(e), "startedAt": time.time(), "completedAt": time.time(),
+        }
+
+    codex_bin = os.environ.get("CODEX_PATH") or shutil.which("codex") or "codex"
+    model = os.environ.get("CODEX_MODEL", "claude-sonnet-4-6")
+    args = [codex_bin, "exec", "-C", safe_dir, "-m", model]
+
+    job: Dict[str, Any] = {
+        "id": job_id,
+        "taskId": task_id,
+        "createdBy": created_by,
+        "status": "running",
+        "pid": None,
+        "startedAt": time.time(),
+        "completedAt": None,
+        "exitCode": None,
+        "output": "",
+    }
+    await _save_job(job)
+    await _index_job_to_task(task_id, job_id)
+
+    log_count = 0
+    await emit_event("executor:started", {"jobId": job_id, "taskId": task_id, "engine": "codex"})
+
+    try:
+        filtered_env = {
+            k: v for k, v in os.environ.items()
+            if not k.startswith(("DATABASE", "REDIS", "JWT", "ADMIN"))
+        }
+
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=safe_dir,
+            env=filtered_env,
+        )
+        job["pid"] = proc.pid
+        await _save_job(job)
+
+        if proc.stdin:
+            proc.stdin.write(prompt.encode())
+            await proc.stdin.drain()
+            proc.stdin.close()
+
+        stdout_parts: List[str] = []
+        stderr_parts: List[str] = []
+
+        async def _read_stream(stream, stream_type: str, parts: List[str]):
+            nonlocal log_count
+            while True:
+                line = await stream.readline()
+                if not line:
+                    break
+                text = line.decode(errors="replace")
+                parts.append(text)
+                entry = {"type": stream_type, "text": text, "timestamp": time.time()}
+                await _append_log(job_id, entry)
+                log_count += 1
+                await emit_event("executor:log", {"jobId": job_id, "taskId": task_id, **entry})
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    _read_stream(proc.stdout, "stdout", stdout_parts),
+                    _read_stream(proc.stderr, "stderr", stderr_parts),
+                ),
+                timeout=timeout_seconds,
+            )
+            await proc.wait()
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            job["status"] = "timeout"
+            await emit_event("executor:timeout", {"jobId": job_id, "taskId": task_id})
+
+        exit_code = proc.returncode
+        output = "".join(stdout_parts)
+        if not output.strip() and stderr_parts:
+            output = "[stderr]\n" + "".join(stderr_parts)
+
+        job["status"] = "done" if exit_code == 0 else job.get("status", "failed")
+        if job["status"] == "running":
+            job["status"] = "failed"
+        job["exitCode"] = exit_code
+        job["completedAt"] = time.time()
+        job["output"] = output
+        await _save_job(job)
+
+        await emit_event("executor:completed", {
+            "jobId": job_id, "taskId": task_id,
+            "status": job["status"], "exitCode": exit_code,
+            "duration": int((job["completedAt"] - job["startedAt"]) * 1000),
+            "outputLength": len(output),
+        })
+
+    except FileNotFoundError:
+        job["status"] = "error"
+        job["completedAt"] = time.time()
+        error_msg = f"codex CLI not found at '{codex_bin}'. Install: npm i -g @anthropic-ai/codex"
+        await _append_log(job_id, {"type": "error", "text": error_msg, "timestamp": time.time()})
+        log_count += 1
+        await _save_job(job)
+        await emit_event("executor:error", {"jobId": job_id, "taskId": task_id, "error": error_msg})
+
+    except Exception as e:
+        job["status"] = "error"
+        job["completedAt"] = time.time()
+        await _append_log(job_id, {"type": "error", "text": str(e), "timestamp": time.time()})
+        log_count += 1
+        await _save_job(job)
+        await emit_event("executor:error", {"jobId": job_id, "taskId": task_id, "error": str(e)})
+
+    job["logCount"] = log_count
+    return job
+
+
 async def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     """Fetch job metadata from Redis. Includes logCount but not the logs themselves."""
     r = get_redis()

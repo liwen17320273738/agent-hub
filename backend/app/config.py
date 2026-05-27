@@ -137,6 +137,7 @@ class Settings(BaseSettings):
 
     # Sandbox isolation
     sandbox_use_docker: bool = False         # set to True in prod to run bash/build inside container
+    sandbox_auto_docker: bool = True        # auto-enable docker sandbox when docker is available (even if sandbox_use_docker=False)
     sandbox_docker_image: str = "agent-hub/sandbox:latest"   # overridable; falls back to python:3.11-slim if missing
     sandbox_docker_network: str = "none"     # "none" / "bridge" / a named network
     sandbox_docker_memory: str = "1g"        # docker --memory limit

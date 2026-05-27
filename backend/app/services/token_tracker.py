@@ -96,8 +96,8 @@ def estimate_cost(provider: str, model: str, prompt_tokens: int, completion_toke
 async def record_usage(
     db: AsyncSession,
     *,
-    org_id: uuid.UUID,
-    user_id: uuid.UUID,
+    org_id: Optional[uuid.UUID],
+    user_id: Optional[uuid.UUID],
     agent_id: Optional[str],
     provider: str,
     model: str,
@@ -107,7 +107,14 @@ async def record_usage(
     endpoint: str = "chat",
     metadata_extra: Optional[Dict[str, Any]] = None,
     cost_usd_override: Optional[float] = None,
-) -> TokenUsage:
+) -> Optional[TokenUsage]:
+    # org_id 或 user_id 缺失时跳过记录（不会 crash 整个 Pipeline）
+    if org_id is None or user_id is None:
+        logger.warning(
+            "[token_tracker] 跳过用量记录 — org_id=%s user_id=%s model=%s",
+            org_id, user_id, model,
+        )
+        return None
     total = prompt_tokens + completion_tokens
     cost = (
         round(float(cost_usd_override), 6)

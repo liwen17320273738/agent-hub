@@ -15,26 +15,26 @@
     <!-- Job summary -->
     <div v-if="activeJob" class="job-summary">
       <div class="job-summary-item">
-        <span class="summary-label">状态</span>
+        <span class="summary-label">{{ $t('ExecutionLogTab.status') }}</span>
         <el-tag :type="jobStatusTag" size="small" effect="dark">
           <span class="status-dot" :class="activeJob.status" />
           {{ jobStatusLabel }}
         </el-tag>
       </div>
       <div class="job-summary-item">
-        <span class="summary-label">耗时</span>
+        <span class="summary-label">{{ $t('ExecutionLogTab.duration') }}</span>
         <span class="summary-value">{{ formatDuration(activeJob) }}</span>
       </div>
       <div class="job-summary-item">
-        <span class="summary-label">退出码</span>
+        <span class="summary-label">{{ $t('ExecutionLogTab.exitCode') }}</span>
         <span class="summary-value">{{ activeJob.exitCode ?? '—' }}</span>
       </div>
       <div class="job-summary-item">
-        <span class="summary-label">日志条数</span>
+        <span class="summary-label">{{ $t('ExecutionLogTab.logCount') }}</span>
         <span class="summary-value">{{ logs.length }}</span>
       </div>
       <el-button v-if="activeJob.status === 'running'" size="small" type="danger" plain @click="handleKill">
-        <el-icon><CloseBold /></el-icon> 终止
+        <el-icon><CloseBold /></el-icon> {{ $t('ExecutionLogTab.terminate') }}
       </el-button>
     </div>
 
@@ -48,28 +48,28 @@
       <el-input
         v-model="searchQuery"
         size="small"
-        placeholder="搜索日志..."
+        :placeholder="$t('ExecutionLogTab.searchLog')"
         clearable
         class="log-search"
         :prefix-icon="Search"
       />
-      <el-button size="small" text @click="autoScroll = !autoScroll">
+      <el-button size="small" text @click="autoScroll = !autoScroll" aria-label="action">
         <el-icon><Bottom /></el-icon>
-        {{ autoScroll ? '自动滚动' : '手动' }}
+        {{ autoScroll ? $t('ExecutionLogTab.autoScroll') : $t('ExecutionLogTab.manual') }}
       </el-button>
     </div>
 
     <!-- Empty state -->
     <div v-if="!hasJobs" class="log-empty">
       <el-icon :size="48"><Monitor /></el-icon>
-      <p>暂无 Claude Code 执行记录</p>
-      <p class="log-empty-hint">当 pipeline 进入「开发实现」阶段时，Claude Code 的执行日志会显示在这里</p>
+      <p>{{ $t('ExecutionLogTab.noExecRecords', { name: 'Claude Code' }) }}</p>
+      <p class="log-empty-hint">{{ $t('ExecutionLogTab.noExecRecordsHint', { stage: $t('ExecutionLogTab.devStage'), name: 'Claude Code' }) }}</p>
     </div>
 
     <!-- No logs yet for running job -->
     <div v-else-if="!logs.length && activeJob?.status === 'running'" class="log-waiting">
       <el-icon class="spin-icon" :size="32"><Loading /></el-icon>
-      <p>等待 Claude Code 输出...</p>
+      <p>{{ $t('ExecutionLogTab.waitingOutput', { name: 'Claude Code' }) }}</p>
     </div>
 
     <!-- Log output -->
@@ -85,13 +85,13 @@
         <span class="log-line-text">{{ log.text }}</span>
       </div>
       <div v-if="!filteredLogs.length && searchQuery" class="log-no-match">
-        无匹配 "{{ searchQuery }}" 的日志行
+        {{ $t('ExecutionLogTab.noMatchLog', { query: searchQuery }) }}
       </div>
     </div>
 
     <!-- Load more -->
     <div v-if="!allLoaded" class="log-load-more">
-      <el-button text @click="loadOlder">加载更早的日志</el-button>
+      <el-button text @click="loadOlder">{{ $t('ExecutionLogTab.loadEarlier') }}</el-button>
     </div>
   </div>
 </template>
@@ -148,12 +148,12 @@ const jobStatusTag = computed(() => {
 const jobStatusLabel = computed(() => {
   const s = activeJob.value?.status
   const map: Record<string, string> = {
-    running: '运行中',
-    done: '完成',
-    failed: '失败',
-    error: '错误',
-    timeout: '超时',
-    killed: '已终止',
+    running: t('ExecutionLogTab.running'),
+    done: t('ExecutionLogTab.completed'),
+    failed: t('ExecutionLogTab.failed'),
+    error: t('ExecutionLogTab.error'),
+    timeout: t('ExecutionLogTab.timeout'),
+    killed: t('ExecutionLogTab.terminated'),
   }
   return map[s] || s || '—'
 })
@@ -213,11 +213,11 @@ async function handleKill() {
   try {
     const res = await fetch(`/api/executor/jobs/${activeJobId.value}/kill`, { method: 'POST' })
     if (res.ok) {
-      ElMessage.success('已发送终止信号')
+      ElMessage.success(t('ExecutionLogTab.terminateSent'))
       await loadJobs()
     }
   } catch {
-    ElMessage.error('终止失败')
+    ElMessage.error(t('ExecutionLogTab.terminateFailed'))
   }
 }
 
@@ -284,7 +284,7 @@ onBeforeUnmount(() => {
 }
 .job-select {
   width: 100%;
-  max-width: 500px;
+  max-max-width: 500px; width: 100%;
 }
 
 .job-summary {
@@ -394,7 +394,7 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
   width: 28px;
   font-weight: 600;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .log-type-stdout .log-line-type { color: #a5b4fc; }

@@ -16,7 +16,7 @@ const { t } = useI18n()
 
 <style scoped>
 .skills-view {
-  max-width: 1400px;
+  max-max-width: 1400px; width: 100%;
   margin: 0 auto;
   padding: 24px 28px 48px;
 }

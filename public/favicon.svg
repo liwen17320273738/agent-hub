@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Octopus body -->
+  <ellipse cx="32" cy="22" rx="10" ry="12" fill="#6366f1" />
+  <!-- Eyes -->
+  <circle cx="28" cy="18" r="2.5" fill="#ffffff" />
+  <circle cx="36" cy="18" r="2.5" fill="#ffffff" />
+  <circle cx="28.5" cy="18.5" r="1" fill="#6366f1" />
+  <circle cx="36.5" cy="18.5" r="1" fill="#6366f1" />
+  <!-- Tentacles -->
+  <path d="M24 30 Q18 38 16 48" stroke="#6366f1" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  <path d="M28 32 Q26 42 24 52" stroke="#6366f1" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  <path d="M32 33 Q32 44 32 54" stroke="#6366f1" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  <path d="M36 32 Q38 42 40 52" stroke="#6366f1" stroke-width="2.5" fill="none" stroke-linecap="round" />
+  <path d="M40 30 Q46 38 48 48" stroke="#6366f1" stroke-width="2.5" fill="none" stroke-linecap="round" />
+</svg>

@@ -14,7 +14,7 @@
   -->
   <el-drawer
     v-model="visibleProxy"
-    :title="`{{ $t('StageConfigDrawer.configStage') }} · ${data?.label || data?.stageId || ''}`"
+    :title="`${$t('StageConfigDrawer.configStage')} · ${data?.label || data?.stageId || ''}`"
     direction="rtl"
     size="380px"
     :destroy-on-close="false"
@@ -30,21 +30,21 @@
             @input="onStageIdInput"
           >
             <template #append>
-              <el-tooltip content="{{ $t('StageConfigDrawer.stableId') }}；{{ $t('StageConfigDrawer.lowercaseEnglish') }}，{{ $t('StageConfigDrawer.alphanumeric') }}">
+              <el-tooltip :content="`${$t('StageConfigDrawer.stableId')}；${$t('StageConfigDrawer.lowercaseEnglish')}，${$t('StageConfigDrawer.alphanumeric')}`">
                 <el-icon><InfoFilled /></el-icon>
               </el-tooltip>
             </template>
           </el-input>
           <div v-if="stageIdError" class="hint hint-error">{{ stageIdError }}</div>
-          <div v-else class="hint">仅小写字母 / 数字 / 短横线，会成为 PipelineStage 的主键</div>
+          <div v-else class="hint">{{ $t('StageConfigDrawer.stageIdHint') }}</div>
         </el-form-item>
 
-        <el-form-item label="显示名称">
-          <el-input v-model="data.label" placeholder="开发实现" clearable />
+        <el-form-item :label="$t('StageConfigDrawer.label')">
+          <el-input v-model="data.label" :placeholder="$t('StageConfigDrawer.labelPlaceholder')" clearable />
         </el-form-item>
 
-        <el-form-item label="Agent 角色">
-          <el-select v-model="data.role" placeholder="选择角色" style="width: 100%">
+        <el-form-item :label="$t('StageConfigDrawer.agentRole')">
+          <el-select v-model="data.role" :placeholder="$t('StageConfigDrawer.selectRole')" style="width: 100%">
             <el-option
               v-for="r in KNOWN_ROLES"
               :key="r.value"
@@ -54,65 +54,58 @@
           </el-select>
         </el-form-item>
 
-        <el-divider content-position="left">高级</el-divider>
+        <el-divider content-position="left">{{ $t('StageConfigDrawer.advanced') }}</el-divider>
 
-        <el-form-item label="模型覆盖（可选）">
+        <el-form-item :label="$t('StageConfigDrawer.modelOverride')">
           <el-input
             v-model="modelInput"
-            placeholder="留空 = 走 LLM router 默认"
+            :placeholder="$t('StageConfigDrawer.modelOverridePlaceholder')"
             clearable
             @blur="commitModel"
             @keyup.enter="commitModel"
           />
-          <div class="hint">填了就锁定；常用：claude-sonnet-4、gpt-4o、deepseek-chat</div>
+          <div class="hint">{{ $t('StageConfigDrawer.modelOverrideHint') }}</div>
         </el-form-item>
 
-        <el-form-item label="质量阈值">
+        <el-form-item :label="$t('StageConfigDrawer.qualityThreshold')">
           <el-slider
             :model-value="(data.qualityGateMin ?? 0) * 100"
             :min="0"
             :max="100"
             :step="5"
-            :format-tooltip="(v: number) => v === 0 ? '关闭' : `${v}%`"
+            :format-tooltip="(v: number) => v === 0 ? $t('StageConfigDrawer.qualityOff') : `${v}%`"
             @input="(v: number) => (data.qualityGateMin = v === 0 ? undefined : v / 100)"
           />
-          <div class="hint">
-            self-verify 评分低于阈值时自动 reject + self-heal；0 = 关闭
-          </div>
+          <div class="hint">{{ $t('StageConfigDrawer.qualityHint') }}</div>
         </el-form-item>
 
-        <el-form-item label="Reject 时执行">
+        <el-form-item :label="$t('StageConfigDrawer.rejectAction')">
           <el-radio-group v-model="rejectActionProxy" size="small">
-            <el-radio-button value="self-heal">自动改 prompt</el-radio-button>
-            <el-radio-button value="escalate">升级人工</el-radio-button>
-            <el-radio-button value="manual">仅记录</el-radio-button>
+            <el-radio-button value="self-heal">{{ $t('StageConfigDrawer.rejectSelfHeal') }}</el-radio-button>
+            <el-radio-button value="escalate">{{ $t('StageConfigDrawer.rejectEscalate') }}</el-radio-button>
+            <el-radio-button value="manual">{{ $t('StageConfigDrawer.rejectManual') }}</el-radio-button>
           </el-radio-group>
-          <div class="hint">
-            <strong>self-heal</strong>: AI 自动读取 reject 反馈再跑一次（推荐）<br />
-            <strong>escalate</strong>: 直接打 IM + 加 Jira/GitHub label<br />
-            <strong>manual</strong>: 等人按"重试"
-          </div>
         </el-form-item>
 
-        <el-form-item label="失败策略">
+        <el-form-item :label="$t('StageConfigDrawer.failureStrategy')">
           <el-radio-group v-model="onFailureProxy" size="small">
-            <el-radio-button value="halt">中止</el-radio-button>
-            <el-radio-button value="rollback">回滚</el-radio-button>
-            <el-radio-button value="skip">跳过</el-radio-button>
+            <el-radio-button value="halt">{{ $t('StageConfigDrawer.failureHalt') }}</el-radio-button>
+            <el-radio-button value="rollback">{{ $t('StageConfigDrawer.failureRollback') }}</el-radio-button>
+            <el-radio-button value="skip">{{ $t('StageConfigDrawer.failureSkip') }}</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
         <el-form-item>
           <el-checkbox v-model="data.humanGate">
-            该阶段需要人工审批后才能继续
+            {{ $t('StageConfigDrawer.humanGate') }}
           </el-checkbox>
         </el-form-item>
       </el-form>
 
-      <el-divider content-position="left">依赖关系</el-divider>
+      <el-divider content-position="left">{{ $t('StageConfigDrawer.dependencies') }}</el-divider>
       <div class="deps-block">
         <div v-if="dependsOn.length === 0" class="hint">
-          无（这是入口阶段）。在画布上从其他节点拖一条线到此节点的左侧把手即可。
+          {{ $t('StageConfigDrawer.noDeps') }}
         </div>
         <div v-else class="dep-list">
           <el-tag
@@ -130,7 +123,7 @@
       <div class="footer-actions">
         <el-button type="danger" plain size="small" @click="emit('delete', nodeId)">
           <el-icon><Delete /></el-icon>
-          删除此阶段
+          {{ $t('StageConfigDrawer.deleteStage') }}
         </el-button>
       </div>
     </div>
@@ -202,9 +195,9 @@ const onFailureProxy = computed({
 const STAGE_ID_RE = /^[a-z][a-z0-9-]{0,40}$/
 const stageIdError = computed(() => {
   const id = props.data?.stageId || ''
-  if (!id) return '不能为空'
-  if (!STAGE_ID_RE.test(id)) return '仅小写字母 / 数字 / 短横线，首字符必须为字母'
-  if (props.otherStageIds.includes(id)) return `已存在同名阶段：${id}`
+  if (!id) return t('StageConfigDrawer.stageIdEmpty')
+  if (!STAGE_ID_RE.test(id)) return t('StageConfigDrawer.stageIdInvalid')
+  if (props.otherStageIds.includes(id)) return t('StageConfigDrawer.stageIdDuplicate', { id })
   return ''
 })
 
@@ -226,7 +219,7 @@ function handleClose(done: () => void) {
 }
 .hint {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: #94a3b8;
   line-height: 1.4;
 }

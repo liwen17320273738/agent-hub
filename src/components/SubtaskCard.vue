@@ -9,6 +9,9 @@
  */
 import { ref, computed } from 'vue'
 import type { SubtaskInfo } from '@/agents/types'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   subtask: SubtaskInfo
@@ -16,12 +19,12 @@ const props = defineProps<{
 
 const expanded = ref(false)
 
-const roleLabels: Record<string, string> = {
-  'product-manager': '产品经理',
-  'developer': '架构师',
-  'executor': '执行者',
-  'qa-lead': 'QA',
-  'orchestrator': '总控',
+const ROLE_I18N_KEYS: Record<string, string> = {
+  'product-manager': 'subtaskCard.role.productManager',
+  'developer': 'subtaskCard.role.architect',
+  'executor': 'subtaskCard.role.executor',
+  'qa-lead': 'subtaskCard.role.qa',
+  'orchestrator': 'subtaskCard.role.orchestrator',
 }
 
 const roleColors: Record<string, string> = {
@@ -32,7 +35,10 @@ const roleColors: Record<string, string> = {
   'orchestrator': '#909399',
 }
 
-const roleLabel = computed(() => roleLabels[props.subtask.role] || props.subtask.role)
+const roleLabel = computed(() => {
+  const key = ROLE_I18N_KEYS[props.subtask.role]
+  return key ? t(key) : props.subtask.role
+})
 const roleColor = computed(() => roleColors[props.subtask.role] || '#909399')
 
 const statusIcon = computed(() => {
@@ -85,7 +91,7 @@ const outputPreview = computed(() => {
       </div>
       <div v-else-if="subtask.output" class="output-content" v-html="renderMd(subtask.output)" />
       <div v-else class="pending-msg">
-        {{ subtask.status === 'running' ? 'AI 正在处理...' : '等待执行' }}
+        {{ subtask.status === 'running' ? $t('subtaskCard.processing') : $t('subtaskCard.pending') }}
       </div>
     </div>
 

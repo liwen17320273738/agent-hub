@@ -1,0 +1,159 @@
+.workflow-builder {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 0px);
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.wb-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid #1e293b;
+  background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
+}
+.wb-header .left h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.wb-header .left .subtitle {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.wb-header .right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topo-banner {
+  margin: 0;
+  border-radius: 0;
+}
+
+.builder-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+/* Vue Flow's default theme is light; force dark canvas. */
+:deep(.vue-flow) {
+  background: #0b1120;
+}
+:deep(.vue-flow__minimap) {
+  background: #1f2937 !important;
+  border: 1px solid #334155;
+}
+:deep(.vue-flow__controls) {
+  background: #1f2937;
+  border: 1px solid #334155;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+:deep(.vue-flow__controls-button) {
+  background: #1f2937;
+  border-bottom: 1px solid #334155;
+  color: #e2e8f0;
+  fill: #e2e8f0;
+}
+:deep(.vue-flow__controls-button:hover) {
+  background: #334155;
+}
+:deep(.vue-flow__edge-path) {
+  stroke: #475569;
+  stroke-width: 1.5;
+}
+:deep(.vue-flow__edge.selected .vue-flow__edge-path),
+:deep(.vue-flow__edge:focus .vue-flow__edge-path) {
+  stroke: #38bdf8;
+  stroke-width: 2;
+}
+:deep(.vue-flow__connection-path) {
+  stroke: #38bdf8;
+}
+:deep(.vue-flow__attribution) {
+  display: none;
+}
+
+.wf-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+.wf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 460px;
+  overflow-y: auto;
+}
+.wf-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  margin: 6px 0;
+  background: #0f172a;
+}
+.wf-row.active {
+  border-color: #38bdf8;
+}
+.wf-meta {
+  flex: 1;
+  min-width: 0;
+}
+.wf-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.wf-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-extra {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+.wf-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.json-preview {
+  margin: 0;
+  padding: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 480px;
+  overflow: auto;
+}
+.conv-error {
+  padding: 6px 0;
+}

@@ -25,6 +25,8 @@ from .memory import get_context_from_history, store_memory
 from .self_verify import verify_stage_output
 from .sse import emit_event
 from .tools import TOOL_REGISTRY, execute_tool, get_tool_definitions
+from .task_workspace import find_task_root
+from .context_compactor import compact_messages_if_needed, estimate_message_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +207,10 @@ class AgentRuntime:
         )
 
         for step in range(self.max_steps):
+            # Auto-compact context if nearing model limit (skip step 0 — no history yet)
+            if step > 0:
+                messages = await compact_messages_if_needed(messages, model)
+
             # 使用标准 function calling 格式
             call_kwargs: Dict[str, Any] = {
                 "model": model,
@@ -314,6 +320,7 @@ class AgentRuntime:
             "observations": observations,
             "model": model,
             "verification": verification.overall_status.value,
+            "estimated_tokens": estimate_message_tokens(messages),
         }
 
     async def _execute_tool_call(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
@@ -362,8 +369,15 @@ class AgentRuntime:
                     logger.error(f"[agent_runtime] dynamic tool {tool_name} crashed: {e}")
                     result = f"Error: dynamic tool '{tool_name}' failed: {e}"
         else:
+            # Inject workspace_dir for bash/file tools when task_id is available
+            exec_input = dict(tool_input)
+            if self.task_id and tool_name in ("bash", "build", "install_deps", "run_tests", "test_execute"):
+                task_root = find_task_root(self.task_id)
+                if task_root and "workspace_dir" not in exec_input:
+                    exec_input["workspace_dir"] = str(task_root)
+
             result = await execute_tool(
-                tool_name, tool_input,
+                tool_name, exec_input,
                 allowed_tools=self.tool_names,
                 role=self.role,
                 agent_id=self.agent_id,

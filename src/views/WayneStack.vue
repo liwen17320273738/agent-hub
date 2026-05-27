@@ -4,7 +4,7 @@
       <div>
         <h1>{{ t('AgentStack.text_1') }}</h1>
         <p class="subtitle">
-          以 Claude Code {{ $t('WayneStack.execHub') }}、Cursor {{ $t('WayneStack.cockpit') }}、Opus/Sonnet/GPT/Gemini 为多模型总线的人机协同架构。
+          以 Claude Code {{ $t('WayneStack.execHub') }}、Cursor {{ $t('WayneStack.cockpit') }}、Opus/Sonnet/GPT/Gemini {{ $t('WayneStack.multiModel') }}。
         </p>
       </div>
       <div class="header-badges">
@@ -15,14 +15,14 @@
     </header>
 
     <el-alert class="summary-alert" type="info" :closable="false" show-icon>
-      <template #title>一句话总结</template>
-      Agent Hub 不是多开几个模型，而是把命令、角色、技能、工具和记忆层组织成一个可持续运转的 AI 交付操作系统。
+      <template #title>{{ $t('WayneStack.oneSentence') }}</template>
+      {{ $t('WayneStack.summary') }}
     </el-alert>
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>一、核心模型 → 核心角色</h2>
-        <p>核心展示前置。每一个核心模型对应 Agent Hub 的一个关键角色，不再只是抽象分工。</p>
+        <h2>{{ $t('WayneStack.section1Title') }}</h2>
+        <p>{{ $t('WayneStack.section1Desc') }}</p>
       </div>
 
       <div class="model-grid">
@@ -45,8 +45,8 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>二、运行架构</h2>
-        <p>从 Agent Hub 的目标开始，流经 Claude Code、工作流引擎、多模型总线、角色与技能，最终落到代码、文档和记忆。</p>
+        <h2>{{ $t('WayneStack.section2Title') }}</h2>
+        <p>{{ $t('WayneStack.section2Desc') }}</p>
       </div>
 
       <div class="architecture-stack">
@@ -67,22 +67,22 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>三、命令路由</h2>
-        <p>从终端发起命令，Claude Code 调总控编排器，再按任务类型路由到不同模型。</p>
+        <h2>{{ $t('WayneStack.section3Title') }}</h2>
+        <p>{{ $t('WayneStack.section3Desc') }}</p>
       </div>
 
       <el-table :data="commandRoutes" stripe class="route-table">
-        <el-table-column prop="command" label="命令" width="160" />
-        <el-table-column prop="lead" label="主模型" width="120" />
-        <el-table-column prop="review" label="复核 / 挑战" min-width="180" />
-        <el-table-column prop="output" label="典型产出" min-width="220" />
+        <el-table-column prop="command" :label="$t('WayneStack.colCommand')" width="160" />
+        <el-table-column prop="lead" :label="$t('WayneStack.colLead')" width="120" />
+        <el-table-column prop="review" :label="$t('WayneStack.colReview')" min-width="180" />
+        <el-table-column prop="output" :label="$t('WayneStack.colOutput')" min-width="220" />
       </el-table>
     </section>
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>四、典型执行链</h2>
-        <p>以“登录与权限重构”为例，展示从 PRD 到上线建议的一次完整交付路径。</p>
+        <h2>{{ $t('WayneStack.section4Title') }}</h2>
+        <p>{{ $t('WayneStack.section4Desc') }}</p>
       </div>
 
       <div class="flow-grid">
@@ -100,13 +100,13 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>五、最小落地组合</h2>
-        <p>先跑通需求、实现、质量验证，不要一开始就做完整军团。</p>
+        <h2>{{ $t('WayneStack.section5Title') }}</h2>
+        <p>{{ $t('WayneStack.section5Desc') }}</p>
       </div>
 
       <div class="mvp-grid">
         <el-card class="mvp-card">
-          <template #header>先启用的角色</template>
+          <template #header>{{ $t('WayneStack.mvpRoles') }}</template>
           <ul class="plain-list">
             <li>`Agent-orchestrator`</li>
             <li>`Agent-product-manager`</li>
@@ -116,7 +116,7 @@
         </el-card>
 
         <el-card class="mvp-card">
-          <template #header>先跑通的命令</template>
+          <template #header>{{ $t('WayneStack.mvpCommands') }}</template>
           <ul class="plain-list">
             <li>`/Agent-prd`</li>
             <li>`/Agent-build`</li>
@@ -126,7 +126,7 @@
         </el-card>
 
         <el-card class="mvp-card">
-          <template #header>先沉淀的文档</template>
+          <template #header>{{ $t('WayneStack.mvpDocs') }}</template>
           <ul class="plain-list">
             <li>`docs/delivery/01-prd.md`</li>
             <li>`docs/delivery/04-implementation-notes.md`</li>
@@ -139,8 +139,8 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>六、调度模式面板</h2>
-        <p>Agent Hub 不让四个模型同时做同一件事，而是按模式组合使用。</p>
+        <h2>{{ $t('WayneStack.section6Title') }}</h2>
+        <p>{{ $t('WayneStack.section6Desc') }}</p>
       </div>
 
       <div class="mode-grid">
@@ -161,8 +161,8 @@
 
     <section class="section-block">
       <div class="section-heading">
-        <h2>七、进入 Agent Hub 智能体</h2>
-        <p>下面这 4 个已经接入当前 Agent Hub，可直接点击查看聊天入口和快捷提示词。</p>
+        <h2>{{ $t('WayneStack.section7Title') }}</h2>
+        <p>{{ $t('WayneStack.section7Desc') }}</p>
       </div>
 
       <div class="agent-entry-grid">
@@ -182,7 +182,7 @@
             </div>
             <div class="entry-recommended-model">{{ entry.recommendedModel }}</div>
             <p>{{ entry.description }}</p>
-            <span class="entry-link">进入聊天 →</span>
+            <span class="entry-link">{{ $t('WayneStack.goChat') }}</span>
           </div>
         </div>
       </div>
@@ -224,71 +224,71 @@ const router = useRouter()
 const architectureLayers: Layer[] = [
   {
     index: '01',
-    title: 'Agent Hub',
-    summary: '目标、审批、资源取舍和高风险动作的最终裁决者。',
-    points: ['方向', '审批', '取舍', '人在环上'],
+    title: t('WayneStack.layer1Title'),
+    summary: t('WayneStack.layer1Summary'),
+    points: [t('WayneStack.layer1Point1'), t('WayneStack.layer1Point2'), t('WayneStack.layer1Point3'), t('WayneStack.layer1Point4')],
   },
   {
     index: '02',
-    title: 'Claude Code Runtime',
-    summary: '终端执行中枢，承载命令、插件、hooks、MCP 和流程编排。',
+    title: t('WayneStack.layer2Title'),
+    summary: t('WayneStack.layer2Summary'),
     points: ['commands', 'plugins', 'hooks', 'MCP'],
   },
   {
     index: '03',
-    title: 'Workflow + Models',
-    summary: '工作流引擎和多模型总线协同推进 Discovery -> Retro 全链路。',
+    title: t('WayneStack.layer3Title'),
+    summary: t('WayneStack.layer3Summary'),
     points: ['Opus 4.6', 'Sonnet 4.6', 'GPT-4.5', 'Gemini 4', 'GLM-4.5'],
   },
   {
     index: '04',
-    title: 'Roles + Skills',
-    summary: '用岗位层承担责任，用技能层固化方法，避免只靠 prompt vibe。',
+    title: t('WayneStack.layer4Title'),
+    summary: t('WayneStack.layer4Summary'),
     points: ['CEO', 'Product', 'Developer', 'QA', 'PRD', 'Test'],
   },
   {
     index: '05',
-    title: 'Workspace + Memory',
-    summary: '所有结果都落到代码、文档、测试和记忆层，而不是只停留在聊天里。',
+    title: t('WayneStack.layer5Title'),
+    summary: t('WayneStack.layer5Summary'),
     points: ['code', 'docs', 'tests', 'decisions', 'agent diaries'],
   },
 ]
 
 const modelRoles: ModelRole[] = [
   {
-    name: 'Opus 4.6',
-    role: 'Agent Hub 总控 / 架构裁决',
-    tag: 'Judgment',
+    name: t('WayneStack.modelOpus'),
+    role: t('WayneStack.modelOpusRole'),
+    tag: t('WayneStack.tagJudgment'),
     tagType: 'warning',
-    items: ['复杂权衡', '架构收口', '高风险发布判断', '冲突仲裁', '最终 go/no-go'],
+    items: [t('WayneStack.modelOpusItem1'), t('WayneStack.modelOpusItem2'), t('WayneStack.modelOpusItem3'), t('WayneStack.modelOpusItem4'), t('WayneStack.modelOpusItem5')],
   },
   {
-    name: 'Sonnet 4.6',
-    role: 'Agent Hub 开发工程师',
-    tag: 'Execution',
+    name: t('WayneStack.modelSonnet'),
+    role: t('WayneStack.modelSonnetRole'),
+    tag: t('WayneStack.tagExecution'),
     tagType: 'success',
-    items: ['连续编码', '多轮修复', '仓库级执行', '需求实现', '开发主力'],
+    items: [t('WayneStack.modelSonnetItem1'), t('WayneStack.modelSonnetItem2'), t('WayneStack.modelSonnetItem3'), t('WayneStack.modelSonnetItem4'), t('WayneStack.modelSonnetItem5')],
   },
   {
-    name: 'GPT-4.5',
-    role: 'Agent Hub 产品经理',
-    tag: 'Structure',
+    name: t('WayneStack.modelGpt'),
+    role: t('WayneStack.modelGptRole'),
+    tag: t('WayneStack.tagStructure'),
     tagType: 'primary',
-    items: ['PRD / 文档', '结构化输出', '需求澄清', '代码 review', '高质量总结'],
+    items: [t('WayneStack.modelGptItem1'), t('WayneStack.modelGptItem2'), t('WayneStack.modelGptItem3'), t('WayneStack.modelGptItem4'), t('WayneStack.modelGptItem5')],
   },
   {
-    name: 'Gemini 4',
-    role: 'Agent Hub QA / 研究挑战者',
-    tag: 'Research',
+    name: t('WayneStack.modelGemini'),
+    role: t('WayneStack.modelGeminiRole'),
+    tag: t('WayneStack.tagResearch'),
     tagType: 'info',
-    items: ['长上下文归纳', '方案对比', '架构 challenge', '风险挑战', 'QA 补充视角'],
+    items: [t('WayneStack.modelGeminiItem1'), t('WayneStack.modelGeminiItem2'), t('WayneStack.modelGeminiItem3'), t('WayneStack.modelGeminiItem4'), t('WayneStack.modelGeminiItem5')],
   },
   {
-    name: '智谱 GLM-4.5',
-    role: 'Agent Hub 中文策略 / 本土化',
-    tag: 'Localization',
+    name: t('WayneStack.modelGlm'),
+    role: t('WayneStack.modelGlmRole'),
+    tag: t('WayneStack.tagLocalization'),
     tagType: 'success',
-    items: ['中文表达', '本土化内容', '中文业务沟通', '中国市场语境', '中文润色'],
+    items: [t('WayneStack.modelGlmItem1'), t('WayneStack.modelGlmItem2'), t('WayneStack.modelGlmItem3'), t('WayneStack.modelGlmItem4'), t('WayneStack.modelGlmItem5')],
   },
 ]
 
@@ -296,155 +296,155 @@ const commandRoutes = [
   {
     command: '/Agent-prd',
     lead: 'GPT-4.5',
-    review: 'Opus 4.6 收缩范围 / GLM-4.5 中文润色',
-    output: 'PRD、目标/非目标、验收标准',
+    review: t('WayneStack.routePrdReview'),
+    output: t('WayneStack.routePrdOutput'),
   },
   {
     command: '/Agent-ui',
     lead: 'GPT-4.5 / Gemini 4',
-    review: 'Opus 4.6 审核方向',
-    output: 'UI spec、状态设计、交互说明',
+    review: t('WayneStack.routeUiReview'),
+    output: t('WayneStack.routeUiOutput'),
   },
   {
     command: '/Agent-arch',
     lead: 'Opus 4.6',
-    review: 'Gemini 4 challenge + GPT-4.5 结构化',
-    output: '架构说明、接口契约、风险与 ADR',
+    review: t('WayneStack.routeArchReview'),
+    output: t('WayneStack.routeArchOutput'),
   },
   {
     command: '/Agent-build',
     lead: 'Sonnet 4.6',
-    review: 'GPT-4.5 代码与逻辑审查',
-    output: '实现代码、实现说明、验证步骤',
+    review: t('WayneStack.routeBuildReview'),
+    output: t('WayneStack.routeBuildOutput'),
   },
   {
     command: '/Agent-qa',
     lead: 'Gemini 4 / Sonnet 4.6',
-    review: 'GPT-4.5 输出结论 / GLM-4.5 中文结论润色',
-    output: '测试报告、PASS/NEEDS WORK 结论',
+    review: t('WayneStack.routeQaReview'),
+    output: t('WayneStack.routeQaOutput'),
   },
   {
     command: '/Agent-ship',
     lead: 'Opus 4.6',
-    review: 'Agent Hub 最终审批',
-    output: '验收结论、回滚要点、发布建议',
+    review: t('WayneStack.routeShipReview'),
+    output: t('WayneStack.routeShipOutput'),
   },
 ]
 
 const executionFlow = [
   {
     step: '01',
-    title: '需求定义',
-    owner: 'GPT-4.5 -> Opus 4.6',
-    description: '先把问题定义清楚，再收缩范围和验收标准。',
-    artifacts: ['01-prd.md', '目标', '非目标'],
+    title: t('WayneStack.flow1Title'),
+    owner: t('WayneStack.flow1Owner'),
+    description: t('WayneStack.flow1Desc'),
+    artifacts: ['01-prd.md', t('WayneStack.flow1Artifact2'), t('WayneStack.flow1Artifact3')],
   },
   {
     step: '02',
-    title: '架构与边界',
-    owner: 'Opus 4.6 -> Gemini 4',
-    description: '先决定模块边界、契约、失败路径，再进入实现。',
-    artifacts: ['03-architecture.md', 'ADR', '风险'],
+    title: t('WayneStack.flow2Title'),
+    owner: t('WayneStack.flow2Owner'),
+    description: t('WayneStack.flow2Desc'),
+    artifacts: ['03-architecture.md', 'ADR', t('WayneStack.flow2Artifact3')],
   },
   {
     step: '03',
-    title: '代码实现',
-    owner: 'Sonnet 4.6 -> GPT-4.5',
-    description: 'Sonnet 主实现，GPT 负责 correctness 与 review。',
-    artifacts: ['代码', '04-implementation-notes.md'],
+    title: t('WayneStack.flow3Title'),
+    owner: t('WayneStack.flow3Owner'),
+    description: t('WayneStack.flow3Desc'),
+    artifacts: [t('WayneStack.flow3Artifact1'), '04-implementation-notes.md'],
   },
   {
     step: '04',
-    title: '质量验证',
-    owner: 'Gemini 4 / Sonnet 4.6 -> GPT-4.5',
-    description: '对照 PRD 和风险点验证，明确 PASS / NEEDS WORK。',
-    artifacts: ['05-test-report.md', '风险清单'],
+    title: t('WayneStack.flow4Title'),
+    owner: t('WayneStack.flow4Owner'),
+    description: t('WayneStack.flow4Desc'),
+    artifacts: ['05-test-report.md', t('WayneStack.flow4Artifact2')],
   },
   {
     step: '05',
-    title: '发布建议',
-    owner: 'Opus 4.6 -> Agent Hub',
-    description: '把验收、回滚、监控和上线建议收敛成最终结论。',
-    artifacts: ['06-acceptance.md', '回滚', '监控'],
+    title: t('WayneStack.flow5Title'),
+    owner: t('WayneStack.flow5Owner'),
+    description: t('WayneStack.flow5Desc'),
+    artifacts: ['06-acceptance.md', t('WayneStack.flow5Artifact2'), t('WayneStack.flow5Artifact3')],
   },
 ]
 
 const executionModes: ExecutionMode[] = [
   {
-    name: 'Mode A: Build + Dual Review',
-    short: '默认',
-    description: '最适合开发任务。Sonnet 4.6 主实现，GPT-4.5 审 correctness，Gemini 4 审架构与维护性。',
+    name: t('WayneStack.modeAName'),
+    short: t('WayneStack.modeAShort'),
+    description: t('WayneStack.modeADesc'),
     tagType: 'success',
-    steps: ['Sonnet 4.6 实现', 'GPT-4.5 代码/逻辑审查', 'Gemini 4 架构 challenge', 'Opus 4.6 仅在冲突时裁决'],
+    steps: [t('WayneStack.modeAStep1'), t('WayneStack.modeAStep2'), t('WayneStack.modeAStep3'), t('WayneStack.modeAStep4')],
   },
   {
-    name: 'Mode B: Competing Proposals',
-    short: '方案竞争',
-    description: '适合架构与方案选择。让多个模型给不同实现路径，再由 Opus 4.6 收口。',
+    name: t('WayneStack.modeBName'),
+    short: t('WayneStack.modeBShort'),
+    description: t('WayneStack.modeBDesc'),
     tagType: 'warning',
-    steps: ['Sonnet 4.6 方案 A', 'GPT-4.5 方案 B', 'Gemini 4 对比 tradeoff', 'Opus 4.6 选方案'],
+    steps: [t('WayneStack.modeBStep1'), t('WayneStack.modeBStep2'), t('WayneStack.modeBStep3'), t('WayneStack.modeBStep4')],
   },
   {
-    name: 'Mode C: Research + Converge',
-    short: '研究收敛',
-    description: '适合调研和大上下文任务。Gemini 4 先研究，GPT-4.5 结构化，Opus 4.6 决策。',
+    name: t('WayneStack.modeCName'),
+    short: t('WayneStack.modeCShort'),
+    description: t('WayneStack.modeCDesc'),
     tagType: 'info',
-    steps: ['Gemini 4 研究归纳', 'GPT-4.5 结构化总结', 'Opus 4.6 方向结论', 'Sonnet 4.6 落地实现'],
+    steps: [t('WayneStack.modeCStep1'), t('WayneStack.modeCStep2'), t('WayneStack.modeCStep3'), t('WayneStack.modeCStep4')],
   },
   {
-    name: 'Mode D: High-Risk Change',
-    short: '高风险',
-    description: '涉及生产、权限、计费、数据风险时，必须先审查再执行。',
+    name: t('WayneStack.modeDName'),
+    short: t('WayneStack.modeDShort'),
+    description: t('WayneStack.modeDDesc'),
     tagType: 'primary',
-    steps: ['GPT-4.5 写风险摘要', 'Gemini 4 挑战假设', 'Opus 4.6 做 go/no-go', 'Agent Hub 审批后执行'],
+    steps: [t('WayneStack.modeDStep1'), t('WayneStack.modeDStep2'), t('WayneStack.modeDStep3'), t('WayneStack.modeDStep4')],
   },
 ]
 
 const AgentAgents = [
   {
     id: 'Agent-orchestrator',
-    name: 'Agent Hub 总控',
+    name: t('WayneConsole.agentOrchName'),
     title: 'Orchestrator',
     icon: 'Connection',
     color: '#7c5cff',
-    description: '负责阶段推进、角色分配、阶段门检查和风险升级。',
-    recommendedModel: '推荐：Opus 4.6',
+    description: t('WayneStack.agentOrchestratorDesc'),
+    recommendedModel: t('WayneStack.recommendedOpus'),
   },
   {
     id: 'Agent-product-manager',
-    name: 'Agent Hub 产品经理',
+    name: t('WayneConsole.agentPmName'),
     title: 'Product Manager',
     icon: 'Memo',
     color: '#3b82f6',
-    description: '负责 PRD、范围管理、用户故事和验收标准。',
-    recommendedModel: '推荐：GPT-4.5',
+    description: t('WayneStack.agentPmDesc'),
+    recommendedModel: t('WayneStack.recommendedGpt'),
   },
   {
     id: 'Agent-developer',
-    name: 'Agent Hub 开发工程师',
+    name: t('WayneConsole.agentDevName'),
     title: 'Developer',
     icon: 'Cpu',
     color: '#14b8a6',
-    description: '负责最小改动实现、开发任务拆解和验证路径。',
-    recommendedModel: '推荐：Sonnet 4.6',
+    description: t('WayneStack.agentDevDesc'),
+    recommendedModel: t('WayneStack.recommendedSonnet'),
   },
   {
     id: 'Agent-qa-lead',
-    name: 'Agent Hub QA 负责人',
+    name: t('WayneConsole.agentQaName'),
     title: 'QA Lead',
     icon: 'CircleCheckFilled',
     color: '#f59e0b',
-    description: '负责风险验证、测试结论和发布前质量闸门。',
-    recommendedModel: '推荐：Gemini 4',
+    description: t('WayneStack.agentQaDesc'),
+    recommendedModel: t('WayneStack.recommendedGemini'),
   },
   {
     id: 'Agent-china-strategist',
-    name: 'Agent Hub 中文策略',
+    name: t('WayneConsole.agentChinaName'),
     title: 'China Strategist',
     icon: 'ChatLineSquare',
     color: '#ef4444',
-    description: '负责中文自然表达、本土化内容、老板视角汇报和中国市场语境适配。',
-    recommendedModel: '推荐：智谱 GLM-4.5',
+    description: t('WayneStack.agentChinaDesc'),
+    recommendedModel: t('WayneStack.recommendedGlm'),
   },
 ]
 
@@ -456,7 +456,7 @@ function goAgent(id: string) {
 <style scoped>
 .Agent-stack-page {
   padding: 32px 40px 48px;
-  max-width: 1400px;
+  max-max-width: 1400px; width: 100%;
   margin: 0 auto;
 }
 
@@ -479,7 +479,7 @@ function goAgent(id: string) {
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.7;
-  max-width: 860px;
+  max-max-width: 860px; width: 100%;
 }
 
 .header-badges {
@@ -734,7 +734,7 @@ function goAgent(id: string) {
   overflow: hidden;
 }
 
-@media (max-width: 900px) {
+@media (max-max-width: 900px; width: 100%) {
   .page-header {
     flex-direction: column;
   }

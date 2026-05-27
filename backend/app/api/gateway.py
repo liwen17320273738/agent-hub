@@ -8,7 +8,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import asyncio
 import logging
+import os
 import re
 import secrets as _secrets
 import uuid
@@ -31,6 +33,8 @@ from ..models.user import User
 from ..security import decode_token
 from ..services.sse import emit_event
 from ..services.collaboration import PIPELINE_STAGES
+
+_E2E_SEMAPHORE = asyncio.Semaphore(int(os.getenv("SCHED_MAX_CONCURRENT", "4")))
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +171,11 @@ async def _run_pipeline_background(
         run_full_e2e,
     )
 
+    timeout = int(os.getenv("GATEWAY_E2E_TIMEOUT", "1800"))
     try:
-        async with async_session_factory() as db:
-            result = await run_full_e2e(
+        async with _E2E_SEMAPHORE:
+            async with async_session_factory() as db:
+                result = await asyncio.wait_for(run_full_e2e(
                 db,
                 task_id=task_id,
                 task_title=title,
@@ -177,6 +183,8 @@ async def _run_pipeline_background(
                 auto_deploy=True,
                 dag_template=DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
                 pause_for_acceptance=pause_for_acceptance,
+            ),
+                timeout=timeout,
             )
             await db.commit()
             phases = {k: v.get("ok", False) for k, v in result.get("phases", {}).items()}
@@ -1205,7 +1213,7 @@ async def openclaw_approve_plan(
             task = None
 
     if task:
-        if web_org_id and task.org_id is None:
+        if web_org_id:
             task.org_id = web_org_id
         task.status = "active"
         task.current_stage_id = "planning"
@@ -1306,7 +1314,7 @@ async def openclaw_revise_plan(
     result = await _present_plan_and_wait(
         source=source,
         source_user_id=user_id,
-        title=safe_title,
+        title=title,
         description=description,
         feedback_addendum=body.feedback,
         metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,

@@ -46,7 +46,7 @@ async function refresh() {
     agents.value = a
     mcps.value = m
   } catch (e) {
-    ElMessage.error(`加载失败：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.loadFailed', { msg: (e as Error).message })`)
   } finally {
     loading.value = false
   }
@@ -134,7 +134,7 @@ async function loadMcpUrlOptionsForAgent(agentId: string) {
       const mine = await listMcps(agentId)
       for (const m of mine) {
         if (!m.server_url?.trim()) continue
-        push(`[${an} · 已有] ${m.name}`, m.server_url, m.name)
+        push(`[${an} · ${t('mcpServers.existing')}] ${m.name}`, m.server_url, m.name)
       }
     } catch {
       /* 忽略 */
@@ -142,13 +142,13 @@ async function loadMcpUrlOptionsForAgent(agentId: string) {
 
     // 2) 按角色配置的推荐占位（可编辑 src/data/agentMcpUrlSuggestions.ts）
     for (const s of getAgentMcpUrlSuggestions(agentId)) {
-      push(`[推荐] ${s.label}`, s.serverUrl, s.nameHint)
+      push(`[${t('mcpServers.recommended')}] ${s.label}`, s.serverUrl, s.nameHint)
     }
 
     // 3) 全局预设（官方远程 / 本地）
     for (const p of MCP_PRESETS) {
       if (p.id === 'custom' || !p.serverUrl.trim()) continue
-      const tag = p.kind === 'official' ? '官方' : p.kind === 'local' ? '本地' : '预设'
+      const tag = p.kind === 'official' ? t('mcpServers.official') : p.kind === 'local' ? t('mcpServers.local') : t('mcpServers.preset')
       push(`[${tag}] ${p.label}`, p.serverUrl, p.name.trim() || 'mcp')
     }
 
@@ -222,21 +222,21 @@ const probeFailureHint = computed(() => {
       (url.includes('127.0.0.1:3232') || url.includes('localhost:3232')) &&
       url.includes('/mcp')
     ) {
-      return '「Token is not active」表示当前填入的不是有效的 OAuth access_token，或已过期/被撤销（example-remote-server 重启后内存会话也会失效）。请在 MCP Inspector 里用 Streamable HTTP 连接 http://localhost:3232/mcp 重新完成授权，复制新的 access_token（一般为 eyJ 开头的 JWT），不要填授权码、refresh_token 或随机十六进制串。'
+      return t('mcpServers.probeHintTokenInactive')
     }
-    return '上游拒绝了当前 Bearer：令牌可能过期、已撤销或格式不对。请重新获取 OAuth access_token 或 PAT 后再试。'
+    return t('mcpServers.probeHintTokenRejected')
   }
   const noKey = !hasKey
   if (!noKey || !looks401) return ''
   if (url.includes('githubcopilot.com')) {
-    return 'GitHub 远程 MCP 要求上游请求带 Authorization。请在上面的「API Key」中填写 GitHub PAT 或 OAuth access token（会作为 Bearer 发给 api.githubcopilot.com）。浏览器里访问本站接口的 JWT 不会自动转给 GitHub。'
+    return t('mcpServers.probeHintGithubAuth')
   }
   const isExample3232 =
     (url.includes('127.0.0.1:3232') || url.includes('localhost:3232')) && url.includes('/mcp')
   if (isExample3232) {
-    return '本机 example-remote-server 对 MCP 启用 OAuth，必须先取得 access_token 并填入「API Key」（后端会以 Bearer 发给该地址）。请运行 npx -y @modelcontextprotocol/inspector 连接 http://localhost:3232/mcp 完成授权，或在其仓库运行 node examples/client.js；空 API Key 探测必然 401。'
+    return t('mcpServers.probeHintLocalOAuth')
   }
-  return '若远端需要认证，请在「API Key」中填写令牌；探测请求体里的 config 为空时，后端不会代你添加 Authorization。'
+  return t('mcpServers.probeHintNeedAuth')
 })
 
 async function probe() {
@@ -248,12 +248,12 @@ async function probe() {
   try {
     probeResult.value = await probeAnonymous(addForm.server_url.trim(), buildConfig())
     if (!probeResult.value.ok) {
-      ElMessage.error(`探测失败：${probeResult.value.error}`)
+      ElMessage.error(`t('mcpServers.probeFailed', { error: probeResult.value.error })`)
     } else {
-      ElMessage.success(`发现 ${probeResult.value.tools?.length || 0} 个工具`)
+      ElMessage.success(t('mcpServers.probeSuccess', { n: probeResult.value.tools?.length || 0 }))
     }
   } catch (e) {
-    ElMessage.error(`探测异常：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.probeError', { msg: (e as Error).message })`)
     probeResult.value = null
   } finally {
     probing.value = false
@@ -283,7 +283,7 @@ async function submitAdd() {
     addOpen.value = false
     await refresh()
   } catch (e) {
-    ElMessage.error(`保存失败：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.saveFailed', { msg: (e as Error).message })`)
   } finally {
     submitting.value = false
   }
@@ -296,10 +296,10 @@ async function refreshOne(rec: McpRecord) {
   refreshing.value[rec.id] = true
   try {
     const r = await refreshTools(rec.id)
-    ElMessage.success(`已刷新，共 ${r.tool_count} 个工具`)
+    ElMessage.success(t('mcpServers.refreshDone', { n: r.tool_count }))
     await refresh()
   } catch (e) {
-    ElMessage.error(`刷新失败：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.refreshFailed', { msg: (e as Error).message })`)
   } finally {
     refreshing.value[rec.id] = false
   }
@@ -307,8 +307,8 @@ async function refreshOne(rec: McpRecord) {
 
 async function removeOne(rec: McpRecord) {
   await ElMessageBox.confirm(
-    `确认删除 MCP 绑定 "${rec.name}"（agent ${rec.agent_id}）？`,
-    '确认',
+    t('mcpServers.deleteConfirm', { name: rec.name, agentId: rec.agent_id }),
+    t('mcpServers.confirm'),
     { type: 'warning' },
   )
   try {
@@ -316,7 +316,7 @@ async function removeOne(rec: McpRecord) {
     ElMessage.success(t('mcpServers.elMessage_5'))
     await refresh()
   } catch (e) {
-    ElMessage.error(`删除失败：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.deleteFailed', { msg: (e as Error).message })`)
   }
 }
 
@@ -352,7 +352,7 @@ async function runTool() {
   try {
     args = JSON.parse(toolArgs.value || '{}')
   } catch (e) {
-    ElMessage.error(`参数 JSON 解析失败：${(e as Error).message}`)
+    ElMessage.error(`t('mcpServers.jsonParseFailed', { msg: (e as Error).message })`)
     return
   }
   callRunning.value = true
@@ -375,8 +375,7 @@ onMounted(refresh)
       <div>
         <h1>{{ t('mcpServers.text_1') }}</h1>
         <p class="page-subtitle">
-          把外部工具（GitHub、Slack、文件系统、自建服务…）通过 MCP 协议接给某个 agent。
-          挂上以后，agent 在 <router-link to="/agents-console">{{ t('mcpServers.text_2') }}</router-link> 与流水线里都能直接调用。
+          {{ $t('mcpServers.subtitle') }}
         </p>
       </div>
       <div class="actions">
@@ -396,7 +395,7 @@ onMounted(refresh)
       >
         <el-option v-for="a in agents" :key="a.id" :label="`${a.name} (${a.id})`" :value="a.id" />
       </el-select>
-      <span class="counter">共 {{ filteredMcps.length }} 个</span>
+      <span class="counter">{{ $t('mcpServers.count', { n: filteredMcps.length }) }}</span>
     </div>
 
     <div v-if="!loading && filteredMcps.length === 0" class="empty">
@@ -411,12 +410,12 @@ onMounted(refresh)
             <div class="mcp-url">{{ rec.server_url }}</div>
           </div>
           <el-tag :type="rec.enabled ? 'success' : 'info'" size="small">
-            {{ rec.enabled ? '启用' : '停用' }}
+            {{ rec.enabled ? $t('mcpServers.enabled') : $t('mcpServers.disabled') }}
           </el-tag>
         </div>
         <div class="mcp-meta">
-          <el-tag size="small" effect="plain">绑定：{{ agentName(rec.agent_id) }}</el-tag>
-          <el-tag size="small" effect="plain" type="warning">{{ rec.tool_count }} 个工具</el-tag>
+          <el-tag size="small" effect="plain">{{ $t('mcpServers.bindTo', { agent: agentName(rec.agent_id) }) }}</el-tag>
+          <el-tag size="small" effect="plain" type="warning">{{ $t('mcpServers.toolCount', { n: rec.tool_count }) }}</el-tag>
         </div>
         <div v-if="rec.tools.length" class="tool-row">
           <el-tag
@@ -433,10 +432,10 @@ onMounted(refresh)
         </div>
         <div class="mcp-actions">
           <el-button size="small" :loading="!!refreshing[rec.id]" @click="refreshOne(rec)">
-            刷新工具
+            {{ $t('mcpServers.refreshTools') }}
           </el-button>
           <el-button size="small" type="primary" plain @click="openToolDrawer(rec)">
-            调试工具
+            {{ $t('mcpServers.debugTools') }}
           </el-button>
           <el-button size="small" type="danger" plain @click="removeOne(rec)">{{ t('mcpServers.text_7') }}</el-button>
         </div>
@@ -456,7 +455,7 @@ onMounted(refresh)
             />
           </el-select>
           <p class="preset-hint">
-            选择后将自动检索：① 该 agent 已绑定的 MCP 地址 ② 该角色推荐占位 ③ 全局预设模板，并填入下方「Server URL」下拉框。
+            {{ $t('mcpServers.presetHint1') }}
           </p>
         </el-form-item>
         <el-form-item :label="t('mcpServers.label_2')">
@@ -485,9 +484,9 @@ onMounted(refresh)
           >{{ t('mcpServers.text_8') }}</a>
         </el-form-item>
         <el-form-item :label="t('mcpServers.label_3')">
-          <el-input v-model="addForm.name" placeholder="github / slack / filesystem ..." />
+          <el-input v-model="addForm.name" :placeholder="$t('mcpServers.namePlaceholder')" />
         </el-form-item>
-        <el-form-item label="Server URL">
+        <el-form-item :label="$t('mcpServers.serverUrl')">
           <el-select
             v-model="addForm.server_url"
             filterable
@@ -509,13 +508,13 @@ onMounted(refresh)
           </el-select>
           <p v-if="!addForm.agent_id" class="preset-hint">{{ t('mcpServers.text_9') }}</p>
           <p v-else-if="!loadingUrlOptions && mcpUrlOptions.length === 0" class="preset-hint">
-            暂无候选地址，可直接在输入框中填写 URL。
+            {{ $t('mcpServers.noCandidates') }}
           </p>
         </el-form-item>
         <el-form-item :label="t('mcpServers.label_4')">
           <el-input v-model="addForm.api_key" type="password" show-password :placeholder="t('mcpServers.placeholder_5')" />
           <p class="preset-hint">
-            GitHub 官方远程：填 PAT 或 OAuth token（由后端以 Bearer 发给 MCP 地址）。这与浏览器请求本站 /api 时带的登录 JWT 是两路认证；无令牌时 config 为空，探测会收到 401。
+            {{ $t('mcpServers.apiKeyHint') }}
           </p>
         </el-form-item>
         <el-form-item v-if="addForm.api_key.trim()" :label="t('mcpServers.label_5')">
@@ -534,7 +533,7 @@ onMounted(refresh)
       <div class="probe-row">
         <el-button :loading="probing" @click="probe">{{ t('mcpServers.text_11') }}</el-button>
         <span v-if="probeResult" :class="['probe-status', probeResult.ok ? 'ok' : 'fail']">
-          {{ probeResult.ok ? `✓ 探测成功，${probeResult.tools?.length || 0} 个工具` : `✗ ${probeResult.error}` }}
+          {{ probeResult.ok ? $t('mcpServers.probeOk', { n: probeResult.tools?.length || 0 }) : $t('mcpServers.probeFail', { error: probeResult.error }) }}
           <span class="probe-elapsed">({{ probeResult.elapsed_ms }}ms)</span>
         </span>
       </div>
@@ -560,10 +559,10 @@ onMounted(refresh)
     </el-dialog>
 
     <!-- Tool drawer -->
-    <el-drawer v-model="toolDrawer" :title="`调试 ${focusedMcp?.name || ''} 的工具`" size="640px">
+    <el-drawer v-model="toolDrawer" :title="$t('mcpServers.debugDrawerTitle', { name: focusedMcp?.name || '' })" size="640px">
       <div v-if="focusedMcp" class="drawer-body">
         <div class="drawer-section">
-          <div class="section-title">工具列表</div>
+          <div class="section-title">{{ $t('mcpServers.toolList') }}</div>
           <div class="tool-pick">
             <div
               v-for="t in focusedMcp.tools"
@@ -578,15 +577,15 @@ onMounted(refresh)
         </div>
 
         <div v-if="focusedTool" class="drawer-section">
-          <div class="section-title">参数 (JSON)</div>
+          <div class="section-title">{{ $t('mcpServers.paramsJson') }}</div>
           <el-input v-model="toolArgs" type="textarea" :rows="8" />
           <div class="drawer-actions">
-            <el-button type="primary" :loading="callRunning" @click="runTool">调用</el-button>
+            <el-button type="primary" :loading="callRunning" @click="runTool">{{ $t('mcpServers.call') }}</el-button>
           </div>
         </div>
 
         <div v-if="callResult !== null" class="drawer-section">
-          <div class="section-title">结果</div>
+          <div class="section-title">{{ $t('mcpServers.result') }}</div>
           <pre class="result-pre">{{ JSON.stringify(callResult, null, 2) }}</pre>
         </div>
       </div>
@@ -596,7 +595,7 @@ onMounted(refresh)
 
 <style scoped>
 .mcp-page {
-  max-width: 1200px;
+  max-max-width: 1200px; width: 100%;
   margin: 0 auto;
   padding: 24px;
 }
@@ -615,7 +614,7 @@ onMounted(refresh)
   margin-top: 6px;
   color: var(--text-secondary, #606266);
   font-size: 13px;
-  max-width: 700px;
+  max-max-width: 700px; width: 100%;
 }
 .filter-bar {
   display: flex;
@@ -665,7 +664,7 @@ onMounted(refresh)
   font-size: 14px;
 }
 .mcp-url {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   font-family: ui-monospace, SFMono-Regular, monospace;
   margin-top: 3px;
@@ -684,10 +683,10 @@ onMounted(refresh)
 }
 .tool-tag {
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
+  font-size: 12px;
 }
 .more-tag {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
 }
 .mcp-actions {
@@ -698,7 +697,7 @@ onMounted(refresh)
   border-top: 1px dashed var(--border-color, #ebeef5);
 }
 .hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   margin-left: 8px;
 }
@@ -769,7 +768,7 @@ onMounted(refresh)
   font-weight: 600;
 }
 .tool-card-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   margin-top: 3px;
 }

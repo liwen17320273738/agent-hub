@@ -77,7 +77,7 @@
       <div v-else-if="!optResult" class="opt-empty">{{ t('insightsDigest.text_7') }}</div>
       <div v-else-if="optResult.skipped">
         <el-alert type="success" :closable="false">
-          {{ optResult.reason || '当前提示词在最近 eval 中无失败用例，无需修改。' }}
+          {{ optResult.reason || t('insightsDigest.noFailures') }}
         </el-alert>
       </div>
       <div v-else class="opt-result">
@@ -191,7 +191,7 @@ async function loadDigest() {
   try {
     digest.value = await getWeeklyDigest({ ...form })
   } catch (e: unknown) {
-    ElMessage.error(`加载失败：${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(t('insightsDigest.loadFailed', { msg: e instanceof Error ? e.message : String(e) }))
   } finally {
     loading.value = false
   }
@@ -235,7 +235,7 @@ async function openOptimize(role: string) {
     const r = await optimizePrompt(optAgentId.value, { score_threshold: 0.7 })
     optResult.value = r
   } catch (e: unknown) {
-    ElMessage.error(`生成提案失败：${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(t('insightsDigest.genProposalFailed', { msg: e instanceof Error ? e.message : String(e) }))
     optDialog.value = false
   } finally {
     optLoading.value = false
@@ -250,10 +250,10 @@ async function applyOptimization() {
       new_prompt: optResult.value.new_prompt,
       note: `weekly digest auto-revision (${new Date().toISOString().slice(0, 10)})`,
     })
-    ElMessage.success(`已更新 ${optAgentId.value} 系统提示词，原版本已存入 prompt_history（可回滚）`)
+    ElMessage.success(t('insightsDigest.promptUpdated', { agentId: optAgentId.value }))
     optDialog.value = false
   } catch (e: unknown) {
-    ElMessage.error(`应用失败：${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(t('insightsDigest.applyFailed', { msg: e instanceof Error ? e.message : String(e) }))
   } finally {
     optApplying.value = false
   }
@@ -265,7 +265,7 @@ onMounted(loadDigest)
 <style scoped>
 .digest-view {
   padding: 24px;
-  max-width: 1200px;
+  max-max-width: 1200px; width: 100%;
   margin: 0 auto;
 }
 .digest-header h1 {
@@ -359,14 +359,14 @@ onMounted(loadDigest)
 .diff-flat small {
   color: var(--text-muted);
   margin-left: 4px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .diff-up em,
 .diff-down em,
 .diff-flat em {
   display: block;
   font-style: normal;
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 2px;
 }
 .digest-empty {

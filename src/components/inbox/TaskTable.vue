@@ -68,6 +68,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { onMounted, onUnmounted, ref as vueRef } from 'vue'
 import type { PipelineTask } from '@/agents/types'
 import AutoTranslated from '@/components/AutoTranslated.vue'
 import { appLocaleToBcp47 } from '@/i18n'
@@ -78,6 +79,12 @@ defineProps<{
   tasks: PipelineTask[]
   emptyText?: string
 }>()
+
+// Force relative time labels to refresh every 30s so "刚刚" doesn't stay forever
+const timeTick = vueRef(0)
+let timeTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => { timeTimer = setInterval(() => { timeTick.value++ }, 30_000) })
+onUnmounted(() => { if (timeTimer) clearInterval(timeTimer) })
 
 const emit = defineEmits<{ clickTask: [task: PipelineTask] }>()
 
@@ -136,6 +143,7 @@ function absDate(ts: number | string | null | undefined): string {
 }
 
 function relativeTime(ts: number | string | null | undefined): string {
+  void timeTick.value // re-evaluate every 30s
   if (!ts) return '-'
   const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
   const ms = Date.now() - d.getTime()
@@ -149,6 +157,7 @@ function relativeTime(ts: number | string | null | undefined): string {
 
 // Visual freshness so stale "执行中" tasks (probably stuck) jump out.
 function freshnessClass(row: any): string {
+  void timeTick.value // re-evaluate every 30s
   const ts = row.updatedAt || row.createdAt
   if (!ts) return ''
   const ms = Date.now() - new Date(ts).getTime()
@@ -179,8 +188,31 @@ function rowClass({ row }: { row: any }) {
 .task-table {
   min-height: 200px;
 }
+
 .el-table {
   cursor: pointer;
+  --el-table-border-color: var(--border-color);
+  --el-table-header-bg-color: var(--bg-tertiary);
+  --el-table-row-hover-bg-color: var(--bg-hover);
+  --el-table-tr-bg-color: var(--bg-secondary);
+}
+
+:deep(.el-table th.el-table__cell) {
+  background: var(--bg-tertiary);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-color);
+}
+
+:deep(.el-table .el-table__row) {
+  transition: background 0.15s;
+}
+
+:deep(.el-table__body tr:hover > td) {
+  background: var(--accent-soft) !important;
 }
 
 .cell-title {
@@ -198,15 +230,16 @@ function rowClass({ row }: { row: any }) {
 .source-pill {
   flex-shrink: 0;
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--el-fill-color);
-  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .stage-cell {
   font-size: 12px;
-  color: var(--el-text-color-regular);
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -217,24 +250,25 @@ function rowClass({ row }: { row: any }) {
 .progress-cell {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 .progress-bar {
   flex: 1;
   height: 6px;
-  background: var(--el-fill-color);
+  background: var(--border-color);
   border-radius: 3px;
   overflow: hidden;
 }
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #6366f1, #3b82f6);
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
   border-radius: 3px;
-  transition: width 0.3s;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .progress-text {
-  font-size: 11px;
-  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   min-width: 32px;
   text-align: right;
@@ -244,21 +278,21 @@ function rowClass({ row }: { row: any }) {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.fresh-hot   { color: #f56c6c; font-weight: 600; }
-.fresh-warm  { color: #e6a23c; }
-.fresh-cool  { color: var(--el-text-color-regular); }
-.fresh-stale { color: var(--el-text-color-secondary); }
+.fresh-hot   { color: var(--red); font-weight: 700; }
+.fresh-warm  { color: var(--amber); font-weight: 600; }
+.fresh-cool  { color: var(--text-secondary); }
+.fresh-stale { color: var(--text-muted); }
 
 .cost-cell {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--el-text-color-regular);
+  color: var(--text-secondary);
 }
-.cost-na { color: var(--el-text-color-placeholder); }
-.cost-warn { color: #e6a23c; font-weight: 600; }
-.cost-over { color: #f56c6c; font-weight: 700; }
+.cost-na { color: var(--text-muted); }
+.cost-warn { color: var(--amber); font-weight: 600; }
+.cost-over { color: var(--red); font-weight: 700; }
 
-:deep(.row-danger)  { background-color: rgba(245, 108, 108, 0.04); }
-:deep(.row-pending) { background-color: rgba(230, 162, 60, 0.04); }
-:deep(.row-cancelled) { background-color: rgba(144, 147, 153, 0.06); }
+:deep(.row-danger)  { background-color: rgba(248, 113, 113, 0.04); }
+:deep(.row-pending) { background-color: rgba(251, 191, 36, 0.04); }
+:deep(.row-cancelled) { background-color: rgba(96, 96, 120, 0.06); }
 </style>

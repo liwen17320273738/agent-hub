@@ -45,7 +45,7 @@ async function refresh() {
       await openDetail(first)
     }
   } catch (e) {
-    ElMessage.error(`加载失败：${(e as Error).message}`)
+    ElMessage.error(t('planInbox.loadFailed', { msg: (e as Error).message }))
   } finally {
     loading.value = false
   }
@@ -58,7 +58,7 @@ async function openDetail(p: PlanSummary) {
   try {
     focusedDetail.value = await getPlan(p.source, p.user_id)
   } catch (e) {
-    ElMessage.error(`加载详情失败：${(e as Error).message}`)
+    ElMessage.error(t('planInbox.loadDetailFailed', { msg: (e as Error).message }))
   } finally {
     detailLoading.value = false
   }
@@ -66,18 +66,18 @@ async function openDetail(p: PlanSummary) {
 
 async function approve(p: PlanSummary) {
   await ElMessageBox.confirm(
-    `确认 approve "${p.title}"？将立即创建 pipeline 任务并启动 codegen → build → deploy。`,
-    '确认',
-    { type: 'warning', confirmButtonText: '开干', cancelButtonText: '取消' },
+    t('planInbox.approveConfirm', { title: p.title }),
+    t('planInbox.confirm'),
+    { type: 'warning', confirmButtonText: t('planInbox.go'), cancelButtonText: t('planInbox.cancel') },
   )
   acting.value = true
   try {
     const r = await approvePlan(p.source, p.user_id)
     ElMessage.success(t('planInbox.elMessage_1'))
     if (r.taskId) {
-      ElMessageBox.confirm(`任务 ${r.taskId} 已启动，跳转到详情页？`, '已开干', {
-        confirmButtonText: '去看看',
-        cancelButtonText: '留在这',
+      ElMessageBox.confirm(t('planInbox.taskStarted', { taskId: r.taskId }), t('planInbox.started'), {
+        confirmButtonText: t('planInbox.goSee'),
+        cancelButtonText: t('planInbox.stayHere'),
       })
         .then(() => router.push(`/pipeline/task/${r.taskId}`))
         .catch(() => {
@@ -86,14 +86,14 @@ async function approve(p: PlanSummary) {
     }
     await refresh()
   } catch (e) {
-    ElMessage.error(`approve 失败：${(e as Error).message}`)
+    ElMessage.error(t('planInbox.approveFailed', { msg: (e as Error).message }))
   } finally {
     acting.value = false
   }
 }
 
 async function reject(p: PlanSummary) {
-  await ElMessageBox.confirm(`确认拒绝 / 取消 "${p.title}"？`, '确认', {
+  await ElMessageBox.confirm(t('planInbox.rejectConfirm', { title: p.title }), t('planInbox.confirm'), {
     type: 'warning',
   })
   acting.value = true
@@ -102,7 +102,7 @@ async function reject(p: PlanSummary) {
     ElMessage.success(t('planInbox.elMessage_2'))
     await refresh()
   } catch (e) {
-    ElMessage.error(`取消失败：${(e as Error).message}`)
+    ElMessage.error(t('planInbox.cancelFailed', { msg: (e as Error).message }))
   } finally {
     acting.value = false
   }
@@ -121,14 +121,14 @@ async function submitRevise() {
   acting.value = true
   try {
     const r = await revisePlan(focused.value.source, focused.value.user_id, reviseFeedback.value.trim())
-    ElMessage.success(`已重新生成（第 ${r.rotation_count} 次修改）`)
+    ElMessage.success(t('planInbox.regenerated', { n: r.rotation_count }))
     reviseOpen.value = false
     if (focused.value) {
       await openDetail(focused.value)
     }
     await refresh()
   } catch (e) {
-    ElMessage.error(`修改失败：${(e as Error).message}`)
+    ElMessage.error(t('planInbox.reviseFailed', { msg: (e as Error).message }))
   } finally {
     acting.value = false
   }
@@ -143,9 +143,9 @@ function fmtTime(epoch: number | null): string {
 function elapsed(epoch: number | null): string {
   if (!epoch) return ''
   const sec = Math.max(0, Math.floor(Date.now() / 1000 - epoch))
-  if (sec < 60) return `${sec}秒前`
-  if (sec < 3600) return `${Math.floor(sec / 60)}分钟前`
-  return `${Math.floor(sec / 3600)}小时前`
+  if (sec < 60) return t('planInbox.secondsAgo', { n: sec })
+  if (sec < 3600) return t('planInbox.minutesAgo', { n: Math.floor(sec / 60) })
+  return t('planInbox.hoursAgo', { n: Math.floor(sec / 3600) })
 }
 
 let pollHandle: ReturnType<typeof setInterval> | null = null
@@ -167,10 +167,10 @@ onBeforeUnmount(() => {
       <div>
         <h1>{{ t('planInbox.text_1') }}</h1>
         <p class="page-subtitle">
-          IM 投递的待确认计划都在这里。批准后立即创建 pipeline 任务，与用户回复"开干"等价。
+          {{ $t('planInbox.subtitle1') }}
         </p>
         <p class="page-subtitle">
-          现在也支持 `OpenClaw / API` 先出方案；这里会显示该计划是“人工最终验收”还是“自动上线”。
+          {{ $t('planInbox.subtitle2') }}
         </p>
       </div>
       <div class="actions">
@@ -193,16 +193,16 @@ onBeforeUnmount(() => {
           :class="{ active: focusedKey === `${p.source}:${p.user_id}` }"
           @click="openDetail(p)"
         >
-          <div class="row-title">{{ p.title || '(untitled)' }}</div>
+          <div class="row-title">{{ p.title || $t('planInbox.untitled') }}</div>
           <div class="row-meta">
             <el-tag size="small" effect="plain">{{ p.source }}</el-tag>
-            <el-tag size="small" effect="plain" type="info">{{ p.step_count }} 步</el-tag>
+            <el-tag size="small" effect="plain" type="info">{{ $t('planInbox.stepsCount', { n: p.step_count }) }}</el-tag>
             <el-tag
               size="small"
               effect="plain"
               :type="p.auto_final_accept ? 'success' : 'warning'"
             >
-              {{ p.auto_final_accept ? '自动上线' : '人工验收' }}
+              {{ p.auto_final_accept ? $t('planInbox.autoGoLive') : $t('planInbox.manualAccept') }}
             </el-tag>
             <el-tag
               v-if="p.rotation_count > 0"
@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
               effect="plain"
               type="warning"
             >
-              已改 {{ p.rotation_count }}/{{ p.max_rotations }}
+              {{ $t('planInbox.revised', { n: p.rotation_count, max: p.max_rotations }) }}
             </el-tag>
           </div>
           <div class="row-time">{{ elapsed(p.started_at) }}</div>
@@ -225,21 +225,21 @@ onBeforeUnmount(() => {
               <h2>{{ focusedDetail.title }}</h2>
               <div class="detail-meta">
                 <el-tag size="small">{{ focusedDetail.source }}</el-tag>
-                <el-tag size="small" type="info">用户：{{ focusedDetail.user_id }}</el-tag>
+                <el-tag size="small" type="info">{{ $t('planInbox.userLabel', { id: focusedDetail.user_id }) }}</el-tag>
                 <el-tag
                   size="small"
                   :type="focusedDetail.auto_final_accept ? 'success' : 'warning'"
                 >
-                  {{ focusedDetail.auto_final_accept ? 'autoFinalAccept=on' : 'autoFinalAccept=off' }}
+                  {{ focusedDetail.auto_final_accept ? $t('planInbox.autoFinalOn') : $t('planInbox.autoFinalOff') }}
                 </el-tag>
                 <el-tag
                   v-if="focusedDetail.rotation_count > 0"
                   size="small"
                   type="warning"
                 >
-                  第 {{ focusedDetail.rotation_count }}/{{ focusedDetail.max_rotations }} 轮调整
+                  {{ $t('planInbox.rotationRound', { n: focusedDetail.rotation_count, max: focusedDetail.max_rotations }) }}
                 </el-tag>
-                <span class="detail-time">提交于 {{ fmtTime(focusedDetail.started_at) }}</span>
+                <span class="detail-time">{{ $t('planInbox.submittedAt', { time: fmtTime(focusedDetail.started_at) }) }}</span>
               </div>
             </div>
             <div class="detail-actions">
@@ -249,7 +249,7 @@ onBeforeUnmount(() => {
                 :loading="acting"
                 @click="focused && approve(focused)"
               >
-                ▶ 开干
+                {{ $t('planInbox.goAction') }}
               </el-button>
               <el-button
                 size="large"
@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
                 :disabled="focusedDetail.rotation_count >= focusedDetail.max_rotations"
                 @click="openRevise"
               >
-                ✎ 修改
+                {{ $t('planInbox.reviseAction') }}
               </el-button>
               <el-button
                 size="large"
@@ -266,7 +266,7 @@ onBeforeUnmount(() => {
                 :loading="acting"
                 @click="focused && reject(focused)"
               >
-                ✕ 取消
+                {{ $t('planInbox.cancelAction') }}
               </el-button>
             </div>
           </div>
@@ -274,28 +274,24 @@ onBeforeUnmount(() => {
           <div class="card">
             <div class="section-h">{{ t('planInbox.text_6') }}</div>
             <div class="request-meta">
-              <span>来源消息：{{ focusedDetail.source_message_id || '未记录' }}</span>
+              <span>{{ $t('planInbox.sourceMsgId', { id: focusedDetail.source_message_id || $t('planInbox.notRecorded') }) }}</span>
               <span>
-                最终验收：{{ focusedDetail.auto_final_accept ? '跳过人工终点，直接上线' : '保留人工验收终点' }}
+                {{ $t('planInbox.finalAcceptMode', { mode: focusedDetail.auto_final_accept ? $t('planInbox.skipManualAccept') : $t('planInbox.keepManualAccept') }) }}
               </span>
             </div>
-            <pre class="desc">{{ focusedDetail.description || '(无)' }}</pre>
+            <pre class="desc">{{ focusedDetail.description || $t('planInbox.none') }}</pre>
           </div>
 
           <div class="card">
             <div class="section-h">
-              执行计划
+              {{ $t('planInbox.execPlan') }}
               <span class="meta-inline">
-                · 共 {{ focusedDetail.plan.steps?.length || 0 }} 步
-                <span v-if="focusedDetail.plan.estimate_min_total">
-                  · 预估 {{ focusedDetail.plan.estimate_min_total }} 分钟
-                </span>
-                <span v-if="focusedDetail.plan.confidence">
-                  · 信心 {{ focusedDetail.plan.confidence }}
-                </span>
-                <span v-if="focusedDetail.plan.deploy_target">
-                  · 部署 {{ focusedDetail.plan.deploy_target }}
-                </span>
+                {{ $t('planInbox.planStats', {
+                  steps: focusedDetail.plan.steps?.length || 0,
+                  minutes: focusedDetail.plan.estimate_min_total || 0,
+                  confidence: focusedDetail.plan.confidence || '',
+                  deploy: focusedDetail.plan.deploy_target || ''
+                }) }}
               </span>
             </div>
             <p v-if="focusedDetail.plan.summary" class="plan-summary">
@@ -316,7 +312,7 @@ onBeforeUnmount(() => {
                       {{ step.role }}
                     </el-tag>
                     <span v-if="step.estimate_min" class="step-est">
-                      ⏱ {{ step.estimate_min }} 分钟
+                      ⏱ {{ $t('planInbox.estMinutes', { n: step.estimate_min }) }}
                     </span>
                   </div>
                 </div>
@@ -358,7 +354,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .plan-page {
-  max-width: 1400px;
+  max-max-width: 1400px; width: 100%;
   margin: 0 auto;
   padding: 24px;
 }
@@ -377,7 +373,7 @@ onBeforeUnmount(() => {
   margin-top: 6px;
   color: var(--text-secondary, #606266);
   font-size: 13px;
-  max-width: 700px;
+  max-max-width: 700px; width: 100%;
 }
 .empty {
   text-align: center;
@@ -440,7 +436,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .row-time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
   margin-top: 4px;
 }
@@ -573,7 +569,7 @@ onBeforeUnmount(() => {
   margin-top: 6px;
 }
 .step-est {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary, #909399);
 }
 .risks ul {

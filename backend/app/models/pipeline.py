@@ -22,6 +22,8 @@ class PipelineTask(Base):
     source_user_id: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     status: Mapped[str] = mapped_column(String(30), default="active")
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    # 0 = normal, 10 = high, 20 = urgent, -10 = low
     current_stage_id: Mapped[str] = mapped_column(String(50), default="planning")
     template: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
@@ -35,6 +37,12 @@ class PipelineTask(Base):
     )
 
     budget_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    spent_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
+    cost_ledger: Mapped[Optional[list]] = mapped_column(JsonDict(), nullable=True, default=list)
+    budget_soft_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    budget_hard_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    budget_blocked: Mapped[Optional[bool]] = mapped_column(nullable=True, default=False)
+    budget_overridden: Mapped[Optional[bool]] = mapped_column(nullable=True, default=False)
 
     quality_gate_config: Mapped[Optional[dict]] = mapped_column(JsonDict(), nullable=True)
     overall_quality_score: Mapped[Optional[float]] = mapped_column(nullable=True)

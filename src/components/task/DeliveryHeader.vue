@@ -205,7 +205,7 @@ watch(() => props.taskId, loadArtifacts)
   flex-shrink: 0;
   align-self: center;
 }
-@media (max-width: 720px) {
+@media (max-max-width: 720px; width: 100%) {
   .dh-main { flex-direction: column; }
   .dh-actions { width: 100%; }
 }

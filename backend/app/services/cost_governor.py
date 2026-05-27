@@ -22,6 +22,9 @@ Soft limit (default 60% of hard limit) → next stage uses the cheapest model
 in the same provider family.
 Hard limit → stage is blocked, an approval ticket is created via the existing
 guardrails system, and the user must explicitly raise the budget to continue.
+
+持久化策略：Redis 作为热缓存（快速读写），DB (pipeline_tasks) 作为持久化存储。
+读取时 Redis 优先，Redis 缺失时回退到 DB；写入时双写 Redis + DB。
 """
 from __future__ import annotations
 
@@ -29,6 +32,9 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..redis_client import get_redis
 
@@ -83,6 +89,55 @@ def _state_key(task_id: str) -> str:
     return _BUDGET_KEY.format(task_id=task_id)
 
 
+async def _sync_to_db(task_id: str, state: Dict) -> None:
+    """将预算状态持久化到 pipeline_tasks 表（双写：Redis 已写入后再调此函数）。"""
+    try:
+        from ..database import async_session_factory
+        async with async_session_factory() as db:
+            from ..models.pipeline import PipelineTask
+            result = await db.execute(
+                select(PipelineTask).where(PipelineTask.id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            if task is None:
+                return
+            task.spent_usd = float(state.get("spent_usd", 0.0))
+            task.cost_ledger = state.get("stages", [])
+            task.budget_soft_ratio = float(state.get("soft_ratio", DEFAULT_SOFT_RATIO))
+            task.budget_hard_ratio = float(state.get("hard_ratio", DEFAULT_HARD_BLOCK_RATIO))
+            task.budget_blocked = bool(state.get("blocked", False))
+            task.budget_overridden = bool(state.get("overridden", False))
+            await db.commit()
+    except Exception as exc:
+        logger.debug("[cost-governor] DB sync failed for %s: %s", task_id, exc)
+
+
+async def _load_from_db(task_id: str) -> Optional[Dict]:
+    """Redis 缺失时从 DB 回退加载预算状态。"""
+    try:
+        from ..database import async_session_factory
+        async with async_session_factory() as db:
+            from ..models.pipeline import PipelineTask
+            result = await db.execute(
+                select(PipelineTask).where(PipelineTask.id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            if task is None:
+                return None
+            return {
+                "spent_usd": float(task.spent_usd or 0.0),
+                "budget_usd": float(task.budget_usd or DEFAULT_TASK_BUDGET_USD),
+                "soft_ratio": float(task.budget_soft_ratio or DEFAULT_SOFT_RATIO),
+                "hard_ratio": float(task.budget_hard_ratio or DEFAULT_HARD_BLOCK_RATIO),
+                "stages": task.cost_ledger or [],
+                "blocked": bool(task.budget_blocked),
+                "overridden": bool(task.budget_overridden),
+            }
+    except Exception as exc:
+        logger.debug("[cost-governor] DB load failed for %s: %s", task_id, exc)
+        return None
+
+
 async def set_task_budget(
     task_id: str,
     budget_usd: float,
@@ -98,6 +153,7 @@ async def set_task_budget(
     state["hard_ratio"] = float(hard_ratio)
     state["overridden"] = True
     await r.set(_state_key(task_id), json.dumps(state), ex=_BUDGET_TTL)
+    await _sync_to_db(task_id, state)
 
 
 async def raise_budget(task_id: str, additional_usd: float) -> float:
@@ -108,18 +164,27 @@ async def raise_budget(task_id: str, additional_usd: float) -> float:
     state["budget_usd"] = new_budget
     state["blocked"] = False
     await r.set(_state_key(task_id), json.dumps(state), ex=_BUDGET_TTL)
+    await _sync_to_db(task_id, state)
     return new_budget
 
 
 async def _load_state(task_id: str) -> Optional[Dict]:
+    """加载预算状态：Redis 优先（热缓存），缺失时回退到 DB。"""
     r = get_redis()
     raw = await r.get(_state_key(task_id))
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return None
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    # Redis 未命中 → 回退到 DB，并回填 Redis 缓存
+    db_state = await _load_from_db(task_id)
+    if db_state:
+        try:
+            await r.set(_state_key(task_id), json.dumps(db_state), ex=_BUDGET_TTL)
+        except Exception:
+            pass
+    return db_state
 
 
 async def get_task_budget(task_id: str) -> Dict[str, object]:
@@ -219,6 +284,8 @@ async def record_stage_cost(
     # cap to last 50 entries to avoid unbounded growth on long retry loops
     state["stages"] = stages[-50:]
     await r.set(_state_key(task_id), json.dumps(state), ex=_BUDGET_TTL)
+    # 双写 DB：确保预算数据在 Redis TTL 过期后仍可追溯
+    await _sync_to_db(task_id, state)
     return {
         "spent_usd": round(state["spent_usd"], 6),
         "budget_usd": round(float(state["budget_usd"]), 6),
@@ -228,3 +295,20 @@ async def record_stage_cost(
 async def reset_task_budget(task_id: str) -> None:
     r = get_redis()
     await r.delete(_state_key(task_id))
+    # 同步清空 DB 中的成本追踪字段
+    try:
+        from ..database import async_session_factory
+        async with async_session_factory() as db:
+            from ..models.pipeline import PipelineTask
+            result = await db.execute(
+                select(PipelineTask).where(PipelineTask.id == task_id)
+            )
+            task = result.scalar_one_or_none()
+            if task is not None:
+                task.spent_usd = 0.0
+                task.cost_ledger = []
+                task.budget_blocked = False
+                task.budget_overridden = False
+                await db.commit()
+    except Exception as exc:
+        logger.debug("[cost-governor] DB reset failed for %s: %s", task_id, exc)

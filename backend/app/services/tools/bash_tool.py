@@ -101,7 +101,16 @@ async def bash_execute(params: Dict[str, Any]) -> str:
     sandbox_root = get_sandbox_root()
     workspace_dir = params.get("workspace_dir") or sandbox_root
 
-    if settings.sandbox_use_docker and await is_docker_available_async():
+    # Determine if Docker sandbox should be used:
+    # 1. Explicit opt-in: sandbox_use_docker=True
+    # 2. Auto-enable: sandbox_auto_docker=True AND docker is available
+    use_docker = settings.sandbox_use_docker
+    if not use_docker and settings.sandbox_auto_docker:
+        use_docker = await is_docker_available_async()
+        if use_docker:
+            logger.info("[bash] Auto-enabled Docker sandbox (docker available, sandbox_auto_docker=True)")
+
+    if use_docker:
         try:
             result = await docker_exec(
                 command=command,

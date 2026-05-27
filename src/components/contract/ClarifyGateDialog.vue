@@ -123,7 +123,7 @@
             <el-option label="{{ $t('contract.fullRefund') }} (100%)" value="full" />
             <el-option label="{{ $t('contract.partialRefund') }} (50%)" value="partial_50" />
             <el-option label="{{ $t('ClarifyGateDialog.partialRefund') }} (30%)" value="partial_30" />
-            <el-option label="不接受退款" value="no_refund" />
+            <el-option :label="$t('clarifyGateDialog.noRefund')" value="no_refund" />
           </el-select>
         </div>
       </div>

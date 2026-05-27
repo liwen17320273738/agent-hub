@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -41,6 +42,7 @@ from .self_verify import (
     verify_stage_output,
     llm_content_quality_check,
 )
+from .cross_stage_verify import verify_cross_stage
 from .guardrails import evaluate_guardrail, GuardrailLevel
 from .observability import (
     start_trace, start_span, complete_span, complete_trace, PipelineTrace,
@@ -50,6 +52,68 @@ from .token_tracker import estimate_cost
 from .sse import emit_event
 
 logger = logging.getLogger(__name__)
+
+# 阶段执行超时（秒），按阶段类型分级
+STAGE_TIMEOUT_SECONDS = {
+    "planning": 300,       # 5 分钟
+    "design": 480,         # 8 分钟（含视觉生成）
+    "architecture": 480,   # 8 分钟（含图表生成）
+    "development": 1200,   # 20 分钟（含 CodeGen + 构建 + 自动修复）
+    "testing": 600,        # 10 分钟（含构建 + QA 真实执行）
+    "reviewing": 300,      # 5 分钟（验收审查）
+    "acceptance": 300,     # 5 分钟（验收审查，同 reviewing 别名）
+    "deployment": 600,     # 10 分钟（含 Vercel/本地部署）
+    "security-review": 300,
+    "legal-review": 300,
+    "data-modeling": 300,
+    "marketing-launch": 300,
+    "finance-review": 300,
+}
+DEFAULT_STAGE_TIMEOUT = int(os.environ.get("PIPELINE_STAGE_TIMEOUT_SECONDS", "600"))
+
+# 用户友好错误信息映射：将技术错误关键词翻译成用户可理解的说明
+_USER_FRIENDLY_ERRORS: List[tuple] = [
+    ("429", "API 调用频率过高，已被服务商限流。请稍后重试或切换模型提供商。"),
+    ("RateLimitError", "API 调用频率过高，已被服务商限流。请稍后重试。"),
+    ("401", "API 密钥无效或已过期。请在设置中更新 API 密钥。"),
+    ("403", "API 密钥无权访问该模型。请检查 API 密钥权限或切换模型。"),
+    ("Unauthorized", "API 密钥无效或已过期。请在设置中更新 API 密钥。"),
+    ("ConnectionError", "无法连接到模型服务。请检查网络连接或模型服务状态。"),
+    ("Connection closed", "模型服务连接被中断。可能是服务端超时或网络不稳定，请重试。"),
+    ("timeout", "模型响应超时。当前任务可能过于复杂，请稍后重试或简化需求。"),
+    ("TimedOut", "模型响应超时。当前任务可能过于复杂，请稍后重试或简化需求。"),
+    ("out of memory", "模型服务资源不足。请稍后重试或使用更轻量的模型。"),
+    ("context length", "输入内容超出模型上下文限制。系统已自动截断，若仍有问题请联系管理员。"),
+    ("Service Unavailable", "模型服务暂时不可用。请稍后重试或切换备用模型。"),
+    ("503", "模型服务暂时不可用。请稍后重试或切换备用模型。"),
+    ("payment required", "API 账户余额不足。请充值后重试。"),
+    ("quota", "API 配额已用完。请等待配额重置或升级账户。"),
+    ("insufficient_quota", "API 配额已用完。请等待配额重置或升级账户。"),
+    ("qa blocked", "测试阶段缺少必要的构建产物（源代码未生成或构建失败）。建议返回开发阶段重新生成代码。"),
+    ("no deploy channel", "部署通道不可用：未配置 Vercel Token 且本地预览环境不完整。请在设置中配置部署凭据。"),
+    ("vercel auth failed", "Vercel 部署认证失败。请检查 VERCEL_TOKEN 是否有效并重新配置。"),
+    ("build failed", "代码构建失败。系统已尝试自动修复，但仍存在问题。请检查开发阶段的产出代码。"),
+    ("no image gen", "设计稿生成失败：未配置图片生成 API（OpenAI Images 或 Gemini）。请在 .env 中配置相关密钥。"),
+]
+
+
+def humanize_error(raw_error: str) -> str:
+    """将技术错误信息翻译为用户可理解的说明。
+
+    对已知错误模式返回中文说明；对未知错误返回原文加通用提示。
+    """
+    error_lower = raw_error.lower()
+    for pattern, message in _USER_FRIENDLY_ERRORS:
+        if pattern.lower() in error_lower:
+            return message
+    # 未知错误：截断技术细节，附加通用建议
+    short = raw_error[:300]
+    if len(raw_error) > 300:
+        short += "…"
+    return (
+        f"执行过程中遇到技术错误: {short}\n"
+        f"建议：1) 重试该阶段 2) 查看日志详情 3) 联系管理员"
+    )
 
 
 async def _top_up_stage_output(
@@ -107,6 +171,7 @@ _AGENT_KEY_TO_SEED_ID = {
     "designer-agent":    "Agent-designer",
     "security-agent":    "Agent-security",
     "acceptance-agent":  "Agent-acceptance",
+    "acceptance":        "Agent-acceptance",
     "data-agent":        "Agent-data",
     "marketing-agent":   "Agent-marketing",
     "finance-agent":     "Agent-finance",
@@ -1101,7 +1166,7 @@ async def review_stage_output(
         for sid, out in previous_outputs.items():
             if sid != stage_id and out:
                 lbl = stage_label_map.get(sid, sid)
-                context_parts.append(f"## 前置阶段 — {lbl}\n{out[:800]}")
+                context_parts.append(f"## 前置阶段 — {lbl}\n{out[:4000]}")
         if context_parts:
             review_user = "\n\n".join(context_parts) + "\n\n" + review_user
 
@@ -1137,13 +1202,13 @@ async def review_stage_output(
         await emit_event("stage:peer-review-error", {
             "taskId": task_id, "stageId": stage_id,
             "reviewer": reviewer_name, "error": str(e),
-            "label": f"⚠️ {reviewer_name} 审阅失败（{e}），自动通过但建议人工复查",
+            "label": f"⚠️ {reviewer_name} 审阅异常（{e}），标记为未通过需人工复查",
         })
         return {
-            "reviewed": True,
-            "approved": True,
-            "auto_approved_on_error": True,
-            "reason": f"Review error (auto-approved): {e}",
+            "reviewed": False,
+            "approved": False,
+            "auto_approved_on_error": False,
+            "reason": f"Review error (not approved): {e}",
         }
 
     first_line = review_content.strip().split("\n")[0].upper()
@@ -1207,6 +1272,295 @@ async def review_stage_output(
     }
 
 
+async def _run_stage_verification(
+    *,
+    stage_id: str,
+    role: str,
+    task_id: str,
+    content: str,
+    previous_outputs: Dict[str, str],
+    task_worktree: Optional[str],
+    tier: str,
+    resolved_provider: str,
+    model: str,
+    system_prompt: str,
+    cc_written_files: List[str],
+    skip_llm_for_dev: bool = False,
+) -> tuple[str, StageVerification]:
+    """阶段后置验证：自验证 + 并行评审 + 交叉验证 + worktree quality + top-up 修复。"""
+    verification = verify_stage_output(
+        stage_id=stage_id,
+        role=role,
+        output=content,
+        previous_outputs=previous_outputs,
+    )
+
+    # Optional LLM content quality filter (async, fast, cheap model)
+    llm_check = await llm_content_quality_check(stage_id, content, previous_outputs)
+    if llm_check:
+        verification.checks.append(llm_check)
+        if llm_check.status == VerifyStatus.WARN and verification.overall_status != VerifyStatus.FAIL:
+            verification.overall_status = VerifyStatus.WARN
+
+    # Parallel review broadcast (advisory, non-blocking)
+    if stage_id in _PARALLEL_REVIEW_CONFIG:
+        try:
+            parallel_feedback = await _run_parallel_reviews(task_id, stage_id, content)
+            if parallel_feedback:
+                feedback_lines = [
+                    f"### 并行评审意见 — {fb['role']}\n{fb['feedback']}"
+                    for fb in parallel_feedback
+                ]
+                parallel_section = "\n\n".join(feedback_lines)
+                content += f"\n\n---\n\n## 并行评审反馈\n\n{parallel_section}"
+                await emit_event("stage:parallel-review", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reviewCount": len(parallel_feedback),
+                    "reviewers": [fb["role"] for fb in parallel_feedback],
+                })
+        except Exception as e:
+            logger.warning("[pipeline] parallel review failed for %s: %s", stage_id, e)
+
+    # Cross-Stage Consistency Verification
+    if previous_outputs:
+        try:
+            cross_results = await verify_cross_stage(
+                stage_id=stage_id,
+                output=content,
+                previous_outputs=previous_outputs,
+            )
+            _critical_cross_stages = {"development", "testing"}
+            for cr in cross_results:
+                verification.checks.append(cr)
+                if cr.status == VerifyStatus.FAIL:
+                    target = VerifyStatus.FAIL if stage_id in _critical_cross_stages else VerifyStatus.WARN
+                    verification.overall_status = max(
+                        verification.overall_status, target,
+                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                    )
+                elif cr.status == VerifyStatus.WARN:
+                    verification.overall_status = max(
+                        verification.overall_status, VerifyStatus.WARN,
+                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                    )
+            if cross_results:
+                await emit_event("stage:cross-verify", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "checkCount": len(cross_results),
+                })
+        except Exception as e:
+            logger.warning("[pipeline] cross-stage verification failed for %s: %s", stage_id, e)
+
+    # For development stage with Claude Code output, override verification
+    if stage_id == "development" and skip_llm_for_dev and task_worktree:
+        wt_report = verify_worktree_code_quality(task_worktree)
+        if wt_report:
+            cross_stage_checks = [
+                c for c in verification.checks
+                if getattr(c, "check_name", "").startswith("cross_stage:")
+            ]
+            verification = StageVerification(
+                stage_id=stage_id,
+                role=role,
+                overall_status=VerifyStatus(wt_report.overall_status),
+                checks=[
+                    VerifyResult(
+                        check_name=c.check_name,
+                        status=VerifyStatus(c.status),
+                        message=c.message,
+                    )
+                    for c in wt_report.checks
+                ] + cross_stage_checks,
+                auto_proceed=wt_report.auto_proceed,
+                suggestions=wt_report.suggestions,
+            )
+            for csc in cross_stage_checks:
+                if csc.status == VerifyStatus.FAIL:
+                    verification.overall_status = max(
+                        verification.overall_status, VerifyStatus.FAIL,
+                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                    )
+                elif csc.status == VerifyStatus.WARN:
+                    verification.overall_status = max(
+                        verification.overall_status, VerifyStatus.WARN,
+                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                    )
+            logger.info(
+                "[pipeline] development stage quality override: %s (score inferred from %d files, %d cross-stage checks preserved)",
+                verification.overall_status.value,
+                len(cc_written_files),
+                len(cross_stage_checks),
+            )
+
+    # Top-up repair for local tier
+    if (tier == "local" or resolved_provider == "local") and verification.overall_status == VerifyStatus.FAIL:
+        api_url = app_settings.llm_api_url or ""
+        if api_url and stage_id in STAGE_MIN_OUTPUT_HINTS:
+            repair_feedback = "; ".join(
+                c.message for c in verification.checks
+                if getattr(c, "status", None) == VerifyStatus.FAIL
+            )
+            try:
+                repaired = await _top_up_stage_output(
+                    stage_id=stage_id,
+                    model=model,
+                    api_url=api_url,
+                    system_prompt=system_prompt,
+                    partial_content=content,
+                    repair_feedback=repair_feedback,
+                )
+                if repaired != content:
+                    content = repaired
+                    verification = verify_stage_output(
+                        stage_id=stage_id,
+                        role=role,
+                        output=content,
+                        previous_outputs=previous_outputs,
+                    )
+                    # 修复后重新运行交叉验证
+                    if previous_outputs:
+                        try:
+                            cross_results = await verify_cross_stage(
+                                stage_id=stage_id,
+                                output=content,
+                                previous_outputs=previous_outputs,
+                            )
+                            _critical_cross_stages_2 = {"development", "testing"}
+                            for cr in cross_results:
+                                verification.checks.append(cr)
+                                if cr.status == VerifyStatus.FAIL:
+                                    target2 = VerifyStatus.FAIL if stage_id in _critical_cross_stages_2 else VerifyStatus.WARN
+                                    verification.overall_status = max(
+                                        verification.overall_status, target2,
+                                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                                    )
+                                elif cr.status == VerifyStatus.WARN:
+                                    verification.overall_status = max(
+                                        verification.overall_status, VerifyStatus.WARN,
+                                        key=lambda s: {"pass": 0, "warn": 1, "fail": 2}[s.value],
+                                    )
+                        except Exception as top_up_cross_err:
+                            logger.warning("[pipeline] top-up cross-stage verify failed for %s: %s", stage_id, top_up_cross_err)
+            except Exception as top_up_err:
+                logger.warning(
+                    "[pipeline] Stage %s repair top-up failed: %s",
+                    stage_id, top_up_err,
+                )
+
+    return content, verification
+
+
+async def _stream_stage_output(
+    *,
+    task_id: Any,
+    stage_id: str,
+    model: str,
+    messages: List[Dict[str, Any]],
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    api_url: str = "",
+    image_attachments: Optional[List[Tuple[str, str]]] = None,
+) -> Dict[str, Any]:
+    """Stream LLM output token-by-token through SSE, then return accumulated result.
+
+    Emits ``stage:output-chunk`` for each text delta so the frontend can show
+    real-time agent output like Codex / Claude Code.
+
+    Falls back to non-streaming ``chat_completion_with_fallback`` if the
+    streaming path fails for any reason.
+    """
+    from .llm_router import chat_completion_stream, chat_completion_with_fallback as llm_fb
+
+    accumulated: List[str] = []
+    chunk_count = 0
+    stream_ok = False
+    last_flush = time.monotonic()
+    _BATCH_INTERVAL = 0.15  # flush to SSE every 150ms to avoid flooding
+
+    try:
+        stream = chat_completion_stream(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            api_url=api_url,
+            image_attachments=image_attachments,
+        )
+
+        # Emit thinking-start event so frontend shows agent is "writing"
+        await emit_event("stage:output-start", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "model": model,
+        })
+
+        async for sse_line in stream:
+            line = sse_line.strip()
+            if not line or not line.startswith("data:"):
+                continue
+
+            payload_str = line[5:].strip()
+            if payload_str == "[DONE]":
+                break
+
+            try:
+                payload = json.loads(payload_str)
+            except json.JSONDecodeError:
+                continue
+
+            if "error" in payload:
+                raise RuntimeError(payload["error"])
+
+            text = payload.get("content", "")
+            if text:
+                accumulated.append(text)
+                chunk_count += 1
+
+                # Batch chunks to avoid flooding SSE/Redis
+                now = time.monotonic()
+                if now - last_flush >= _BATCH_INTERVAL or chunk_count <= 3:
+                    await emit_event("stage:output-chunk", {
+                        "taskId": task_id,
+                        "stageId": stage_id,
+                        "text": text,
+                        "chunkIndex": chunk_count,
+                    })
+                    last_flush = now
+
+        stream_ok = True
+
+    except Exception as stream_err:
+        logger.warning(
+            "[pipeline] Stream failed for %s/%s, falling back to non-streaming: %s",
+            task_id, stage_id, stream_err,
+        )
+
+    content = "".join(accumulated)
+
+    if stream_ok and content.strip():
+        # Emit final flush
+        await emit_event("stage:output-end", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "totalChunks": chunk_count,
+            "length": len(content),
+        })
+        return {"content": content, "usage": {}, "streamed": True}
+
+    # Fallback to non-streaming
+    logger.info("[pipeline] Using non-streaming fallback for %s/%s", task_id, stage_id)
+    return await llm_fb(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        api_url=api_url or "",
+        image_attachments=image_attachments,
+    )
+
+
 async def execute_stage(
     db: AsyncSession,
     *,
@@ -1243,6 +1597,7 @@ async def execute_stage(
         })
         set_current_span(stage_span)
     except Exception:
+        logger.warning("[pipeline] Failed to create trace span for stage %s", stage_id, exc_info=True)
         stage_span = None
 
     stage_conf = STAGE_ROLE_PROMPTS.get(stage_id)
@@ -1609,7 +1964,7 @@ async def execute_stage(
                 try:
                     stage_span.set_metadata("resource_check", rc)
                 except Exception:
-                    pass
+                    logger.debug("[pipeline] Failed to set resource_check span metadata for %s", stage_id, exc_info=True)
 
             await emit_event("stage:resource-check", {
                 "taskId": task_id,
@@ -1627,6 +1982,15 @@ async def execute_stage(
                     "Output will use fallback templates, not real visuals.",
                     stage_id, rc.get("degraded_reason", "unknown"),
                 )
+                # 发送降级事件到前端，让用户知晓产出质量下降
+                await emit_event("stage:resource-degraded", {
+                    "taskId": task_id,
+                    "stageId": stage_id,
+                    "reason": rc.get("degraded_reason", "unknown"),
+                    "fallbacks": rc.get("fallbacks", []),
+                    "available": rc.get("available", []),
+                    "hint": "该阶段使用了降级方案，可视化产出可能不完整",
+                })
 
             if not rc.get("ok") and not rc.get("fallbacks"):
                 err_msg = (
@@ -1647,6 +2011,9 @@ async def execute_stage(
                 }
         except Exception as rce:
             logger.warning("[pipeline] Resource check failed for %s: %s", stage_id, rce)
+
+    # 阶段超时（从配置获取，不限制 Claude Code 的执行时间）
+    _stage_timeout = STAGE_TIMEOUT_SECONDS.get(stage_id, DEFAULT_STAGE_TIMEOUT)
 
     # --- Layer 4: LLM Call (with optional AgentRuntime tool loop) ---
     llm_result = None
@@ -1757,7 +2124,7 @@ async def execute_stage(
                         f"- **引擎**: {engine}\n\n"
                         f"### 文件列表\n\n"
                         f"```\n{chr(10).join(cc_written_files)}\n```\n\n"
-                        f"### Claude 输出摘要\n\n```\n{claude_summary}\n```\n"
+                        f"### 输出摘要\n\n```\n{claude_summary}\n```\n"
                     )
                     _skip_llm_for_dev = True
                     logger.info("[pipeline] CodeGenAgent succeeded with %d files via %s, skipping LLM", len(cc_written_files), engine)
@@ -1887,12 +2254,15 @@ async def execute_stage(
                 dynamic_tools=mcp_defs or None,
                 dynamic_handlers=mcp_handlers or None,
             )
-            runtime_result = await runtime.execute(
-                db,
-                task=user_message,
-                context=previous_outputs,
-                image_attachments=att_images if att_images else None,
-                task_id=task_id,
+            runtime_result = await asyncio.wait_for(
+                runtime.execute(
+                    db,
+                    task=user_message,
+                    context=previous_outputs,
+                    image_attachments=att_images if att_images else None,
+                    task_id=task_id,
+                ),
+                timeout=_stage_timeout,
             )
             if not runtime_result.get("ok"):
                 raise RuntimeError(runtime_result.get("error", "AgentRuntime failed"))
@@ -1958,13 +2328,17 @@ async def execute_stage(
             _is_reasoning_model = any(k in model.lower() for k in _reasoning_keywords)
             stage_max_tokens = 16384 if _is_reasoning_model else 8192
 
-            llm_result = await llm_chat_with_fallback(
-                model=model,
-                messages=messages,
-                max_tokens=stage_max_tokens,
-                api_url=api_url,
-                image_attachments=att_images if att_images else None,
-                on_fallback=_on_provider_fallback,
+            llm_result = await asyncio.wait_for(
+                _stream_stage_output(
+                    task_id=task_id,
+                    stage_id=stage_id,
+                    model=model,
+                    messages=messages,
+                    max_tokens=stage_max_tokens,
+                    api_url=api_url,
+                    image_attachments=att_images if att_images else None,
+                ),
+                timeout=_stage_timeout,
             )
             if llm_result.get("error"):
                 # Include the provider trail so the surfaced error tells the
@@ -2016,6 +2390,24 @@ async def execute_stage(
                         "files": list(_deploy_files.keys()),
                     })
 
+    except asyncio.TimeoutError:
+        timeout_msg = (
+            f"阶段 {stage_id} 执行超时（{_stage_timeout}秒）。"
+            f"这可能是因为 LLM 响应过慢或模型服务暂时不可用。"
+            f"建议：1) 检查模型服务状态 2) 调大超时时间（环境变量 PIPELINE_STAGE_TIMEOUT_SECONDS）"
+            f"3) 重试该阶段。"
+        )
+        logger.error("[pipeline] Stage %s timed out after %ds", stage_id, _stage_timeout)
+        await complete_span(span.span_id, status="timeout", error=timeout_msg)
+        await emit_event("stage:error", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "agent": agent_name,
+            "error": timeout_msg,
+            "errorKind": "timeout",
+            "timeoutSeconds": _stage_timeout,
+        })
+        return {"ok": False, "error": timeout_msg, "errorKind": "timeout"}
     except Exception as e:
         logger.error(f"[pipeline] Stage {stage_id} LLM call failed: {e}")
         await complete_span(span.span_id, status="failed", error=str(e))
@@ -2025,7 +2417,7 @@ async def execute_stage(
             "agent": agent_name,
             "error": str(e),
         })
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": humanize_error(str(e)), "_rawError": str(e)}
 
     # (Layer 4.5 code moved to before Layer 4 - see above)
     if tier == "local" or resolved_provider == "local":
@@ -2045,96 +2437,21 @@ async def execute_stage(
                     stage_id, top_up_err,
                 )
 
-    # --- Layer 5: Self-Verify → validate output ---
-    verification = verify_stage_output(
+    # --- Layer 5 + 5.6 + 7: Self-Verify, Cross-Stage, Worktree Quality, Top-up ---
+    content, verification = await _run_stage_verification(
         stage_id=stage_id,
         role=role,
-        output=content,
+        task_id=task_id,
+        content=content,
         previous_outputs=previous_outputs,
+        task_worktree=str(task_worktree) if task_worktree else None,
+        tier=tier,
+        resolved_provider=resolved_provider,
+        model=model,
+        system_prompt=system_prompt,
+        cc_written_files=cc_written_files,
+        skip_llm_for_dev=_skip_llm_for_dev,
     )
-
-    # Optional LLM content quality filter (async, fast, cheap model)
-    llm_check = await llm_content_quality_check(stage_id, content, previous_outputs)
-    if llm_check:
-        verification.checks.append(llm_check)
-        if llm_check.status == VerifyStatus.WARN and verification.overall_status != VerifyStatus.FAIL:
-            verification.overall_status = VerifyStatus.WARN
-
-    # Parallel review broadcast (advisory, non-blocking)
-    if stage_id in _PARALLEL_REVIEW_CONFIG:
-        try:
-            parallel_feedback = await _run_parallel_reviews(task_id, stage_id, content)
-            if parallel_feedback:
-                feedback_lines = [
-                    f"### 并行评审意见 — {fb['role']}\n{fb['feedback']}"
-                    for fb in parallel_feedback
-                ]
-                parallel_section = "\n\n".join(feedback_lines)
-                content += f"\n\n---\n\n## 并行评审反馈\n\n{parallel_section}"
-                await emit_event("stage:parallel-review", {
-                    "taskId": task_id,
-                    "stageId": stage_id,
-                    "reviewCount": len(parallel_feedback),
-                    "reviewers": [fb["role"] for fb in parallel_feedback],
-                })
-        except Exception as e:
-            logger.warning("[pipeline] parallel review failed for %s: %s", stage_id, e)
-
-    # For development stage with Claude Code output, override verification
-    # with heuristic scoring based on actual files in the worktree.
-    if stage_id == "development" and _skip_llm_for_dev and task_worktree:
-        wt_report = verify_worktree_code_quality(task_worktree)
-        if wt_report:
-            verification = StageVerification(
-                stage_id=stage_id,
-                role=role,
-                overall_status=VerifyStatus(wt_report.overall_status),
-                checks=[
-                    VerifyResult(
-                        check_name=c.check_name,
-                        status=VerifyStatus(c.status),
-                        message=c.message,
-                    )
-                    for c in wt_report.checks
-                ],
-                auto_proceed=wt_report.auto_proceed,
-                suggestions=wt_report.suggestions,
-            )
-            logger.info(
-                "[pipeline] development stage quality override: %s (score inferred from %d files)",
-                verification.overall_status.value,
-                len(cc_written_files),
-            )
-
-    if (tier == "local" or resolved_provider == "local") and verification.overall_status == VerifyStatus.FAIL:
-        api_url = app_settings.llm_api_url or ""
-        if api_url and stage_id in STAGE_MIN_OUTPUT_HINTS:
-            repair_feedback = "; ".join(
-                c.message for c in verification.checks
-                if getattr(c, "status", None) == VerifyStatus.FAIL
-            )
-            try:
-                repaired = await _top_up_stage_output(
-                    stage_id=stage_id,
-                    model=model,
-                    api_url=api_url,
-                    system_prompt=system_prompt,
-                    partial_content=content,
-                    repair_feedback=repair_feedback,
-                )
-                if repaired != content:
-                    content = repaired
-                    verification = verify_stage_output(
-                        stage_id=stage_id,
-                        role=role,
-                        output=content,
-                        previous_outputs=previous_outputs,
-                    )
-            except Exception as top_up_err:
-                logger.warning(
-                    "[pipeline] Stage %s repair top-up failed: %s",
-                    stage_id, top_up_err,
-                )
 
     # --- Layer 3 + 6: Tool Schema (record execution) ---
     provider = llm_result.get("provider", "openai") if llm_result else "openai"
@@ -2434,7 +2751,7 @@ async def execute_stage(
                 return {
                     "ok": False,
                     "blocked": True,
-                    "error": f"QA blocked: {err_msg}",
+                    "error": humanize_error(f"qa blocked: {err_msg}"), "_rawError": f"QA blocked: {err_msg}",
                     "qa_result": qa_result,
                     "revert_to": "development",
                 }
@@ -2453,7 +2770,7 @@ async def execute_stage(
                 })
                 return {
                     "ok": False,
-                    "error": f"QA failed at {failed_step}: {err_msg}",
+                    "error": humanize_error(f"QA failed at {failed_step}: {err_msg}"), "_rawError": f"QA failed at {failed_step}: {err_msg}",
                     "qa_result": qa_result,
                     "revert_to": "development",
                 }
@@ -2490,19 +2807,20 @@ async def execute_stage(
             # 1. Resource check
             deploy_rc = check_deploy_resources()
             if not deploy_rc.get("any_available"):
-                err_msg = "No deploy channel available (local nor Vercel)"
+                err_raw = "No deploy channel available (local nor Vercel)"
                 logger.error("[pipeline] No deploy channel available for %s", task_id[:12])
                 await emit_event("stage:error", {
                     "taskId": task_id, "stageId": stage_id,
                     "reason": "no_deploy_channel",
-                    "error": err_msg,
+                    "error": humanize_error("no deploy channel"),
                     "blocked": True,
                     "resource_check": deploy_rc,
                 })
                 return {
                     "ok": False,
                     "blocked": True,
-                    "error": err_msg,
+                    "error": humanize_error("no deploy channel"),
+                    "_rawError": err_raw,
                     "resource_check": deploy_rc,
                 }
 
@@ -2537,19 +2855,19 @@ async def execute_stage(
                             vercel_error = vercel_result.get("error", "")
                             vercel_status = vercel_result.get("status", 0)
                             if vercel_status in (401, 403):
-                                err_msg = (
+                                err_raw = (
                                     f"Vercel auth failed (status={vercel_status}): "
                                     f"{vercel_error[:500]}. Check VERCEL_TOKEN validity."
                                 )
-                                logger.error("[pipeline] %s", err_msg)
+                                logger.error("[pipeline] %s", err_raw)
                                 await emit_event("stage:error", {
                                     "taskId": task_id,
                                     "stageId": stage_id,
                                     "reason": "vercel_auth_failed",
-                                    "error": err_msg,
+                                    "error": humanize_error("vercel auth failed"),
                                     "provider": "vercel",
                                 })
-                                return {"ok": False, "blocked": True, "error": err_msg}
+                                return {"ok": False, "blocked": True, "error": humanize_error("vercel auth failed"), "_rawError": err_raw}
                             elif vercel_status == 429:
                                 logger.warning("[pipeline] Vercel rate limited (429), falling back to local")
                             else:
@@ -2602,7 +2920,7 @@ async def execute_stage(
                             "error": err_msg,
                             "provider": "local",
                         })
-                        return {"ok": False, "error": f"Local preview failed: {err_msg}"}
+                        return {"ok": False, "error": humanize_error(f"Local preview failed: {err_msg}"), "_rawError": f"Local preview failed: {err_msg}"}
 
                 # Write deploy artifacts
                 if deploy_result:
@@ -2652,7 +2970,7 @@ async def execute_stage(
                 "stageId": stage_id,
                 "error": str(deploy_err),
             })
-            return {"ok": False, "error": f"Phase 7 deploy failed: {deploy_err}"}
+            return {"ok": False, "error": humanize_error(f"Phase 7 deploy failed: {deploy_err}"), "_rawError": f"Phase 7 deploy failed: {deploy_err}"}
 
     # --- Layer 10: Artifact Writer → persist stage output to TaskArtifact ---
     try:
@@ -2712,7 +3030,7 @@ async def execute_stage(
         try:
             await db.rollback()
         except Exception:
-            pass
+            logger.debug("[pipeline] DB rollback after artifact write failure failed for %s", stage_id, exc_info=True)
 
     if app_settings.artifact_store_v2 and app_settings.artifact_contract_enforce:
         from .artifact_contract import (
@@ -2756,7 +3074,7 @@ async def execute_stage(
             try:
                 await db.rollback()
             except Exception:
-                pass
+                logger.error("[pipeline] DB rollback failed after artifact contract error for %s", stage_id, exc_info=True)
 
     await emit_event("stage:completed", {
         "taskId": task_id,
@@ -2861,9 +3179,13 @@ async def execute_full_pipeline(
 
     for stage_id in stages:
         logger.info(f"[pipeline] Executing stage: {stage_id}")
-        # Layer-11 peer review runs twice below (early gate + retry loop). When the early
-        # review approves, skip the duplicate LLM call in the retry section — halves reviewer
-        # latency/cost per stage on the happy path.
+        # ── 双重同行评审设计说明 ──
+        # 每个阶段有两处同行评审，这不是重复，而是分工：
+        # 1. 早期评审（质量门禁之前，行 3089-3130）：快速把关，在进入昂贵的质量门禁
+        #    LLM 调用之前先过滤掉明显不合格的产出。通过则缓存结果跳过第二轮。
+        # 2. 后期评审（质量门禁之后，行 3297-3433）：带重试循环 + 反馈注入的深度评审。
+        #    如果早期已通过则自动跳过（避免重复调用），仅在早期拒绝或未配置时进入。
+        # 这种「早期快速拒绝 + 后期深度修复」的设计可以节省约 50% 的审阅延迟/成本。
         early_peer_review_ok: Optional[Dict[str, Any]] = None
 
         # Mark current stage as active in DB
@@ -2879,7 +3201,7 @@ async def execute_full_pipeline(
                 try:
                     await db.rollback()
                 except Exception:
-                    pass
+                    logger.debug("[pipeline] DB rollback after flush failure failed for stage %s", stage_id, exc_info=True)
 
         result = await execute_stage(
             db,
@@ -3213,6 +3535,7 @@ async def execute_full_pipeline(
             db, stage_id=stage_id, template=_task_tpl, complexity=complexity,
         )
         if review_conf.get("reviewer_agent") and not force_continue:
+            # 后期评审入口：如果早期评审已通过，直接复用结果跳过此轮（避免重复 LLM 调用）
             if early_peer_review_ok is not None and early_peer_review_ok.get("approved"):
                 results[-1]["review"] = early_peer_review_ok
                 logger.info(
@@ -3369,6 +3692,29 @@ async def execute_full_pipeline(
                 "approvalId": approval.id,
                 "label": f"阶段「{stage_id}」等待人工审批...",
             })
+
+            # 跨渠道通知：IM / webhook / 邮件
+            if db_task:
+                try:
+                    from .notify import broadcast_task_event
+                    stage_label = {
+                        "planning": "需求规划", "design": "UI/UX 设计",
+                        "architecture": "架构设计", "development": "开发实现",
+                        "testing": "测试验证", "reviewing": "审查验收",
+                        "deployment": "部署上线",
+                    }.get(stage_id, stage_id)
+                    await broadcast_task_event(
+                        db_task,
+                        event="awaiting_approval",
+                        message=f"阶段「{stage_label}」已完成，等待人工审批",
+                        extras={
+                            "阶段": stage_label,
+                            "审批ID": approval.id,
+                            "操作": f"前往 {task_id[:8]} 详情页进行审批",
+                        },
+                    )
+                except Exception as notify_err:
+                    logger.debug("[pipeline] approval notification failed: %s", notify_err)
 
             await complete_trace(trace.trace_id, status="paused")
             return {
@@ -3734,12 +4080,14 @@ def _build_user_message(
             "security-review": "安全审计报告",
             "legal-review": "法务审查报告",
         }
+        # 统一的上下文截断长度：按阶段所需上下文量分级
+        # 最终阶段需要完整上下文，核心产出阶段需要足够上下文理解前置输出
         if stage_id in ("reviewing", "deployment"):
-            max_prev = 18_000
-        elif stage_id in ("testing", "development", "architecture"):
-            max_prev = 12_000
+            max_prev = 18_000   # 最终阶段：需要完整上下文
+        elif stage_id in ("planning", "design", "architecture", "development", "testing"):
+            max_prev = 12_000   # 核心交付阶段：前置产出通常较长（PRD/设计/代码）
         else:
-            max_prev = 800
+            max_prev = 8_000    # 审查/其他阶段：需要上下文但不需要全部细节
         for sid, output in previous_outputs.items():
             if "_review_feedback" in sid or sid.endswith("_review_feedback"):
                 continue

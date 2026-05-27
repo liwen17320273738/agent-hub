@@ -61,7 +61,7 @@ function retry() {
 .error-boundary__message {
   font-size: 0.85rem;
   color: var(--el-text-color-secondary, #909399);
-  max-width: 400px;
+  max-max-width: 400px; width: 100%;
   word-break: break-all;
 }
 .error-boundary__retry {

@@ -239,13 +239,13 @@ async function handleReject() {
   background: rgba(148, 163, 184, 0.18);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .tab-hint strong {
   color: var(--text-primary, #e2e8f0);
 }
 .form-foot-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted, #64748b);
   display: block;
   margin-top: 4px;

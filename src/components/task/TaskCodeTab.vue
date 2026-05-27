@@ -84,16 +84,41 @@
                     <span class="row-count">{{ node.children?.length }}</span>
                   </div>
                   <div v-show="expandedDirs[node.key]" class="dir-children">
-                    <div
-                      v-for="child in node.children"
-                      :key="child.file!.path"
-                      class="tree-row file-row"
-                      :class="{ selected: selectedFile?.path === child.file!.path }"
-                      @click="selectFile(child.file!)"
-                    >
-                      <span class="row-icon">{{ langIcon(child.file!.name) }}</span>
-                      <span class="row-name" :title="child.file!.path">{{ child.file!.name }}</span>
-                    </div>
+                    <template v-for="child in node.children" :key="child.key">
+                      <!-- 子目录 -->
+                      <div v-if="child.type === 'dir'" class="tree-dir">
+                        <div class="tree-row dir-row" @click="toggleDir(child.key)">
+                          <svg class="row-chevron" :class="{ open: expandedDirs[child.key] }" width="10" height="10" viewBox="0 0 12 12">
+                            <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                          </svg>
+                          <span class="row-icon">📂</span>
+                          <span class="row-name">{{ child.label }}</span>
+                          <span class="row-count">{{ child.children?.length }}</span>
+                        </div>
+                        <div v-show="expandedDirs[child.key]" class="dir-children">
+                          <div
+                            v-for="sub in child.children"
+                            :key="sub.key"
+                            class="tree-row file-row"
+                            :class="{ selected: selectedFile?.path === sub.file?.path }"
+                            @click="sub.file && selectFile(sub.file)"
+                          >
+                            <span class="row-icon">{{ sub.file ? langIcon(sub.file.name) : '' }}</span>
+                            <span class="row-name" :title="sub.file?.path">{{ sub.file?.name }}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <!-- 文件 -->
+                      <div
+                        v-else
+                        class="tree-row file-row"
+                        :class="{ selected: selectedFile?.path === child.file?.path }"
+                        @click="selectFile(child.file)"
+                      >
+                        <span class="row-icon">{{ langIcon(child.file?.name) }}</span>
+                        <span class="row-name" :title="child.file?.path">{{ child.file?.name }}</span>
+                      </div>
+                    </template>
                   </div>
                 </div>
                 <!-- File node -->
@@ -119,7 +144,7 @@
               <svg class="group-icon doc-icon" width="16" height="16" viewBox="0 0 16 16">
                 <path d="M4 1.5A1.5 1.5 0 015.5 0h5A1.5 1.5 0 0112 1.5V2h.5A1.5 1.5 0 0114 3.5v11A1.5 1.5 0 0112.5 16h-9A1.5 1.5 0 012 14.5v-11A1.5 1.5 0 013.5 2H4V1.5z" fill="currentColor"/>
               </svg>
-              <span class="group-name">交付文档</span>
+              <span class="group-name">{{ $t('taskCodeTab.deliveryDocs') }}</span>
               <span class="group-badge docs-badge">{{ completedDocs }}/{{ totalDocs }}</span>
             </div>
             <div v-show="docsExpanded" class="group-body">
@@ -135,7 +160,7 @@
                 >
                   <span class="row-icon">{{ d.has_content ? '📝' : '📄' }}</span>
                   <span class="row-name">{{ d.title }}</span>
-                  <span v-if="!d.has_content" class="row-pending">待生成</span>
+                  <span v-if="!d.has_content" class="row-pending">{{ $t('taskCodeTab.pending') }}</span>
                 </div>
             </div>
           </div>
@@ -147,7 +172,7 @@
                 <path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
               </svg>
               <span class="row-icon" style="font-size:14px">⚙️</span>
-              <span class="group-name">配置文件</span>
+              <span class="group-name">{{ $t('taskCodeTab.configFiles') }}</span>
               <span class="group-badge">{{ rootFiles.length }}</span>
             </div>
             <div v-show="rootExpanded" class="group-body">
@@ -239,9 +264,9 @@
         <table class="file-table">
           <thead>
             <tr>
-              <th class="th-name">文件名称</th>
-              <th class="th-time">创建时间</th>
-              <th class="th-size">文件大小</th>
+              <th class="th-name">{{ $t('taskCodeTab.fileName') }}</th>
+              <th class="th-time">{{ $t('taskCodeTab.createTime') }}</th>
+              <th class="th-size">{{ $t('taskCodeTab.fileSize') }}</th>
               <th class="th-actions"></th>
             </tr>
           </thead>
@@ -283,17 +308,17 @@
               <span class="preview-filename">{{ previewFileName }}</span>
             </div>
             <div class="preview-actions">
-              <button class="action-btn" title="复制代码" @click="copyContent">
+              <button class="action-btn" :title="$t('taskCodeTab.copyCode')" @click="copyContent">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
                 </svg>
               </button>
-              <button class="action-btn" title="下载文件" @click="downloadFile">
+              <button class="action-btn" :title="$t('taskCodeTab.downloadFile')" @click="downloadFile">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
               </button>
-              <button class="action-btn" title="全屏" @click="toggleFullscreen">
+              <button class="action-btn" :title="$t('taskCodeTab.fullscreen')" @click="toggleFullscreen">
                 <svg v-if="!isFullscreen" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                   <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
                 </svg>
@@ -569,9 +594,9 @@ const filteredTableFiles = computed<TableFile[]>(() => {
 })
 
 const FILE_TABS = computed(() => [
-  { key: 'all' as const, label: '全部文件', count: allFiles.value.length },
-  { key: 'src' as const, label: '源代码', count: srcFiles.value.length },
-  { key: 'docs' as const, label: '文档', count: completedDocs.value },
+  { key: 'all' as const, label: t('taskCodeTab.allFiles'), count: allFiles.value.length },
+  { key: 'src' as const, label: t('taskCodeTab.sourceCode'), count: srcFiles.value.length },
+  { key: 'docs' as const, label: t('taskCodeTab.docs'), count: completedDocs.value },
 ])
 
 const hasFiles = computed(() => allFiles.value.length > 0 || docsStatus.value.some(d => d.has_content))
@@ -580,7 +605,7 @@ const completedDocs = computed(() => docsStatus.value.filter(d => d.has_content)
 const totalDocs = computed(() => docsStatus.value.length)
 const totalSizeStr = computed(() => {
   const total = allFiles.value.reduce((s, f) => s + f.size, 0)
-  return `已用 ${fmtSize(total)}`
+  return t('taskCodeTab.used', { size: fmtSize(total) })
 })
 const lineCount = computed(() => previewContent.value.split('\n').length)
 
@@ -842,772 +867,5 @@ watch(() => props.taskId, () => {
 </script>
 
 <style scoped>
-/* ═══════════════════════════════════════════════════════════════════
-   Coze-style File Browser — inspired by 扣子文件管理 UI
-   Three-panel: tree | list table | code preview (dark)
-   ═══════════════════════════════════════════════════════════════════ */
-
-.coze-file-browser {
-  --tree-bg: #f8f9fc;
-  --list-bg: #ffffff;
-  --preview-bg: #1b1d24;
-  --preview-toolbar: #22252e;
-  --border: #e8eaef;
-  --border-dark: #2c2f38;
-  --text-1: #1a1c23;
-  --text-2: #4e5362;
-  --text-3: #8b8fa5;
-  --accent: #3370ff;
-  --accent-soft: rgba(51, 112, 255, 0.08);
-  --green: #34c759;
-  --radius: 12px;
-
-  height: 620px;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--list-bg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-  position: relative;
-}
-
-.coze-file-browser.fullscreen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9999;
-  height: 100vh;
-  border-radius: 0;
-  border: none;
-}
-
-/* ─── Top Bar ─── */
-.browser-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  height: 48px;
-  border-bottom: 1px solid var(--border);
-  background: var(--list-bg);
-  flex-shrink: 0;
-}
-
-.topbar-tabs {
-  display: flex;
-  gap: 2px;
-}
-
-.topbar-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-3);
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-.topbar-tab:hover { color: var(--text-1); }
-.topbar-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.tab-count {
-  font-size: 11px;
-  min-width: 18px;
-  height: 18px;
-  line-height: 18px;
-  text-align: center;
-  border-radius: 9px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  padding: 0 5px;
-}
-.topbar-tab.active .tab-count {
-  background: var(--accent);
-  color: #fff;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #f5f6f8;
-  transition: border-color 0.2s, background 0.2s;
-}
-.search-box:focus-within {
-  border-color: var(--accent);
-  background: #fff;
-}
-
-.search-icon { color: var(--text-3); flex-shrink: 0; }
-
-.search-input {
-  border: none;
-  background: none;
-  outline: none;
-  font-size: 12px;
-  color: var(--text-1);
-  width: 140px;
-}
-.search-input::placeholder { color: #b8bccb; }
-
-.storage-info {
-  font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-
-/* ─── Body layout ─── */
-.browser-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-/* ─── Tree panel ─── */
-.panel-tree {
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--tree-bg);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.tree-content {
-  padding: 4px 0;
-}
-
-.file-group {
-  border-bottom: 1px solid #eef0f4;
-}
-.file-group:last-child { border-bottom: none; }
-
-.group-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-}
-.group-header:hover { background: #eef1f6; }
-
-.group-chevron {
-  color: var(--text-3);
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-.group-chevron.open { transform: rotate(90deg); }
-
-.group-icon {
-  flex-shrink: 0;
-}
-.folder-icon { color: #f59e0b; }
-.doc-icon { color: var(--accent); }
-
-.group-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-  flex: 1;
-}
-
-.group-badge {
-  font-size: 10px;
-  min-width: 20px;
-  height: 18px;
-  line-height: 18px;
-  text-align: center;
-  border-radius: 9px;
-  background: var(--accent);
-  color: #fff;
-  padding: 0 6px;
-  font-weight: 500;
-}
-.docs-badge { background: #9ca3af; }
-
-.group-body { padding-bottom: 4px; }
-
-/* Tree row */
-.tree-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px 5px 28px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-2);
-  transition: background 0.12s;
-  user-select: none;
-}
-.tree-row:hover { background: #eef1f6; }
-.tree-row.selected {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 500;
-}
-.tree-row.dimmed { opacity: 0.45; cursor: default; }
-.dir-row { font-weight: 500; }
-.dir-children .tree-row { padding-left: 42px; }
-
-.row-chevron {
-  color: var(--text-3);
-  transition: transform 0.2s;
-  flex-shrink: 0;
-}
-.row-chevron.open { transform: rotate(90deg); }
-
-.row-icon { font-size: 13px; flex-shrink: 0; }
-.row-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
-  font-size: 12px;
-}
-.row-count { font-size: 10px; color: var(--text-3); }
-.row-pending {
-  font-size: 10px;
-  color: var(--text-3);
-  background: #f0f1f3;
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-
-/* ─── Resize handle ─── */
-.resize-handle {
-  width: 4px;
-  cursor: col-resize;
-  background: transparent;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-.resize-handle:hover { background: var(--accent); opacity: 0.3; }
-
-/* ─── File list table panel ─── */
-.panel-list {
-  flex: 1;
-  min-width: 240px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  border-right: 1px solid var(--border);
-  background: var(--list-bg);
-}
-
-.file-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.file-table thead { position: sticky; top: 0; z-index: 2; }
-
-.file-table th {
-  padding: 10px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-3);
-  text-align: left;
-  background: #f8f9fc;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.th-name { width: auto; }
-.th-time { width: 100px; }
-.th-size { width: 80px; }
-.th-actions { width: 36px; }
-
-.table-row {
-  cursor: pointer;
-  transition: background 0.12s;
-}
-.table-row:hover { background: #f5f7fa; }
-.table-row.active { background: var(--accent-soft); }
-
-.table-row td {
-  padding: 9px 12px;
-  font-size: 13px;
-  color: var(--text-2);
-  border-bottom: 1px solid #f0f1f4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.td-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.td-icon { font-size: 14px; flex-shrink: 0; }
-.td-filename {
-  font-weight: 500;
-  color: var(--text-1);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.td-time { font-size: 12px; color: var(--text-3); }
-.td-size { font-size: 12px; color: var(--text-3); }
-.td-actions { text-align: center; }
-
-.action-dot {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--text-3);
-  transition: all 0.15s;
-}
-.action-dot:hover { background: #eef1f6; color: var(--text-1); }
-
-.table-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: var(--text-3);
-  font-size: 13px;
-}
-
-/* ─── Preview panel ─── */
-.panel-preview {
-  flex: 1.2;
-  min-width: 300px;
-  display: flex;
-  flex-direction: column;
-  background: var(--preview-bg);
-  overflow: hidden;
-}
-.panel-preview.no-file { flex: 0.8; }
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  background: var(--preview-toolbar);
-  border-bottom: 1px solid var(--border-dark);
-  flex-shrink: 0;
-}
-
-.preview-title { display: flex; align-items: center; gap: 8px; }
-.preview-filename {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e2e4e8;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-}
-
-.preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.action-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  background: none;
-  border-radius: 6px;
-  cursor: pointer;
-  color: #8b8fa5;
-  transition: all 0.15s;
-}
-.action-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e4e8;
-}
-.close-btn:hover { color: #ef4444; }
-
-.preview-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom: 1px solid var(--border-dark);
-  flex-shrink: 0;
-}
-
-.meta-path {
-  font-size: 11px;
-  color: #6b7085;
-  font-family: ui-monospace, monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.meta-lang, .meta-size {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  flex-shrink: 0;
-}
-.meta-lang { color: var(--green); }
-.meta-size { color: #6b7085; }
-
-/* Code area */
-.preview-code-area {
-  display: flex;
-  flex: 1;
-  overflow: auto;
-  min-height: 0;
-}
-
-.line-gutter {
-  display: flex;
-  flex-direction: column;
-  padding: 14px 0;
-  background: rgba(255, 255, 255, 0.015);
-  border-right: 1px solid var(--border-dark);
-  user-select: none;
-  flex-shrink: 0;
-  min-width: 48px;
-  text-align: right;
-}
-
-.gutter-num {
-  font-size: 12px;
-  line-height: 1.7;
-  color: #3a3d47;
-  padding: 0 12px 0 8px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-}
-
-.code-body {
-  flex: 1;
-  margin: 0;
-  padding: 14px 16px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: #d4d4d4;
-  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
-  white-space: pre;
-  overflow-x: auto;
-  background: transparent;
-  tab-size: 4;
-}
-
-/* highlight.js token colors (VS Code Dark+ inspired) */
-.code-body :deep(.hljs-keyword) { color: #c586c0; }
-.code-body :deep(.hljs-string) { color: #ce9178; }
-.code-body :deep(.hljs-number) { color: #b5cea8; }
-.code-body :deep(.hljs-comment) { color: #6a9955; font-style: italic; }
-.code-body :deep(.hljs-function) { color: #dcdcaa; }
-.code-body :deep(.hljs-title) { color: #dcdcaa; }
-.code-body :deep(.hljs-class .hljs-title) { color: #4ec9b0; }
-.code-body :deep(.hljs-built_in) { color: #4ec9b0; }
-.code-body :deep(.hljs-params) { color: #9cdcfe; }
-.code-body :deep(.hljs-attr) { color: #9cdcfe; }
-.code-body :deep(.hljs-attribute) { color: #9cdcfe; }
-.code-body :deep(.hljs-literal) { color: #569cd6; }
-.code-body :deep(.hljs-type) { color: #4ec9b0; }
-.code-body :deep(.hljs-meta) { color: #569cd6; }
-.code-body :deep(.hljs-selector-tag) { color: #d7ba7d; }
-.code-body :deep(.hljs-selector-class) { color: #d7ba7d; }
-.code-body :deep(.hljs-tag) { color: #569cd6; }
-.code-body :deep(.hljs-name) { color: #569cd6; }
-.code-body :deep(.hljs-variable) { color: #9cdcfe; }
-.code-body :deep(.hljs-regexp) { color: #d16969; }
-.code-body :deep(.hljs-symbol) { color: #b5cea8; }
-.code-body :deep(.hljs-property) { color: #9cdcfe; }
-.code-body :deep(.hljs-operator) { color: #d4d4d4; }
-.code-body :deep(.hljs-punctuation) { color: #d4d4d4; }
-.code-body :deep(.hljs-section) { color: #dcdcaa; }
-.code-body :deep(.hljs-bullet) { color: #569cd6; }
-.code-body :deep(.hljs-link) { color: #569cd6; text-decoration: underline; }
-.code-body :deep(.hljs-emphasis) { font-style: italic; }
-.code-body :deep(.hljs-strong) { font-weight: bold; }
-
-/* Loading states */
-.preview-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  justify-content: center;
-  padding: 60px;
-  color: #6b7085;
-  font-size: 13px;
-}
-
-.preview-no-content {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  color: #4a4d57;
-  font-size: 13px;
-}
-
-.preview-hint {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  gap: 14px;
-}
-.hint-title { font-size: 14px; color: #6b7085; font-weight: 500; margin: 0; }
-.hint-sub { font-size: 12px; color: #4a4d57; margin: 0; }
-
-/* ─── Loading / Empty states ─── */
-.browser-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  height: 300px;
-  color: var(--text-3);
-  font-size: 13px;
-}
-
-.browser-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 80px 20px;
-}
-.empty-illustration { opacity: 0.4; }
-.empty-title { font-size: 15px; font-weight: 600; color: var(--text-2); margin: 0; }
-.empty-desc { font-size: 13px; color: var(--text-3); margin: 0; }
-
-.loading-spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #e8eaef;
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-.loading-spinner.small { width: 18px; height: 18px; border-width: 2px; }
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* ─── Toast ─── */
-.copy-toast {
-  position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 20px;
-  background: #22c55e;
-  color: #fff;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  box-shadow: 0 4px 16px rgba(34, 197, 94, 0.3);
-  z-index: 100;
-  animation: toast-in 0.3s ease;
-}
-@keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-/* ─── Scrollbar ─── */
-.panel-tree::-webkit-scrollbar,
-.panel-list::-webkit-scrollbar,
-.preview-code-area::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-.panel-tree::-webkit-scrollbar-track,
-.panel-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.panel-tree::-webkit-scrollbar-thumb,
-.panel-list::-webkit-scrollbar-thumb {
-  background: #d0d3d9;
-  border-radius: 3px;
-}
-.preview-code-area::-webkit-scrollbar-track { background: transparent; }
-.preview-code-area::-webkit-scrollbar-thumb {
-  background: #3a3d47;
-  border-radius: 3px;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   Phase 4.5: Build summary panel styles
-   ═══════════════════════════════════════════════════════════════════ */
-.build-summary-body {
-  padding: 6px 12px 10px 12px !important;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.build-summary-row {
-  display: flex;
-  gap: 6px;
-  padding: 3px 0;
-  align-items: baseline;
-}
-
-.build-label {
-  flex-shrink: 0;
-  color: var(--text-3);
-  font-size: 11px;
-  min-width: 64px;
-}
-
-.build-value {
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
-  word-break: break-all;
-}
-
-.build-file-list {
-  margin-top: 4px;
-  margin-bottom: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.build-file-item {
-  display: flex;
-  gap: 4px;
-  padding: 2px 0 2px 12px;
-  font-size: 11px;
-  font-family: ui-monospace, monospace;
-}
-
-.build-file-item.dimmed {
-  color: var(--text-3);
-  font-style: italic;
-}
-
-.build-file-icon {
-  color: #22c55e;
-  font-weight: bold;
-  flex-shrink: 0;
-}
-
-.build-file-path {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.build-status-row {
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  margin-top: 4px;
-  text-align: center;
-}
-
-.build-status-row.build-ok {
-  background: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
-}
-
-.build-status-row.build-fail {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-.build-no-data {
-  padding: 10px 0;
-  color: var(--text-3);
-  font-size: 11px;
-  font-style: italic;
-}
-
-.build-log-section {
-  margin-top: 6px;
-  border-top: 1px solid #eef0f4;
-  padding-top: 6px;
-}
-
-.build-log-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-2);
-  user-select: none;
-}
-
-.build-log-header:hover {
-  color: var(--text-1);
-}
-
-.build-log-error-icon {
-  color: #ef4444;
-  font-size: 12px;
-}
-
-.build-log-body {
-  max-height: 300px;
-  overflow-y: auto;
-  margin-top: 4px;
-}
-
-.build-log-body pre {
-  margin: 0;
-  padding: 8px 10px;
-  background: #f5f6f8;
-  border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-2);
-}
-
-.build-log-body pre.build-log-error {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.build-ok-badge {
-  background: #22c55e !important;
-}
-
-.build-fail-badge {
-  background: #ef4444 !important;
-}
+@import "./TaskCodeTab.css";
 </style>

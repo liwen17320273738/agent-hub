@@ -9,10 +9,10 @@
         </el-tag>
       </div>
       <div class="exec-live-actions">
-        <el-button size="small" text type="primary" @click="$emit('open-overview')">
+        <el-button size="small" type="primary" @click="$emit('open-overview')">
           {{ t('executionLive.viewOverview') }}
         </el-button>
-        <el-button size="small" text type="primary" @click="$emit('open-log')">
+        <el-button size="small" @click="$emit('open-log')">
           {{ t('executionLive.viewLog') }}
         </el-button>
       </div>

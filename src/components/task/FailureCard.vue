@@ -93,7 +93,7 @@ const rawError = computed(() => {
 const humanReason = computed(() => {
   const raw = rawError.value
   if (!raw) return t('failureCard.reasonUnknown')
-  if (raw.includes('timeout') || raw.includes('超时')) return t('failureCard.reasonTimeout')
+  if (raw.includes('timeout') || raw.includes(t('failureCard.timeoutCN'))) return t('failureCard.reasonTimeout')
   if (raw.includes('rate_limit') || raw.includes('429')) return t('failureCard.reasonRateLimit')
   if (raw.includes('401') || raw.includes('auth')) return t('failureCard.reasonAuth')
   if (raw.includes('500')) return t('failureCard.reasonServer')
@@ -187,7 +187,7 @@ const ownerType = computed(() => {
 }
 
 .fc-raw {
-  font-size: 11px;
+  font-size: 12px;
   background: var(--el-fill-color-light);
   padding: 8px;
   border-radius: 6px;
@@ -224,7 +224,7 @@ const ownerType = computed(() => {
   color: var(--el-text-color-regular);
 }
 
-@media (max-width: 768px) {
+@media (max-max-width: 768px; width: 100%) {
   .fc-grid { grid-template-columns: 1fr; }
 }
 </style>

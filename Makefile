@@ -76,6 +76,9 @@ dev-daemon:
 start:
 	@./scripts/serve.sh --prod
 
+# Use backend/.venv Python if available; fall back to system python3.
+VENV_PYTHON := $(if $(shell test -x backend/.venv/bin/python3 && echo 1),backend/.venv/bin/python3,$(PYTHON))
+
 # Same env merge as scripts/serve.sh: backend/.env then repo-root .env (latter wins on duplicates).
 # Ensures ADMIN_* / DATABASE_URL match the running API before syncing password in DB.
 reset-admin:
@@ -83,7 +86,7 @@ reset-admin:
 	[ -f "$(REPO_ROOT)/backend/.env" ] && . "$(REPO_ROOT)/backend/.env"; \
 	[ -f "$(REPO_ROOT)/.env" ] && . "$(REPO_ROOT)/.env"; \
 	set +a; \
-	cd "$(REPO_ROOT)/backend" && $(PYTHON) -m scripts.reset_admin_password
+	cd "$(REPO_ROOT)/backend" && $(VENV_PYTHON) -m scripts.reset_admin_password
 
 # Same DATABASE_URL merge as scripts/serve.sh; avoids migrating localhost while the API uses root .env.
 migrate:
@@ -91,7 +94,7 @@ migrate:
 	[ -f "$(REPO_ROOT)/backend/.env" ] && . "$(REPO_ROOT)/backend/.env"; \
 	[ -f "$(REPO_ROOT)/.env" ] && . "$(REPO_ROOT)/.env"; \
 	set +a; \
-	cd "$(REPO_ROOT)/backend" && PYTHONPATH=. $(PYTHON) -m alembic upgrade head
+	cd "$(REPO_ROOT)/backend" && PYTHONPATH=. $(VENV_PYTHON) -m alembic upgrade head
 
 verify-login:
 	@./scripts/verify-dev-login.sh

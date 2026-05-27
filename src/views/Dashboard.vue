@@ -2,8 +2,25 @@
   <div class="dashboard">
     <!-- ── Hero CTA ── -->
     <section class="hero">
+      <div class="hero-top">
+        <div class="hero-header">
+          <h1>{{ t('dashboard.title') }}</h1>
+        </div>
+        <div class="hero-stats">
+          <button
+            v-for="s in statCards"
+            :key="s.tab"
+            type="button"
+            class="stat"
+            @click="goInbox(s.tab)"
+            :title="t('dashboard.statTitle', { label: s.label })"
+          >
+            <span class="stat-num" :style="{ color: s.color }">{{ s.value }}</span>
+            <span class="stat-label">{{ s.label }}</span>
+          </button>
+        </div>
+      </div>
       <div class="hero-content">
-        <h1>{{ t('dashboard.title') }}</h1>
         <p class="hero-subtitle">{{ t('dashboard.subtitle') }}</p>
         <div class="hero-input-row">
           <el-input
@@ -51,18 +68,12 @@
           </button>
         </div>
       </div>
-      <div class="hero-stats">
-        <button
-          v-for="s in statCards"
-          :key="s.tab"
-          type="button"
-          class="stat"
-          @click="goInbox(s.tab)"
-          :title="t('dashboard.statTitle', { label: s.label })"
-        >
-          <span class="stat-num" :style="{ color: s.color }">{{ s.value }}</span>
-          <span class="stat-label">{{ s.label }}</span>
-        </button>
+      <div v-if="lastRefreshSecs !== null && !backendOffline" class="freshness-indicator">
+        <span class="freshness-dot"></span>
+        {{ $t('dashboard.autoRefreshing', { secs: lastRefreshSecs }) }}
+        <el-button size="small" text @click="refresh" :loading="loading" class="freshness-refresh-btn">
+          <el-icon><Refresh /></el-icon>
+        </el-button>
       </div>
     </section>
 
@@ -154,15 +165,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import { appLocaleToBcp47 } from '@/i18n'
 import { useSettingsStore } from '@/stores/settings'
 import { useAuthStore } from '@/stores/auth'
 import { isEnterpriseBuild } from '@/services/enterpriseApi'
-import { fetchBackendTasks } from '@/services/pipelineApi'
+import { useLiveTasks } from '@/composables/useLiveTasks'
 import { openClawIntake } from '@/services/gatewayApi'
 import type { PipelineTask } from '@/agents/types'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
@@ -172,11 +184,10 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
-const tasks = ref<PipelineTask[]>([])
+const { tasks, backendOffline, refresh, loading, lastRefreshAt } = useLiveTasks()
 const taskInput = ref('')
 /** Which CTA is in flight — avoids both buttons showing loading (shared flag looked like "both ran"). */
 const submitLoading = ref<'plan' | 'direct' | null>(null)
-const backendOffline = ref(false)
 const showClarify = ref(false)
 /** true = 先给方案 (plan gate); false = 直接执行 (auto-start pipeline). */
 const clarifyPlanMode = ref(true)
@@ -191,18 +202,15 @@ const templates = [
   { key: 'analytics', icon: '📈' },
 ]
 
-onMounted(async () => {
-  if (!authStore.initialized) {
-    try { await authStore.hydrate() } catch { /* ignore */ }
-  }
-  if (!authStore.isLoggedIn) return
-  try {
-    tasks.value = await fetchBackendTasks()
-    backendOffline.value = false
-  } catch {
-    tasks.value = []
-    backendOffline.value = true
-  }
+// Data freshness — how many seconds since last auto-refresh
+const now = ref(Date.now())
+let freshnessTimer: ReturnType<typeof setInterval> | null = null
+onMounted(() => { freshnessTimer = setInterval(() => { now.value = Date.now() }, 3_000) })
+onUnmounted(() => { if (freshnessTimer) clearInterval(freshnessTimer) })
+
+const lastRefreshSecs = computed(() => {
+  if (!lastRefreshAt.value) return null
+  return Math.max(0, Math.floor((now.value - lastRefreshAt.value) / 1000))
 })
 
 const pendingTasks = computed(() =>
@@ -279,6 +287,7 @@ function formatDate(ts: number | string | undefined | null) {
 }
 
 function onContractSubmitted(result: { taskId?: string; contractId?: string }) {
+  ElMessage.success(t('dashboard.submitted'))
   taskInput.value = ''
   submitLoading.value = null
   if (result.taskId) {
@@ -307,83 +316,165 @@ async function submitTask(planMode: boolean) {
 
 <style scoped>
 .dashboard {
-  padding: 32px 40px;
-  max-width: 1100px;
+  padding: 36px 44px;
+  max-width: 1040px;
+  width: 100%;
   margin: 0 auto;
 }
 
 /* ── Hero ── */
 .hero {
   display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 36px;
+  padding: 40px;
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(129, 140, 248, 0.1) 0%, rgba(34, 211, 238, 0.04) 40%, rgba(244, 114, 182, 0.06) 100%);
+  border: 1px solid rgba(129, 140, 248, 0.12);
+  box-shadow: var(--glow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-top {
+  display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 32px;
-  margin-bottom: 32px;
-  padding: 28px 32px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(59, 130, 246, 0.06));
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  gap: 20px;
+  position: relative;
+  z-index: 1;
+  flex-wrap: nowrap;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(129, 140, 248, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  bottom: -30%;
+  left: 10%;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(34, 211, 238, 0.06) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .hero-content {
-  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .hero h1 {
-  font-size: 28px;
+  font-size: 36px;
   font-weight: 800;
-  background: linear-gradient(135deg, #6366f1, #3b82f6);
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 60%, var(--accent-3) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  margin-bottom: 6px;
+  background-clip: text;
+  margin: 0;
+  line-height: 1.2;
+  white-space: normal;
+  word-break: keep-all;
+  min-width: 0;
 }
 
 .hero-subtitle {
-  color: var(--el-text-color-secondary);
-  font-size: 14px;
-  margin-bottom: 14px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  margin: 0 0 12px 0;
+  line-height: 1.6;
 }
 
 .hero-input-row {
-  margin-bottom: 14px;
-  max-width: 520px;
+  margin-bottom: 0;
+  max-width: 100%;
+  width: 100%;
+}
+
+.hero-input-row :deep(.el-input__wrapper) {
+  border-radius: 14px;
+  padding: 10px 18px;
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.25) inset !important;
+  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hero-input-row :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.25) inset !important;
+}
+
+.hero-input-row :deep(.el-input__inner) {
+  font-size: 16px;
+  color: var(--text-primary);
 }
 
 .hero-templates {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .tpl-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 12px;
-  border-radius: 16px;
-  font-size: 12px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.18);
-  color: var(--el-text-color-regular);
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  background: rgba(129, 140, 248, 0.08);
+  border: 1px solid rgba(129, 140, 248, 0.2);
+  color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tpl-chip:hover {
-  background: rgba(99, 102, 241, 0.15);
-  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(129, 140, 248, 0.15);
+  border-color: rgba(129, 140, 248, 0.35);
+  color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.2);
 }
 
 .tpl-icon {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .hero-actions {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .hero-badge {
@@ -394,141 +485,219 @@ async function submitTask(planMode: boolean) {
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-start;
-  gap: 10px;
-  flex-shrink: 0;
   justify-content: flex-end;
-  max-width: none;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  gap: 8px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
 }
 
 .stat {
   text-align: center;
-  min-width: 0;
   flex: 0 0 auto;
-  padding: 6px 8px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
+  min-width: 90px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(129, 140, 248, 0.15);
+  background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
   font: inherit;
-  transition: background 0.15s, transform 0.12s, border-color 0.15s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 .stat:hover {
-  background: rgba(99, 102, 241, 0.08);
-  transform: translateY(-1px);
+  background: rgba(129, 140, 248, 0.12);
+  border-color: rgba(129, 140, 248, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
 }
+
 .stat:focus-visible {
   outline: none;
-  border-color: rgba(99, 102, 241, 0.5);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: rgba(129, 140, 248, 0.4);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.12);
 }
 
 .stat-num {
   display: block;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 800;
   line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin-bottom: 4px;
 }
 
 .stat-label {
   font-size: 11px;
-  color: var(--el-text-color-secondary);
-  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1.3;
+  word-break: keep-all;
 }
 
 /* ── Config ── */
 .config-warn {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  border-radius: 12px;
 }
 
 .link-accent {
-  color: var(--el-color-primary);
+  color: var(--accent);
   font-weight: 600;
 }
 
 /* ── Section ── */
+.freshness-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid rgba(129, 140, 248, 0.08);
+}
+
+.freshness-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 4px var(--green);
+  animation: freshness-pulse 2s infinite;
+}
+
+.freshness-refresh-btn {
+  margin-left: 4px;
+  padding: 2px 4px !important;
+}
+
+@keyframes freshness-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .section {
-  margin-bottom: 32px;
+  margin-bottom: 36px;
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--el-text-color-primary);
-  margin-bottom: 16px;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 18px;
+  letter-spacing: -0.2px;
+}
+
+.section-title .el-icon {
+  color: var(--accent);
 }
 
 /* ── Task Cards ── */
 .task-cards {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .task-card {
-  padding: 16px 20px;
-  border-radius: 12px;
-  border: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  padding: 18px 22px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: var(--card-shadow);
 }
 
 .task-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+  border-color: var(--card-border-hover);
 }
 
 .task-card.pending {
-  border-left: 3px solid #e6a23c;
+  border-left: 4px solid var(--amber);
+  background: linear-gradient(90deg, rgba(251, 191, 36, 0.06) 0%, var(--card-bg) 30%);
 }
 
 .task-card.failed, .task-card.rejected {
-  border-left: 3px solid #f56c6c;
+  border-left: 4px solid var(--red);
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.06) 0%, var(--card-bg) 30%);
 }
 
 .task-card.cancelled {
-  border-left: 3px solid var(--el-border-color-dark);
-  opacity: 0.92;
+  border-left: 4px solid var(--border-light);
+  opacity: 0.7;
 }
 
 .task-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .task-title {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-  margin-right: 12px;
+  margin-right: 14px;
 }
 
 .task-card-meta {
   display: flex;
-  gap: 16px;
+  gap: 20px;
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
 }
 
 @media (max-width: 768px) {
-  .hero {
-    flex-direction: column;
+  .dashboard {
+    padding: 20px 16px;
   }
+
+  .hero {
+    padding: 24px;
+  }
+
+  .hero-top {
+    flex-direction: column;
+    gap: 20px;
+  }
+
   .hero-stats {
     width: 100%;
-    max-width: none;
     justify-content: flex-start;
-    padding-bottom: 4px;
+  }
+
+  .hero h1 {
+    font-size: 24px;
+  }
+
+  .hero-stats {
+    gap: 6px;
+  }
+
+  .stat {
+    min-width: 70px;
+    padding: 10px 8px;
+  }
+
+  .stat-num {
+    font-size: 24px;
   }
 }
 </style>

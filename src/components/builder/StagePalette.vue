@@ -59,18 +59,18 @@ interface PaletteItem {
 // stage_id we'd see in the existing PIPELINE_TEMPLATES so a quick
 // drag-out matches "what the templates look like" without surprises.
 const STAGE_DEFAULTS: Record<string, { stageId: string; label: string }> = {
-  'product-manager': { stageId: 'planning',     label: '需求规划' },
-  designer:          { stageId: 'design',       label: 'UI/UX 设计' },
-  architect:         { stageId: 'architecture', label: '架构设计' },
-  developer:         { stageId: 'development',  label: '开发实现' },
-  'qa-lead':         { stageId: 'testing',      label: '测试验证' },
-  security:          { stageId: 'security',     label: '安全审计' },
-  legal:             { stageId: 'legal',        label: '法务合规' },
-  finance:           { stageId: 'finance',      label: '财务评估' },
-  data:              { stageId: 'data',         label: '数据建模' },
-  marketing:         { stageId: 'marketing',    label: '增长营销' },
-  acceptance:        { stageId: 'reviewing',    label: '审查验收' },
-  devops:            { stageId: 'deployment',   label: '部署上线' },
+  'product-manager': { stageId: 'planning',     label: t('stagePalette.productManager') },
+  designer:          { stageId: 'design',       label: t('stagePalette.designer') },
+  architect:         { stageId: 'architecture', label: t('stagePalette.architect') },
+  developer:         { stageId: 'development',  label: t('stagePalette.developer') },
+  'qa-lead':         { stageId: 'testing',      label: t('stagePalette.qaLead') },
+  security:          { stageId: 'security',     label: t('stagePalette.security') },
+  legal:             { stageId: 'legal',        label: t('stagePalette.legal') },
+  finance:           { stageId: 'finance',      label: t('stagePalette.finance') },
+  data:              { stageId: 'data',         label: t('stagePalette.data') },
+  marketing:         { stageId: 'marketing',    label: t('stagePalette.marketing') },
+  acceptance:        { stageId: 'reviewing',    label: t('stagePalette.acceptance') },
+  devops:            { stageId: 'deployment',   label: t('stagePalette.devops') },
 }
 
 const items: PaletteItem[] = KNOWN_ROLES.map((r) => {
@@ -121,7 +121,7 @@ function onDragEnd(_e: DragEvent) {
 .palette-header .hint {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
 }
 
@@ -169,7 +169,7 @@ function onDragEnd(_e: DragEvent) {
   display: block;
   margin-top: 2px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: 12px;
   color: #94a3b8;
   background: transparent;
   padding: 0;
@@ -182,7 +182,7 @@ function onDragEnd(_e: DragEvent) {
 }
 .palette-footer .tip {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.6;
   color: #94a3b8;
 }

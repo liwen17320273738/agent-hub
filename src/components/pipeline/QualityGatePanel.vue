@@ -371,12 +371,12 @@ function catLabel(name: string): string {
   color: #f1f5f9;
 }
 .pct-sym {
-  font-size: 11px;
+  font-size: 12px;
   color: #94a3b8;
   margin-left: 1px;
 }
 .arc-label {
-  font-size: 10px;
+  font-size: 12px;
   color: #94a3b8;
   margin-top: -2px;
 }
@@ -454,7 +454,7 @@ function catLabel(name: string): string {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  font-size: 12px;
   color: #cbd5e1;
 }
 .cat-score {
@@ -508,7 +508,7 @@ function catLabel(name: string): string {
 .cat-summary::marker { content: ""; }
 .summary-count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
   font-family: ui-monospace, monospace;
 }
@@ -591,7 +591,7 @@ function catLabel(name: string): string {
   padding-top: 10px;
 }
 .action-hint {
-  font-size: 11px;
+  font-size: 12px;
   color: #64748b;
 }
 

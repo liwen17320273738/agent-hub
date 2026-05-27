@@ -131,7 +131,7 @@ const renderedContent = computed(() => {
 .message-container {
   display: flex;
   gap: 14px;
-  max-width: 800px;
+  max-max-width: 800px; width: 100%;
   margin: 0 auto;
   padding: 16px 0;
 }
@@ -174,7 +174,7 @@ const renderedContent = computed(() => {
 }
 
 .time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 

@@ -14,7 +14,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 
 interface StageInfo {
   id: string
@@ -27,37 +28,39 @@ const props = defineProps<{
   stages: StageInfo[]
 }>()
 
-const ARTIFACT_MAP: { stageId: string; icon: string; label: string }[] = [
-  { stageId: 'planning',       icon: '📋', label: '需求' },
+const { t } = useI18n()
+
+const ARTIFACT_MAP = computed(() => [
+  { stageId: 'planning',       icon: '📋', label: t('artifactCompletionBar.planning') },
   { stageId: 'design',         icon: '🎨', label: 'UI' },
-  { stageId: 'architecture',   icon: '🏗', label: '架构' },
-  { stageId: 'development',    icon: '💻', label: '代码' },
-  { stageId: 'testing',        icon: '🧪', label: '测试' },
-  { stageId: 'security-review',icon: '🔒', label: '安全' },
-  { stageId: 'reviewing',      icon: '✅', label: '验收' },
-  { stageId: 'deployment',     icon: '🚀', label: '运维' },
-]
+  { stageId: 'architecture',   icon: '🏗', label: t('artifactCompletionBar.architecture') },
+  { stageId: 'development',    icon: '💻', label: t('artifactCompletionBar.development') },
+  { stageId: 'testing',        icon: '🧪', label: t('artifactCompletionBar.testing') },
+  { stageId: 'security-review',icon: '🔒', label: t('artifactCompletionBar.security') },
+  { stageId: 'reviewing',      icon: '✅', label: t('artifactCompletionBar.reviewing') },
+  { stageId: 'deployment',     icon: '🚀', label: t('artifactCompletionBar.deployment') },
+])
 
 const items = computed(() => {
   const stageMap = new Map(props.stages.map(s => [s.id, s]))
-  return ARTIFACT_MAP.map(a => {
+  return ARTIFACT_MAP.value.map(a => {
     const stage = stageMap.get(a.stageId)
     let statusClass = 'not-started'
-    let tooltip = `${a.label}：未开始`
+    let tooltip = a.label + t('artifactCompletionBar.notStarted')
 
     if (stage) {
       if (stage.status === 'done' && stage.output) {
         statusClass = 'completed'
-        tooltip = `${a.label}：已完成`
+        tooltip = a.label + t('artifactCompletionBar.completed')
       } else if (['active', 'reviewing', 'awaiting_approval'].includes(stage.status)) {
         statusClass = 'in-progress'
-        tooltip = `${a.label}：进行中`
+        tooltip = a.label + t('artifactCompletionBar.inProgress')
       } else if (stage.status === 'rejected' || stage.status === 'failed') {
         statusClass = 'failed'
-        tooltip = `${a.label}：失败/被打回`
+        tooltip = a.label + t('artifactCompletionBar.failedRejected')
       } else if (stage.output) {
         statusClass = 'completed'
-        tooltip = `${a.label}：已产出`
+        tooltip = a.label + t('artifactCompletionBar.hasOutput')
       }
     }
 

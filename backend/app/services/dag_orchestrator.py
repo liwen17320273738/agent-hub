@@ -297,6 +297,9 @@ def _dag_stages_from_custom_spec(spec: List[Dict[str, Any]]) -> List[DAGStage]:
     Unknown fields are tolerated (forward-compatible with future builder
     flags). Bad ``on_failure`` strings collapse to ``"halt"`` via the
     ``DAGStage`` constructor itself.
+
+    Raises ``ValueError`` when the dependency graph contains a cycle or
+    references a non-existent stage.
     """
     out: List[DAGStage] = []
     for raw in spec or []:
@@ -306,8 +309,6 @@ def _dag_stages_from_custom_spec(spec: List[Dict[str, Any]]) -> List[DAGStage]:
         label = raw.get("label") or sid
         role = raw.get("role") or raw.get("owner_role") or "developer"
         if not sid:
-            # Silently drop ill-formed entries — better than 500-ing the
-            # entire run because of a rogue node from an old export.
             continue
         depends_on = raw.get("depends_on") or raw.get("dependsOn") or []
         out.append(
@@ -322,7 +323,66 @@ def _dag_stages_from_custom_spec(spec: List[Dict[str, Any]]) -> List[DAGStage]:
                 human_gate=bool(raw.get("human_gate") or raw.get("humanGate") or False),
             )
         )
+    # 验证无循环依赖和孤立引用
+    _cycles = _detect_cycles(out)
+    if _cycles:
+        cycle_desc = " → ".join(f"'{c}'" for c in _cycles)
+        raise ValueError(
+            f"DAG 包含循环依赖，无法执行: {cycle_desc}。"
+            f"请检查 Workflow Builder 中的连线，确保没有形成闭环。"
+        )
     return out
+
+
+def _detect_cycles(stages: List[DAGStage]) -> Optional[List[str]]:
+    """检测阶段依赖中是否存在循环依赖（DFS 三色标记法）。
+
+    返回找到的第一个循环路径，无循环返回 None。
+    同时验证所有依赖引用的 stage_id 都已定义。
+    """
+    deps: Dict[str, List[str]] = {s.stage_id: list(s.depends_on) for s in stages}
+    stage_ids = set(deps.keys())
+
+    # 验证所有依赖引用的 stage 都存在
+    for sid, dep_list in deps.items():
+        for dep in dep_list:
+            if dep not in stage_ids:
+                raise ValueError(
+                    f"阶段 '{sid}' 依赖了不存在的阶段 '{dep}'。"
+                    f"请检查 Workflow Builder 配置，确保所有被引用的阶段都已定义。"
+                )
+
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: Dict[str, int] = {sid: WHITE for sid in stage_ids}
+    path: List[str] = []
+
+    # 在嵌套函数中追踪找到的循环
+    _found_cycle: List[str] = []
+
+    def _dfs(node: str) -> bool:
+        color[node] = GRAY
+        path.append(node)
+        for neighbor in deps.get(node, []):
+            nc = color.get(neighbor, WHITE)
+            if nc == GRAY:
+                cycle_start = path.index(neighbor)
+                _found_cycle.clear()
+                _found_cycle.extend(path[cycle_start:])
+                _found_cycle.append(neighbor)
+                return True
+            if nc == WHITE:
+                if _dfs(neighbor):
+                    return True
+        path.pop()
+        color[node] = BLACK
+        return False
+
+    for sid in stage_ids:
+        if color[sid] == WHITE:
+            if _dfs(sid):
+                return list(_found_cycle)
+
+    return None
 
 
 def get_ready_stages(stages: List[DAGStage], outputs: Dict[str, str] = None) -> List[DAGStage]:
@@ -723,6 +783,14 @@ async def execute_dag_pipeline(
         template_stages = _dag_stages_from_custom_spec(custom_stages)
     else:
         template_stages = PIPELINE_TEMPLATES.get(template, PIPELINE_TEMPLATES["full"])
+    # 对所有阶段（模板或自定义）做循环检测
+    _tmpl_cycles = _detect_cycles(list(template_stages))
+    if _tmpl_cycles:
+        cycle_desc = " → ".join(f"'{c}'" for c in _tmpl_cycles)
+        await emit_event("pipeline:dag-error", {
+            "taskId": task_id, "error": f"DAG 包含循环依赖: {cycle_desc}",
+        })
+        return {"ok": False, "error": f"DAG 包含循环依赖，无法执行: {cycle_desc}"}
     stages = [
         DAGStage(
             s.stage_id, s.label, s.role,
@@ -847,6 +915,11 @@ async def execute_dag_pipeline(
                 "taskId": task_id, "stageId": stage.stage_id,
                 "label": stage.label, "role": stage.role,
             })
+            # Write "active" to DB immediately so the frontend sees the
+            # stage is running BEFORE the LLM call blocks for 60-120s.
+            await _persist_stage_state(
+                stage_db, task_id, stage, db_status="active",
+            )
 
             stage_result = await execute_stage(
                 stage_db,

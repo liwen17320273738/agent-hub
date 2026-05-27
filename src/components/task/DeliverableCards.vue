@@ -33,7 +33,7 @@
         <div class="viewer-header">
           <span class="viewer-title">{{ activeTitle }}</span>
           <div class="viewer-actions">
-            <el-button v-if="!editing && !isShareMode" size="small" text @click="editing = true">
+            <el-button v-if="!editing && !isShareMode" size="small" text @click="editing = true" aria-label="action">
               <el-icon><Edit /></el-icon>
               {{ t('deliverableCards.edit') }}
             </el-button>
@@ -41,7 +41,7 @@
               <el-button size="small" type="primary" @click="save" :loading="saving">{{ t('deliverableCards.text_4') }}</el-button>
               <el-button size="small" text @click="cancelEdit">{{ t('deliverableCards.text_5') }}</el-button>
             </template>
-            <el-button size="small" text @click="closeViewer">
+            <el-button size="small" text @click="closeViewer" aria-label="action">
               <el-icon><Close /></el-icon>
             </el-button>
           </div>
@@ -291,7 +291,7 @@ watch(editing, (val) => {
 }
 
 .card-status {
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -307,7 +307,7 @@ watch(editing, (val) => {
 }
 
 .card-time {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--el-text-color-secondary);
 }
 
@@ -361,7 +361,7 @@ watch(editing, (val) => {
   transform: translateY(-8px);
 }
 
-@media (max-width: 768px) {
+@media (max-max-width: 768px; width: 100%) {
   .cards-grid {
     grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   }

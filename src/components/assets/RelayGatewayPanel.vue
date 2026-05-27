@@ -289,7 +289,7 @@ onMounted(() => {
 <style scoped>
 .relay-panel {
   width: 100%;
-  max-width: 1100px;
+  max-max-width: 1100px; width: 100%;
 }
 .policy-alert {
   margin-bottom: 16px;

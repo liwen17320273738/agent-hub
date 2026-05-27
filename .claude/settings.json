@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "bypassPermissions",
     "allow": [
       "Bash(tail -30 /tmp/backend.log)",
       "Read(//private/tmp/**)",
@@ -28,8 +27,45 @@
       "Bash(curl -s http://localhost:8000/api/pipeline/tasks -o /dev/null -w \"%{http_code}\")",
       "Bash(python3 -c ' *)",
       "Bash(curl -s http://localhost:8000/api/pipeline/tasks?limit=3)",
-      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); tasks=data if isinstance\\(data,list\\) else data.get\\('tasks',data.get\\('data',[]\\)\\); [print\\(json.dumps\\({'id':t.get\\('id'\\),'title':t.get\\('title'\\),'status':t.get\\('status'\\),'current_stage_id':t.get\\('current_stage_id'\\)},ensure_ascii=False\\)\\) for t in tasks[:5]]\")"
-    ]
+      "Bash(python3 -c \"import sys,json; data=json.load\\(sys.stdin\\); tasks=data if isinstance\\(data,list\\) else data.get\\('tasks',data.get\\('data',[]\\)\\); [print\\(json.dumps\\({'id':t.get\\('id'\\),'title':t.get\\('title'\\),'status':t.get\\('status'\\),'current_stage_id':t.get\\('current_stage_id'\\)},ensure_ascii=False\\)\\) for t in tasks[:5]]\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/health)",
+      "Bash(curl -s http://localhost:8000/api/pipeline/tasks?status=running)",
+      "Bash(curl -s \"http://localhost:8000/api/pipeline/tasks?status=running\")",
+      "Bash(curl -s \"http://localhost:8000/api/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"admin123\"}')",
+      "Bash(curl -s \"http://localhost:8000/api/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"admin@agenthub.com\",\"password\":\"admin123\"}')",
+      "Bash(curl -s \"http://localhost:8000/api/auth/login\" -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"admin@example.com\",\"password\":\"changeme\"}')",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'total={d.get\\(\\\\\"total\\\\\",0\\)}, tasks={len\\(d.get\\(\\\\\"tasks\\\\\",[]\\)\\)}'\\)\")",
+      "Bash(python3 -m pytest tests/ -v -x --timeout=60 -q)",
+      "Bash(pip install *)",
+      "Bash(.venv/bin/python -m pytest tests/unit/ -x -q)",
+      "Bash(.venv/bin/python -m pytest tests/ -x -q -k \"pipeline\")",
+      "Bash(.venv/bin/python -m pytest tests/ -x -q -k \"acceptance\")",
+      "Bash(.venv/bin/python -m pytest tests/unit/ -v -q -k \"not agent_runtime\")",
+      "Bash(python3 -m py_compile app/services/task_scheduler.py)",
+      "Bash(python3 -m py_compile app/api/pipeline.py)",
+      "Bash(python3 -m pytest tests/unit/ -v --timeout=30)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m pytest /Users/wayne/Documents/agent-hub/backend/tests/unit/ -v --timeout=30)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m pytest /Users/wayne/Documents/agent-hub/backend/tests/unit/ -v)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m pytest /Users/wayne/Documents/agent-hub/backend/tests/unit/test_task_scheduler.py -v)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m pytest /Users/wayne/Documents/agent-hub/backend/tests/unit/test_task_scheduler.py::test_submit_legacy_coro_factory_runs -v --tb=long)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/services/sse.py)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/services/token_tracker.py)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/api/pipeline.py)",
+      "Bash(codex --version)",
+      "Bash(opencode --version)",
+      "Bash(npx --yes @anthropic-ai/codex --version)",
+      "Bash(codex --help)",
+      "Bash(codex exec *)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/services/executor_bridge.py)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/services/codegen/codegen_agent.py)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m py_compile /Users/wayne/Documents/agent-hub/backend/app/services/pipeline_engine.py)",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -m pytest /Users/wayne/Documents/agent-hub/backend/tests/unit/ -v -k 'not agent_runtime and not sandbox and not webhook and not task_lifecycle and not worktree')",
+      "Bash(/Users/wayne/Documents/agent-hub/backend/.venv/bin/python3 -c ' *)",
+      "Bash(.venv/bin/python3 -m pytest backend/tests/test_plans_api.py::test_approve_plan_reuses_gateway_pending_task -v --no-header -s)"
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "hooks": {
     "PostToolUse": [

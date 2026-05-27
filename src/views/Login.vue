@@ -1,7 +1,14 @@
 <template>
   <div class="login-page">
     <div class="login-card">
-      <h1>{{ t('login.brand') }}</h1>
+      <div class="brand-header">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>{{ t('login.brand') }}</h1>
+      </div>
       <p class="subtitle">{{ t('login.subtitle') }}</p>
       <el-form :model="form" novalidate @submit.prevent="onSubmit" label-position="top" class="login-form">
         <el-form-item :label="t('login.email')">
@@ -142,8 +149,22 @@ async function onSubmit() {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
 }
 
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--el-color-primary);
+  flex-shrink: 0;
+}
+
 .login-card h1 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);

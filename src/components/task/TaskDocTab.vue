@@ -11,7 +11,7 @@
           <el-option
             v-for="v in versions"
             :key="v.version"
-            :label="`v${v.version} ${v.status === 'superseded' ? '(已打回)' : v.status === 'active' ? '(当前)' : ''}`"
+            :label="`v${v.version} ${v.status === 'superseded' ? $t('taskDocTab.superseded') : v.status === 'active' ? $t('taskDocTab.current') : ''}`"
             :value="v.version"
           />
         </el-select>
@@ -21,7 +21,7 @@
           size="small"
           style="margin-left: 8px"
         >
-          已打回
+          {{ $t('taskDocTab.supersededTag') }}
         </el-tag>
       </div>
       <div class="doc-meta" v-if="currentArtifact?.updated_at">
@@ -40,7 +40,7 @@
 
     <div v-else class="doc-empty">
       <span class="empty-icon">{{ icon }}</span>
-      <p>{{ displayName }} 尚未生成</p>
+      <p>{{ $t('taskDocTab.notGenerated', { name: displayName }) }}</p>
       <p class="empty-hint">{{ t('taskDocTab.text_2') }}</p>
     </div>
   </div>

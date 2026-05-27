@@ -1,19 +1,19 @@
 """
-CodeGen Agent — orchestrates code generation via Claude Code CLI or LLM extraction.
+CodeGen Agent — 通过 Claude Code CLI 或 Codex CLI 编排代码生成。
 
-Primary engine: Claude Code (executor_bridge) — gives an autonomous coding agent
-full access to the project directory with file_write, bash, build tools.
-
-Fallback engine: regex + LLM extraction from pipeline markdown outputs.
+引擎自动切换策略：
+1. 检测 claude / codex CLI 是否可用
+2. 默认优先 Claude Code（质量更高），不可用时自动切换 Codex
+3. 可通过 use_claude_code=False 跳过 Claude Code 直接用 Codex
+4. 两个引擎都不可用时返回明确错误
 
 Workflow:
-1. Scaffold project template (optional)
-2. Build a detailed prompt from pipeline PRD + architecture outputs
-3. Execute Claude Code in the project directory → it writes files, installs deps, builds
-4. If Claude Code unavailable, fall back to regex/LLM code block extraction
-5. Verify build and return result
-6. Write source_manifest.json + build.log to project_dir
-7. Enforce allowlist of writable file paths
+1. 可选的项目模板脚手架
+2. 根据 PRD + 架构输出构建详细 prompt
+3. 自动选择可用引擎执行代码生成
+4. 验证构建并返回结果
+5. 写入 source_manifest.json + build.log 到 project_dir
+6. 文件路径白名单检查
 """
 from __future__ import annotations
 
@@ -21,13 +21,13 @@ import json
 import logging
 import os
 import re
+import shutil
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .templates import scaffold_project, get_template
 from ..tools.sandbox import get_sandbox_root
 from ..tools import execute_tool
-from ..llm_router import chat_completion
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,29 @@ ALLOWED_FILE_PREFIXES = frozenset({
     "tsconfig.json",
     ".gitignore",
 })
+
+
+def _detect_available_engines() -> Dict[str, bool]:
+    """检测可用的代码生成引擎 CLI。
+
+    Returns {"claude": bool, "codex": bool}
+    结果会被缓存，避免重复检测。
+    """
+    if not hasattr(_detect_available_engines, "_cache"):
+        claude_bin = os.environ.get("CLAUDE_PATH") or shutil.which("claude") or "claude"
+        codex_bin = os.environ.get("CODEX_PATH") or shutil.which("codex") or "codex"
+
+        _detect_available_engines._cache = {
+            "claude": shutil.which(claude_bin) is not None,
+            "codex": shutil.which(codex_bin) is not None,
+        }
+        logger.info(
+            "[codegen] Engine availability: claude=%s codex=%s",
+            _detect_available_engines._cache["claude"],
+            _detect_available_engines._cache["codex"],
+        )
+
+    return _detect_available_engines._cache
 
 
 def _check_inputs(pipeline_outputs: Dict[str, str]) -> Optional[str]:
@@ -193,10 +216,13 @@ def _build_fix_prompt(error_output: str, attempt: int) -> str:
 
 
 class CodeGenAgent:
-    """Orchestrates code generation from pipeline outputs to built artifacts.
+    """编排代码生成：自动检测可用引擎，Claude Code 优先，Codex 自动降级。
 
-    Primary: Claude Code CLI (autonomous coding agent with file access)
-    Fallback: regex/LLM extraction from pipeline markdown
+    引擎选择策略：
+    - 检测 claude / codex CLI 是否安装
+    - Claude Code 可用 → 优先使用；不可用 → 自动切换 Codex
+    - use_claude_code=False → 跳过 Claude Code，直接用 Codex
+    - 两个引擎都不可用 → 返回明确错误，不再浪费时间尝试
     """
 
     def __init__(self, workspace: Optional[str] = None):
@@ -238,19 +264,48 @@ class CodeGenAgent:
         # Record template baseline before codegen touches files
         template_baseline = _load_template_baseline(project_dir)
 
+        # 自动检测可用引擎
+        engines = _detect_available_engines()
         result: Dict[str, Any] = {"ok": False, "error": "no engine ran", "project_dir": project_dir}
 
-        if use_claude_code:
+        # --- 引擎选择与执行 ---
+        claude_available = engines.get("claude", False)
+        codex_available = engines.get("codex", False)
+        try_claude = use_claude_code and claude_available
+
+        if use_claude_code and not claude_available:
+            logger.warning(
+                "[codegen] Claude Code CLI 不可用 (which=%s)，自动切换 Codex",
+                os.environ.get("CLAUDE_PATH") or shutil.which("claude") or "claude",
+            )
+            if codex_available:
+                logger.info("[codegen] Codex CLI 可用，直接使用 Codex")
+            else:
+                logger.error("[codegen] Claude Code 和 Codex CLI 都不可用，无法生成代码")
+
+        if try_claude:
+            logger.info("[codegen] 使用 Claude Code (primary engine)")
             result = await self._generate_via_claude_code(
                 task_id, task_title, project_dir, pipeline_outputs, template_id,
             )
             if not result.get("ok"):
-                logger.warning(f"[codegen] Claude Code failed: {result.get('error')}, extraction fallback")
+                logger.warning(
+                    "[codegen] Claude Code failed: %s, trying Codex fallback",
+                    result.get("error"),
+                )
 
+        # Codex fallback：Claude Code 失败或未启用时自动切换
         if not result.get("ok"):
-            result = await self._generate_via_extraction(
-                task_id, task_title, project_dir, pipeline_outputs, template_id,
-            )
+            if codex_available:
+                logger.info("[codegen] 使用 Codex (fallback engine)")
+                result = await self._generate_via_codex(
+                    task_id, task_title, project_dir, pipeline_outputs, template_id,
+                )
+                if not result.get("ok"):
+                    logger.warning("[codegen] Codex failed: %s, no more fallback engines", result.get("error"))
+            else:
+                logger.error("[codegen] Codex CLI 不可用，无可用引擎")
+                result["error"] = "no available engine: Claude Code not available, Codex not installed"
 
         if not result.get("ok"):
             return result
@@ -330,7 +385,7 @@ class CodeGenAgent:
             "claude_output": claude_output[:2000],
         }
 
-    async def _generate_via_extraction(
+    async def _generate_via_codex(
         self,
         task_id: str,
         task_title: str,
@@ -338,45 +393,44 @@ class CodeGenAgent:
         pipeline_outputs: Dict[str, str],
         template_id: Optional[str],
     ) -> Dict[str, Any]:
-        """Fallback engine: extract code blocks from pipeline markdown outputs."""
-        code_blocks = await self._extract_code_from_outputs(pipeline_outputs)
+        """备选引擎：Codex CLI 在 project_dir 中直接生成代码。"""
+        from ..executor_bridge import execute_codex
 
-        from pathlib import Path
-        project_root = Path(project_dir).resolve()
+        prompt = _build_claude_prompt(task_title, pipeline_outputs, template_id)
 
-        written_files = []
-        for filepath, content in code_blocks.items():
-            full_path = (project_root / filepath).resolve()
-            if not str(full_path).startswith(str(project_root)):
-                logger.warning(f"[codegen] Skipped path traversal attempt: {filepath}")
-                continue
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            with open(full_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            written_files.append(filepath)
+        logger.info("[codegen] Invoking Codex for %s in %s", task_title, project_dir)
+        job = await execute_codex(
+            task_id=task_id,
+            prompt=prompt,
+            work_dir=project_dir,
+            timeout_seconds=600,
+            created_by="codegen-agent",
+        )
 
-        build_output = None
-        template = get_template(template_id) if template_id else None
-        build_cmd = template.get("build_cmd") if template else None
-        if build_cmd:
-            build_output = await execute_tool("bash", {
-                "command": f"cd {project_dir} && {build_cmd}",
-                "timeout": 120,
-            })
+        if job.get("status") not in ("done",):
+            return {
+                "ok": False,
+                "engine": "codex",
+                "error": f"Codex {job.get('status', 'unknown')}: {job.get('output', '')[:500]}",
+                "job_id": job.get("id"),
+            }
 
-        build_success = build_output is None or "[exit code: 0]" in (build_output or "")
+        files_written = _scan_project_files(project_dir)
+        codex_output = job.get("output", "")
+        build_success = job.get("exitCode", 1) == 0
 
         return {
             "ok": True,
-            "engine": "extraction",
+            "engine": "codex",
             "task_id": task_id,
             "project_dir": project_dir,
             "template": template_id,
-            "files_written": written_files,
-            "total_files": len(written_files),
-            "build_result": build_output,
-            "build_output": build_output or "",
+            "files_written": files_written,
+            "total_files": len(files_written),
             "build_success": build_success,
+            "build_output": codex_output,
+            "job_id": job.get("id"),
+            "claude_output": codex_output[:2000],
         }
 
     async def auto_fix(
@@ -417,64 +471,6 @@ class CodeGenAgent:
             "output": job.get("output", "")[:2000],
             "status": job.get("status"),
         }
-
-    async def _extract_code_from_outputs(self, outputs: Dict[str, str]) -> Dict[str, str]:
-        """Extract code files from pipeline markdown outputs via regex + LLM fallback."""
-        code_blocks: Dict[str, str] = {}
-
-        for stage_id, output in outputs.items():
-            if not output:
-                continue
-            for m in re.finditer(r'```\w*\s*\n//\s*(.+?)\n([\s\S]*?)```', output):
-                fp, code = m.group(1).strip(), m.group(2).strip()
-                if fp and code:
-                    code_blocks[fp] = code
-            for m in re.finditer(r'(?:文件|File)[：:]\s*`?([^\s`\n]+)`?\s*\n```\w*\s*\n([\s\S]*?)```', output):
-                fp, code = m.group(1).strip(), m.group(2).strip()
-                if fp and code:
-                    code_blocks[fp] = code
-
-        if not code_blocks:
-            combined = "\n\n".join(
-                f"=== {sid} ===\n{out}" for sid, out in outputs.items() if out
-            )
-            if combined:
-                code_blocks = await self._llm_extract_files(combined)
-
-        return code_blocks
-
-    async def _llm_extract_files(self, content: str) -> Dict[str, str]:
-        """Let LLM extract file paths and code from unstructured text."""
-        prompt = f"""从下面的技术文档中提取所有代码文件。
-
-要求：
-- 识别所有代码块及其对应的文件路径
-- 如果没有明确路径，根据代码内容推断合理的文件名
-- 只返回 JSON，格式：{{"文件路径": "文件内容", ...}}
-- 文件路径使用相对路径（如 src/main.py、index.html）
-
-文档内容：
-{content[:8000]}
-
-只返回 JSON 对象，不要其他文字。"""
-
-        result = await chat_completion(
-            model="",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-        )
-
-        if "error" in result:
-            logger.warning(f"LLM 代码提取失败: {result['error']}")
-            return {}
-
-        try:
-            raw = result.get("content", "")
-            json_str = re.sub(r'^```(?:json)?\s*|\s*```$', '', raw.strip())
-            return json.loads(json_str)
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"LLM 代码提取 JSON 解析失败: {e}")
-            return {}
 
     async def run_build(self, project_dir: str, command: str) -> Dict[str, Any]:
         """Run a build command in the project directory and write build.log."""

@@ -159,7 +159,7 @@ const profileLink = computed(() => ({
 }
 
 .card-seniority {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-bottom: 4px;
   font-style: italic;
@@ -184,7 +184,7 @@ const profileLink = computed(() => ({
 }
 
 .card-tags .el-tag {
-  font-size: 11px;
+  font-size: 12px;
   height: 20px;
   padding: 0 6px;
 }
@@ -199,7 +199,7 @@ const profileLink = computed(() => ({
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -217,7 +217,7 @@ const profileLink = computed(() => ({
 }
 
 .card-profile-link {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
   text-decoration: none;
   padding: 1px 6px;

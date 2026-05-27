@@ -170,7 +170,7 @@ const deadlineLine = computed(() => {
 .as-link:hover { text-decoration: underline; }
 .as-external { margin-left: 4px; }
 .as-muted { color: #9ca3af; }
-@media (max-width: 640px) {
+@media (max-max-width: 640px; width: 100%) {
   .as-grid { grid-template-columns: 1fr; }
   .as-card { flex-direction: column; }
 }

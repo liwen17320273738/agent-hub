@@ -6,7 +6,7 @@
         class="voice-trigger"
         :class="{ recording: isRecording, processing: isProcessing }"
         @click="handleRecordToggle"
-        :title="isRecording ? '点击停止录音' : '点击开始录音'"
+        :title="isRecording ? $t('voice.stopRecord') : $t('voice.startRecord')"
       >
         <div class="mic-icon">
           <svg v-if="!isRecording && !isProcessing" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -25,9 +25,9 @@
       <div class="voice-divider"></div>
       <div
         class="voice-trigger upload-trigger"
-        :class="{ processing: isUploading }"
+        :class="{ processing: isUploading, disabled: isRecording || isProcessing }"
         @click="triggerFileUpload"
-        title="上传音频文件进行转录"
+        :title="$t('voice.uploadHint')"
       >
         <div class="mic-icon">
           <svg v-if="!isUploading" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -55,27 +55,27 @@
     <div v-if="transcription" class="transcription-modal" @click.self="transcription = null">
       <div class="transcription-card">
         <div class="card-header">
-          <h3>{{ uploadMode === 'file' ? '文件转录结果' : '语音转录结果' }}</h3>
+          <h3>{{ uploadMode === 'file' ? $t('voice.fileResult') : $t('voice.recordResult') }}</h3>
           <button class="close-btn" @click="transcription = null">&times;</button>
         </div>
         <div class="card-body">
           <div class="meta">
-            <span v-if="transcription.speakerCount" class="badge">{{ transcription.speakerCount }} 位说话人</span>
-            <span v-if="transcription.durationS" class="badge">{{ transcription.durationS }}秒</span>
-            <span v-if="transcription.segmentCount" class="badge">{{ transcription.segmentCount }} 段</span>
-            <span v-if="transcription.taskCreated" class="badge success">已创建任务</span>
+            <span v-if="transcription.speakerCount" class="badge">{{ $t('voice.speakers', { n: transcription.speakerCount }) }}</span>
+            <span v-if="transcription.durationS" class="badge">{{ $t('voice.duration', { n: transcription.durationS }) }}</span>
+            <span v-if="transcription.segmentCount" class="badge">{{ $t('voice.segments', { n: transcription.segmentCount }) }}</span>
+            <span v-if="transcription.taskCreated" class="badge success">{{ $t('voice.taskCreated') }}</span>
           </div>
-          <div class="text-content">{{ transcription.fullText || '(无识别文字)' }}</div>
+          <div class="text-content">{{ transcription.fullText || $t('voice.noText') }}</div>
         </div>
         <div class="card-footer">
           <button class="btn btn-primary" @click="createTask" :disabled="!transcription?.fullText">
-            🚀 创建任务
+            🚀 {{ $t('voice.createTask') }}
           </button>
           <button class="btn btn-primary outline" @click="refillInput" :disabled="!transcription?.fullText">
-            📝 填入输入框
+            📝 {{ $t('voice.fillInput') }}
           </button>
           <button class="btn btn-secondary" @click="copyText" :disabled="!transcription?.fullText">
-            📋 复制
+            📋 {{ $t('voice.copy') }}
           </button>
         </div>
       </div>
@@ -105,7 +105,7 @@ const isUploading = ref(false)
 const transcription = ref<any>(null)
 const mediaRecorder = ref<MediaRecorder | null>(null)
 const audioChunks = ref<Blob[]>([])
-const statusText = ref('语音输入')
+const statusText = ref(t('voice.label'))
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploadMode = ref<'record' | 'file'>('record')
 
@@ -156,8 +156,25 @@ function stopRecording() {
 
 /* ── File Upload ── */
 function triggerFileUpload() {
-  if (isRecording.value || isProcessing.value || isUploading.value) return
-  fileInput.value?.click()
+  console.log('[VoiceInput] Upload button clicked', {
+    isRecording: isRecording.value,
+    isProcessing: isProcessing.value,
+    isUploading: isUploading.value,
+    fileInput: fileInput.value
+  })
+  
+  if (isRecording.value || isProcessing.value || isUploading.value) {
+    console.log('[VoiceInput] Upload blocked - another operation in progress')
+    return
+  }
+  
+  if (!fileInput.value) {
+    console.error('[VoiceInput] File input ref is null')
+    return
+  }
+  
+  console.log('[VoiceInput] Triggering file input click')
+  fileInput.value.click()
 }
 
 async function handleFileSelected(e: Event) {
@@ -214,12 +231,30 @@ async function uploadAudio(blob: Blob, filename: string, mode: 'record' | 'file'
     } else {
       statusText.value = t('voice.transcribeFailed')
     }
-  } catch (err) {
-    statusText.value = mode === 'file' ? t('voice.uploadFailed') : t('voice.requestFailed')
+  } catch (err: any) {
     console.error('[voice] transcription error:', err)
+    
+    // Check for specific error messages
+    const errorMsg = err?.message || String(err)
+    const errorDetail = err?.detail || ''
+    
+    // Handle 500 server errors - likely Whisper not installed
+    if (err?.status === 500 || errorMsg.includes('服务器内部错误') || errorMsg.includes('Internal Server Error')) {
+      statusText.value = '⚠️ ' + t('voice.serviceNotConfigured')
+      // Show a more helpful message in console
+      console.warn('[voice] Whisper model not installed. See docs/voice-setup.md for setup instructions.')
+    } else if (errorMsg.includes('not installed') || errorMsg.includes('not enabled') || errorMsg.includes('not available')) {
+      statusText.value = '⚠️ ' + t('voice.notEnabled')
+    } else if (errorMsg.includes('timeout')) {
+      statusText.value = '⏱️ ' + t('voice.timeout')
+    } else if (errorMsg.includes('network') || errorMsg.includes('fetch')) {
+      statusText.value = '🌐 ' + t('voice.networkError')
+    } else {
+      statusText.value = mode === 'file' ? ('❌ ' + t('voice.uploadFailed')) : ('❌ ' + t('voice.recognizeFailed'))
+    }
   } finally {
     isProcessing.value = false
-    setTimeout(() => { statusText.value = t('voice.label') }, 3500)
+    setTimeout(() => { statusText.value = t('voice.label') }, 4500)
   }
 }
 
@@ -260,14 +295,17 @@ function copyText() {
   display: flex;
   align-items: center;
   border-radius: 100px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(129, 140, 248, 0.12);
+  border: 1px solid rgba(129, 140, 248, 0.25);
   overflow: hidden;
-  transition: border-color 0.3s;
+  transition: all 0.3s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .voice-btn-group:hover {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(129, 140, 248, 0.4);
+  background: rgba(129, 140, 248, 0.18);
+  box-shadow: 0 4px 12px rgba(129, 140, 248, 0.15);
 }
 
 .voice-trigger {
@@ -282,7 +320,7 @@ function copyText() {
 }
 
 .voice-trigger:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(129, 140, 248, 0.15);
 }
 
 .voice-trigger.recording {
@@ -297,11 +335,26 @@ function copyText() {
 .voice-divider {
   width: 1px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(129, 140, 248, 0.3);
 }
 
-.upload-trigger:hover {
-  color: #818cf8;
+.upload-trigger {
+  position: relative;
+}
+
+.upload-trigger:hover:not(.disabled):not(.processing) {
+  color: var(--accent-hover);
+  background: rgba(129, 140, 248, 0.2);
+}
+
+.upload-trigger:not(.processing):not(.disabled) {
+  cursor: pointer;
+}
+
+.upload-trigger.processing,
+.upload-trigger.disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 .mic-icon {
@@ -310,7 +363,7 @@ function copyText() {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--accent);
 }
 
 .recording-pulse {
@@ -372,7 +425,8 @@ function copyText() {
 
 .voice-label {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--text-secondary);
+  font-weight: 500;
   white-space: nowrap;
   max-width: 120px;
   overflow: hidden;
@@ -392,7 +446,7 @@ function copyText() {
 }
 
 .transcription-card {
-  width: 620px;
+  max-width: 620px; width: 100%;
   max-width: 92vw;
   max-height: 82vh;
   background: #1a1a2e;

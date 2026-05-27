@@ -3,7 +3,7 @@
     <header class="page-header">
       <h1>{{ t('modelLab.text_1') }}</h1>
       <p class="subtitle">
-        {{ $t('ModelLab.refScore') }} + 同一提示词下的延迟与输出对比（个人模式使用本地 API Key；企业模式经服务端统一网关）
+        {{ $t('modelLab.subtitle') }}
       </p>
     </header>
 
@@ -21,69 +21,69 @@
               <div class="core-model-name">{{ model.label }}</div>
               <div class="core-model-provider">{{ PROVIDER_LABEL[model.provider] }}</div>
             </div>
-            <el-tag size="small" type="info" effect="plain">核心</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{ $t('modelLab.core') }}</el-tag>
           </div>
           <div class="core-model-role">{{ model.recommendedRole }}</div>
           <p class="core-model-blurb">{{ model.blurb }}</p>
         </div>
       </div>
       <p class="core-note">
-        说明：`GPT-4.5 / Opus 4.6 / Sonnet 4.6 / Gemini 4 / 智谱 GLM-4.5` 已纳入 Agent Hub 核心映射。部分模型在当前界面更适合作为静态选型参考，实测建议通过兼容网关或统一服务端路由接入。
+        {{ $t('modelLab.coreNote') }}
       </p>
     </el-card>
 
     <el-alert type="info" show-icon :closable="false" class="lab-alert">
-      <template #title>关于「维度评分」</template>
-      下表 1–5 分为静态参考（性价比、速度、推理、中文、代码、指令），便于选型；不同厂商定价会变，请以账单为准。真实体感请用下方「对比实测」。
+      <template #title>{{ $t('modelLab.aboutScoring') }}</template>
+      {{ $t('modelLab.scoringIntro') }}
     </el-alert>
 
     <el-card class="lab-card">
       <template #header>
-        <span>模型目录与维度</span>
+        <span>{{ $t('modelLab.catalogTitle') }}</span>
       </template>
       <el-table :data="MODEL_CATALOG" stripe size="small" class="catalog-table">
-        <el-table-column label="核心" width="72" align="center">
+        <el-table-column :label="$t('modelLab.colCore')" width="72" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.isCore" size="small" type="warning" effect="plain">核心</el-tag>
+            <el-tag v-if="row.isCore" size="small" type="warning" effect="plain">{{ $t('modelLab.core') }}</el-tag>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
-        <el-table-column prop="label" label="名称" width="140" />
-        <el-table-column prop="recommendedRole" label="推荐角色" width="180" show-overflow-tooltip />
-        <el-table-column prop="id" label="model id" min-width="130" />
-        <el-table-column label="厂商" width="100">
+        <el-table-column prop="label" :label="$t('modelLab.colName')" width="140" />
+        <el-table-column prop="recommendedRole" :label="$t('modelLab.colRole')" width="180" show-overflow-tooltip />
+        <el-table-column prop="id" :label="$t('modelLab.colModelId')" min-width="130" />
+        <el-table-column :label="$t('modelLab.colProvider')" width="100">
           <template #default="{ row }">
             {{ PROVIDER_LABEL[row.provider] }}
           </template>
         </el-table-column>
-        <el-table-column prop="contextK" label="约上下文(K)" width="110" align="center" />
+        <el-table-column prop="contextK" :label="$t('modelLab.colContext')" width="110" align="center" />
         <el-table-column v-for="col in SCORE_LABELS" :key="col.key" :label="col.label" width="76" align="center">
           <template #default="{ row }">
             <span class="score-cell">{{ row.scores[col.key] }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="blurb" label="说明" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="blurb" :label="$t('modelLab.colBlurb')" min-width="200" show-overflow-tooltip />
       </el-table>
     </el-card>
 
     <el-card class="lab-card">
       <template #header>
-        <span>对比实测</span>
+        <span>{{ $t('modelLab.benchmarkTitle') }}</span>
       </template>
       <p v-if="!settingsStore.isConfigured()" class="warn-text">
-        <template v-if="isEnterpriseBuild">请等待管理员配置服务端 LLM 环境变量后再运行。</template>
-        <template v-else>请先在「设置」中配置 API Key 后再运行。</template>
+        <template v-if="isEnterpriseBuild">{{ $t('modelLab.waitAdmin') }}</template>
+        <template v-else>{{ $t('modelLab.configureApiKey') }}</template>
       </p>
       <template v-else>
         <p class="hint-text">
-          将使用设置里的 API 地址与 Key，仅替换 <code>model</code> 字段。请选择与当前 API
-          <strong>同一厂商</strong>下的模型，否则会直接报错。
+          {{ $t('modelLab.hint1') }}
+          {{ $t('modelLab.hint2') }}
         </p>
         <p v-if="matchingCatalog.length" class="hint-text">
-          根据当前 API 地址，推荐对比以下模型（最多选 4 个）：
+          {{ $t('modelLab.hint3') }}
         </p>
         <p v-else class="warn-text">
-          当前 API 地址未匹配内置厂商（DeepSeek / OpenAI / 通义），请在下框手动输入 model id，用逗号或换行分隔（最多 4 个）。
+          {{ $t('modelLab.hint4') }}
         </p>
 
         <el-checkbox-group v-if="matchingCatalog.length" v-model="benchModelIds" class="bench-checks">
@@ -102,32 +102,32 @@
           v-model="benchCustomIdsText"
           type="textarea"
           :rows="3"
-          placeholder="例如：deepseek-chat&#10;deepseek-reasoner"
+          :placeholder="$t('modelLab.benchPlaceholder')"
           class="bench-custom"
         />
 
         <div class="bench-prompt-block">
-          <div class="prompt-label">测试提示词</div>
+          <div class="prompt-label">{{ $t('modelLab.testPrompt') }}</div>
           <el-input v-model="benchPrompt" type="textarea" :rows="4" />
         </div>
 
         <el-button type="primary" :loading="benchRunning" :disabled="resolvedBenchModels.length === 0" @click="runBenchmark">
-          运行对比
+          {{ $t('modelLab.runBench') }}
         </el-button>
 
         <el-table v-if="benchResults.length" :data="benchResults" class="result-table" stripe style="margin-top: 16px">
           <el-table-column prop="model" label="model" width="160" />
-          <el-table-column prop="latencyMs" label="延迟(ms)" width="100" align="right" />
-          <el-table-column label="tokens" min-width="120">
+          <el-table-column prop="latencyMs" :label="$t('modelLab.latencyMs')" width="100" align="right" />
+          <el-table-column :label="$t('modelLab.tokens')" min-width="120">
             <template #default="{ row }">
               <span v-if="row.usage">
-                入 {{ row.usage.prompt_tokens ?? '—' }} / 出 {{ row.usage.completion_tokens ?? '—' }}
+                {{ $t('modelLab.tokensInOut', { in: row.usage.prompt_tokens ?? '—', out: row.usage.completion_tokens ?? '—' }) }}
               </span>
               <span v-else class="muted">—</span>
             </template>
           </el-table-column>
-          <el-table-column prop="error" label="错误" min-width="120" show-overflow-tooltip />
-          <el-table-column label="回复摘要" min-width="200">
+          <el-table-column prop="error" :label="$t('modelLab.error')" min-width="120" show-overflow-tooltip />
+          <el-table-column :label="$t('modelLab.replySummary')" min-width="200">
             <template #default="{ row }">
               <span class="reply-preview">{{ row.error ? '—' : row.content.slice(0, 200) }}{{ row.content.length > 200 ? '…' : '' }}</span>
             </template>
@@ -135,7 +135,7 @@
         </el-table>
 
         <el-collapse v-if="benchResults.length" class="bench-collapse">
-          <el-collapse-item title="查看完整回复" name="1">
+          <el-collapse-item :title="$t('modelLab.viewFullReply')" name="1">
             <div v-for="r in benchResults" :key="r.model" class="full-block">
               <h4>{{ r.model }}</h4>
               <pre v-if="r.error" class="err-pre">{{ r.error }}</pre>
@@ -170,7 +170,7 @@ const settingsStore = useSettingsStore()
 const authStore = useAuthStore()
 
 const benchPrompt = ref(
-  '请用约 200 字以内中文，说明「企业」使用 AI 的三条务实建议，每条一句话举例。',
+  t('modelLab.defaultBenchPrompt'),
 )
 const benchModelIds = ref<string[]>([])
 const benchCustomIdsText = ref('')
@@ -254,7 +254,7 @@ async function runBenchmark() {
 <style scoped>
 .model-lab-page {
   padding: 32px 40px 48px;
-  max-width: 1400px;
+  max-max-width: 1400px; width: 100%;
   margin: 0 auto;
 }
 

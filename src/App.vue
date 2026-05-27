@@ -1,8 +1,23 @@
 <template>
-  <div class="app-container" :class="[themeClass, { 'is-login-route': isLoginRoute }]">
-    <aside v-if="!isLoginRoute" class="app-sidebar">
+  <el-config-provider :locale="elLocale">
+    <div class="app-container" :class="[themeClass, { 'is-login-route': isLoginRoute }]">
+      <aside v-if="!isLoginRoute" class="app-sidebar">
       <div class="sidebar-header" @click="$router.push('/')">
-        <el-icon :size="28"><Monitor /></el-icon>
+        <svg class="brand-octopus" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
+          <!-- Octopus body -->
+          <ellipse cx="32" cy="22" rx="10" ry="12" fill="currentColor" opacity="0.9" />
+          <!-- Eyes -->
+          <circle cx="28" cy="18" r="2.5" fill="var(--el-bg-color)" />
+          <circle cx="36" cy="18" r="2.5" fill="var(--el-bg-color)" />
+          <circle cx="28.5" cy="18.5" r="1" fill="currentColor" />
+          <circle cx="36.5" cy="18.5" r="1" fill="currentColor" />
+          <!-- Tentacles -->
+          <path d="M24 30 Q18 38 16 48" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" class="tentacle t1" />
+          <path d="M28 32 Q26 42 24 52" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" class="tentacle t2" />
+          <path d="M32 33 Q32 44 32 54" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" class="tentacle t3" />
+          <path d="M36 32 Q38 42 40 52" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" class="tentacle t4" />
+          <path d="M40 30 Q46 38 48 48" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" class="tentacle t5" />
+        </svg>
         <span class="sidebar-title">Agent Hub</span>
       </div>
 
@@ -66,7 +81,7 @@
         <div v-if="isEnterpriseBuild && authStore.user" class="sidebar-user">
           <span class="user-org" :title="authStore.user.orgName">{{ authStore.user.orgName }}</span>
           <span class="user-email" :title="authStore.user.email">{{ authStore.user.displayName || authStore.user.email }}</span>
-          <el-button text type="danger" size="small" class="logout-btn" @click="handleLogout">
+          <el-button text type="danger" size="small" class="logout-btn" @click="handleLogout" aria-label="action">
             <el-icon><SwitchButton /></el-icon>
             {{ $t('nav.logout') }}
           </el-button>
@@ -101,12 +116,21 @@
       </div>
     </aside>
 
-    <main class="app-main" :class="{ 'app-main--full': isLoginRoute }">
+    <div class="app-body" v-if="!isLoginRoute">
+      <SystemHealthBar />
+      <main class="app-main">
+        <ErrorBoundary>
+          <router-view />
+        </ErrorBoundary>
+      </main>
+    </div>
+    <main v-else class="app-main app-main--full">
       <ErrorBoundary>
         <router-view />
       </ErrorBoundary>
     </main>
-  </div>
+    </div>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
@@ -122,6 +146,25 @@ import { isEnterpriseBuild } from '@/services/enterpriseApi'
 import { setLocale, getLocale, SUPPORTED_LOCALES, LOCALE_LABEL, type AppLocale } from '@/i18n'
 import { useI18n } from 'vue-i18n'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
+import SystemHealthBar from '@/components/layout/SystemHealthBar.vue'
+// Element Plus locale — 同步内置组件语言（分页/日期选择器/弹窗按钮等）
+import elZhCn from 'element-plus/es/locale/lang/zh-cn.mjs'
+import elEn from 'element-plus/es/locale/lang/en.mjs'
+import elJa from 'element-plus/es/locale/lang/ja.mjs'
+import elKo from 'element-plus/es/locale/lang/ko.mjs'
+import elFr from 'element-plus/es/locale/lang/fr.mjs'
+import elDe from 'element-plus/es/locale/lang/de.mjs'
+import elEs from 'element-plus/es/locale/lang/es.mjs'
+
+const EL_LOCALE_MAP: Record<string, typeof elZhCn> = {
+  zh: elZhCn,
+  en: elEn,
+  ja: elJa,
+  ko: elKo,
+  fr: elFr,
+  de: elDe,
+  es: elEs,
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -157,6 +200,9 @@ const { locale: activeLocale } = useI18n()
 const currentLocale = computed<AppLocale>(() => activeLocale.value as AppLocale)
 const currentLocaleLabel = computed(() => LOCALE_LABEL[currentLocale.value] || currentLocale.value)
 
+// Element Plus 内置组件语言随 app 语言同步切换
+const elLocale = computed(() => EL_LOCALE_MAP[currentLocale.value] || elEn)
+
 function onPickLocale(code: AppLocale) {
   if (code === currentLocale.value) return
   setLocale(code)
@@ -173,6 +219,11 @@ void toggleLocale
 const THEME_KEY = 'agent-hub-theme'
 const isDarkMode = ref(true)
 
+function applyThemeClass(dark: boolean) {
+  // Toggle on <html> so Element Plus teleported components (dropdowns, dialogs) inherit theme
+  document.documentElement.classList.toggle('dark', dark)
+}
+
 function loadTheme(): boolean {
   try {
     const saved = localStorage.getItem(THEME_KEY)
@@ -182,6 +233,7 @@ function loadTheme(): boolean {
 
 function toggleTheme() {
   isDarkMode.value = !isDarkMode.value
+  applyThemeClass(isDarkMode.value)
   try {
     localStorage.setItem(THEME_KEY, isDarkMode.value ? 'dark' : 'light')
   } catch { /* ignore */ }
@@ -189,8 +241,9 @@ function toggleTheme() {
 
 const themeClass = computed(() => isDarkMode.value ? 'dark' : 'light')
 
-// Load saved theme on mount
+// Apply theme on mount
 isDarkMode.value = loadTheme()
+applyThemeClass(isDarkMode.value)
 
 async function handleLogout() {
   await authStore.logout()
@@ -239,7 +292,7 @@ async function handleLogout() {
 }
 
 .search-hit-meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   margin: 2px 0;
 }
@@ -269,7 +322,7 @@ async function handleLogout() {
   padding: 10px 12px 12px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -295,6 +348,14 @@ async function handleLogout() {
   padding: 0 !important;
 }
 
+.app-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .app-main--full {
   width: 100%;
   min-height: 100vh;
@@ -302,5 +363,38 @@ async function handleLogout() {
 
 .is-login-route .app-main--full {
   max-width: none;
+}
+
+/* ── Brand Octopus ── */
+.brand-octopus {
+  flex-shrink: 0;
+  color: var(--accent);
+  transition: transform 0.3s ease;
+}
+.sidebar-header:hover .brand-octopus {
+  transform: scale(1.08) rotate(-3deg);
+}
+
+.brand-octopus .tentacle {
+  transform-origin: top center;
+  animation: tentacle-wave 2.4s ease-in-out infinite;
+}
+.brand-octopus .t1 { animation-delay: 0s; }
+.brand-octopus .t2 { animation-delay: 0.15s; }
+.brand-octopus .t3 { animation-delay: 0.3s; }
+.brand-octopus .t4 { animation-delay: 0.45s; }
+.brand-octopus .t5 { animation-delay: 0.6s; }
+
+@keyframes tentacle-wave {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25% { transform: rotate(4deg) translateY(1px); }
+  75% { transform: rotate(-3deg) translateY(-1px); }
+}
+
+/* Pause animation when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .brand-octopus .tentacle {
+    animation: none;
+  }
 }
 </style>

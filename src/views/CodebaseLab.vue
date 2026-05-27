@@ -4,7 +4,7 @@
  *
  * Two-pane layout:
  *   ▸ Left: list of indexed projects (project_id) with quick stats and
- *           a "Reindex" / "Drop" action per row, plus a "+ 新建索引" button.
+ *           a "Reindex" / "Drop" action per row, plus a "+ New Index" button.
  *   ▸ Right: search box + ranked hits (file path + line range + score +
  *           preview snippet, click to expand to full chunk text).
  *
@@ -110,7 +110,7 @@ async function selectProject(pid: string) {
       embedding_model: s.embedding_model,
     })
   } catch (e) {
-    ElMessage.warning(`无法获取项目统计：${(e as Error).message}`)
+    ElMessage.warning(t('codebaseLab.getStatsFailed', { msg: (e as Error).message }))
   }
 }
 
@@ -138,8 +138,11 @@ async function doReindex() {
       drop_first: reindexForm.value.drop_first,
     })
     ElMessage.success(
-      `索引完成：扫描 ${res.files_scanned} 文件，新增 ${res.chunks_new} 个 chunk` +
-        (res.tokens_used ? `，耗 ${res.tokens_used} tokens` : ''),
+      t('codebaseLab.reindexDone', {
+        scanned: res.files_scanned,
+        chunks: res.chunks_new,
+        tokens: res.tokens_used || 0,
+      }),
     )
     rememberProject({
       project_id: res.project_id,
@@ -150,7 +153,7 @@ async function doReindex() {
     reindexDialog.value = false
     await selectProject(res.project_id)
   } catch (e) {
-    ElMessage.error(`索引失败：${(e as Error).message}`)
+    ElMessage.error(t('codebaseLab.reindexFailed', { msg: (e as Error).message }))
   } finally {
     reindexing.value = false
   }
@@ -177,10 +180,10 @@ async function doSearch() {
       reason: res.reason,
     }
     if (res.hits.length === 0) {
-      ElMessage.info(res.reason || '未找到匹配结果')
+      ElMessage.info(res.reason || t('codebaseLab.noMatch'))
     }
   } catch (e) {
-    ElMessage.error(`搜索失败：${(e as Error).message}`)
+    ElMessage.error(t('codebaseLab.searchFailed', { msg: (e as Error).message }))
   } finally {
     searching.value = false
   }
@@ -189,16 +192,16 @@ async function doSearch() {
 async function doDrop(entry: ProjectEntry) {
   try {
     await ElMessageBox.confirm(
-      `确认删除项目 "${entry.project_id}" 的全部索引？此操作无法撤销。`,
-      '危险操作',
-      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+      t('codebaseLab.dropConfirm', { projectId: entry.project_id }),
+      t('codebaseLab.dangerousOp'),
+      { type: 'warning', confirmButtonText: t('codebaseLab.delete'), cancelButtonText: t('codebaseLab.cancel') },
     )
   } catch {
     return
   }
   try {
     const r = await dropProject(entry.project_id)
-    ElMessage.success(`已删除 ${r.deleted} 个 chunk`)
+    ElMessage.success(t('codebaseLab.dropDone', { n: r.deleted }))
     projects.value = projects.value.filter((p) => p.project_id !== entry.project_id)
     persistProjects()
     if (selected.value === entry.project_id) {
@@ -207,7 +210,7 @@ async function doDrop(entry: ProjectEntry) {
       hits.value = []
     }
   } catch (e) {
-    ElMessage.error(`删除失败：${(e as Error).message}`)
+    ElMessage.error(t('codebaseLab.dropFailed', { msg: (e as Error).message }))
   }
 }
 
@@ -231,8 +234,8 @@ onMounted(() => {
     <aside class="sidebar">
       <header class="sidebar-header">
         <h2>{{ t('codebaseLab.text_1') }}</h2>
-        <el-button :icon="Plus" type="primary" size="small" @click="openReindexDialog()">
-          {{ $t('CodebaseLab.newIndex') }}
+        <el-button aria-label="action" :icon="Plus" type="primary" size="small" @click="openReindexDialog()">
+          {{ $t('codebaseLab.newIndex') }}
         </el-button>
       </header>
 
@@ -256,10 +259,10 @@ onMounted(() => {
               type="primary"
               @click.stop="openReindexDialog(p)"
             >
-              {{ $t('CodebaseLab.rebuild') }}
+              {{ $t('codebaseLab.rebuild') }}
             </el-button>
-            <el-button :icon="Delete" size="small" link type="danger" @click.stop="doDrop(p)">
-              {{ $t('CodebaseLab.delete') }}
+            <el-button aria-label="action" :icon="Delete" size="small" link type="danger" @click.stop="doDrop(p)">
+              {{ $t('codebaseLab.delete') }}
             </el-button>
           </div>
         </li>
@@ -282,7 +285,7 @@ onMounted(() => {
         </el-input>
         <el-input-number v-model="topK" :min="1" :max="20" controls-position="right" size="large" />
         <el-button type="primary" size="large" :loading="searching" @click="doSearch">
-          搜索
+          {{ $t('codebaseLab.search') }}
         </el-button>
       </div>
 
@@ -293,16 +296,16 @@ onMounted(() => {
           {{ stats.embedding_model }} · {{ stats.embedding_dim }} dim
         </el-tag>
         <span class="muted" v-if="lastSearchInfo">
-          扫描 {{ lastSearchInfo.scanned }} chunks · {{ lastSearchInfo.elapsed }}ms
+          {{ $t('codebaseLab.scanStats', { scanned: lastSearchInfo.scanned, ms: lastSearchInfo.elapsed }) }}
         </span>
       </div>
 
       <div v-if="!selected" class="empty-state">
-        <el-empty description="选择左侧项目，或点击 “新建索引” 开始" />
+        <el-empty :description="$t('codebaseLab.emptyNoProject')" />
       </div>
 
       <div v-else-if="hits.length === 0 && !searching" class="empty-state">
-        <el-empty :description="lastSearchInfo?.reason || '输入查询语句开始搜索'" />
+        <el-empty :description="lastSearchInfo?.reason || $t('codebaseLab.emptyNoQuery')" />
       </div>
 
       <ul v-else class="hits">
@@ -330,32 +333,32 @@ onMounted(() => {
       </ul>
     </main>
 
-    <el-dialog v-model="reindexDialog" title="新建 / 重建代码索引" width="540px">
+    <el-dialog v-model="reindexDialog" :title="$t('codebaseLab.reindexTitle')" width="540px">
       <el-form label-width="110px">
-        <el-form-item label="项目目录" required>
+        <el-form-item :label="$t('codebaseLab.projectDir')" required>
           <el-input
             v-model="reindexForm.project_dir"
-            placeholder="绝对路径，例如 /Users/you/repos/foo"
+            :placeholder="$t('codebaseLab.projectDirHint')"
           />
         </el-form-item>
-        <el-form-item label="project_id">
+        <el-form-item :label="$t('codebaseLab.projectId')">
           <el-input
             v-model="reindexForm.project_id"
-            placeholder="留空时默认使用 project_dir"
+            :placeholder="$t('codebaseLab.projectIdHint')"
           />
         </el-form-item>
-        <el-form-item label="最多文件数">
+        <el-form-item :label="$t('codebaseLab.maxFiles')">
           <el-input-number v-model="reindexForm.max_files" :min="0" controls-position="right" />
-          <div class="hint">留空使用配置默认</div>
+          <div class="hint">{{ $t('codebaseLab.maxFilesHint') }}</div>
         </el-form-item>
-        <el-form-item label="先清空旧索引">
+        <el-form-item :label="$t('codebaseLab.dropFirst')">
           <el-switch v-model="reindexForm.drop_first" />
-          <div class="hint">勾选后会先 DELETE 该 project_id 的全部 chunks</div>
+          <div class="hint">{{ $t('codebaseLab.dropFirstHint') }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="reindexDialog = false">取消</el-button>
-        <el-button type="primary" :loading="reindexing" @click="doReindex">开始索引</el-button>
+        <el-button @click="reindexDialog = false">{{ $t('codebaseLab.cancel') }}</el-button>
+        <el-button type="primary" :loading="reindexing" @click="doReindex">{{ $t('codebaseLab.startReindex') }}</el-button>
       </template>
     </el-dialog>
   </div>

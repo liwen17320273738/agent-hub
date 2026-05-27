@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -44,6 +45,26 @@ def _parse_artifact_id(artifact_id: str) -> uuid.UUID:
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
+# 匹配 HTML 标签和危险的事件处理器/协议
+_HTML_TAG_RE = re.compile(r"<[^>]*?>", re.IGNORECASE)
+_DANGEROUS_PATTERNS = re.compile(
+    r"<script|<iframe|<object|<embed|<link|<meta|"
+    r"on\w+\s*=|javascript:|vbscript:|data:text/html",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_title(v: str) -> str:
+    """清除 HTML 标签并检测危险模式。返回清理后文本，不安全时抛出 ValueError。"""
+    # 先检测原始输入中的危险模式（标签内的也逃不掉）
+    if _DANGEROUS_PATTERNS.search(v):
+        raise ValueError("标题包含不安全的内容")
+    cleaned = _HTML_TAG_RE.sub("", v).strip()
+    if not cleaned:
+        raise ValueError("标题包含不安全的内容")
+    return cleaned
+
+
 class CreateTaskRequest(BaseModel):
     title: str
     description: str = ""
@@ -53,7 +74,14 @@ class CreateTaskRequest(BaseModel):
     def title_not_blank(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("标题不能为空")
-        return v.strip()
+        return _sanitize_title(v)
+
+    @field_validator("description")
+    @classmethod
+    def description_safe(cls, v: str) -> str:
+        if not v:
+            return v
+        return _sanitize_title(v)
     source: str = "web"
     template: Optional[str] = None
     repo_url: Optional[str] = None
@@ -74,6 +102,8 @@ class CreateTaskRequest(BaseModel):
     custom_stages: Optional[List[Dict[str, object]]] = None
     budget_usd: Optional[float] = None
     workspace_id: Optional[str] = None
+    auto_execute: bool = False  # Trigger pipeline after creation
+    auto_execute: bool = False  # If True, trigger pipeline execution after creation
 
 
 class AdvanceRequest(BaseModel):
@@ -369,6 +399,31 @@ async def create_task(
     payload = {"task": result.scalar_one()}
     if auto_link_result is not None:
         payload["autoLink"] = auto_link_result
+    
+    # Auto-execute if requested
+    if body.auto_execute:
+        from ..services.task_scheduler import get_scheduler
+        tid = str(task.id)
+        await get_scheduler().submit(
+            task_id=tid,
+            label=f"auto-execute:{tid[:8]}",
+            kind="dag-run",
+            params={"task_id": tid, "task_title": task.title, "task_description": task.description or ""},
+        )
+        payload["pipelineTriggered"] = True
+    
+    # Auto-execute via scheduler if requested
+    if body.auto_execute:
+        from ..services.task_scheduler import get_scheduler
+        tid = str(task.id)
+        await get_scheduler().submit(
+            task_id=tid,
+            label=f"auto:{tid[:8]}",
+            kind="dag-run",
+            params={"task_id": tid, "task_title": task.title, "task_description": task.description or ""},
+        )
+        payload["pipelineTriggered"] = True
+    
     return payload
 
 
@@ -862,6 +917,7 @@ async def _submit_task(
     *,
     kind: str,
     params: Dict[str, Any],
+    priority: int = 0,
 ) -> str:
     """Submit a pipeline task to the global scheduler, with restart-safe
     persistence. ``kind`` must be registered in ``task_scheduler``.
@@ -887,6 +943,7 @@ async def smart_run(
         tid, f"smart-run:{tid[:8]}",
         kind="smart-run",
         params={"task_id": tid, "task_title": title, "task_description": desc},
+        priority=task.priority,
     )
     return {"ok": True, "started": True, "taskId": tid, "submissionId": submission_id}
 
@@ -947,6 +1004,7 @@ async def run_single_stage(
             "stage_id": stage_id,
             "project_path": task.project_path,
         },
+        priority=task.priority,
     )
     return {"ok": True, "started": True, "taskId": tid, "stageId": stage_id, "submissionId": submission_id}
 
@@ -975,6 +1033,7 @@ async def auto_run_pipeline(
             "force_continue": True,
             "project_path": task.project_path,
         },
+        priority=task.priority,
     )
     return {"ok": True, "started": True, "taskId": tid, "submissionId": submission_id}
 
@@ -1415,6 +1474,7 @@ async def dag_run(
             "project_path": task.project_path,
             "custom_stages": custom_stages,
         },
+        priority=task.priority,
     )
     return {
         "ok": True, "started": True, "taskId": tid,
@@ -1468,6 +1528,7 @@ async def resume_task_dag(
             "resume": True,
             "custom_stages": task.custom_stages if task.custom_stages else None,
         },
+        priority=task.priority,
     )
     await db.commit()
     # NOTE: this endpoint *queues* a resume; the actual DAG run happens in a
@@ -1693,6 +1754,56 @@ class ResolvePlanPendingBody(BaseModel):
     """Confirm or discard plan-first mode without requiring a Redis plan session."""
 
     approved: bool
+
+
+@router.get("/tasks/{task_id}/plan")
+async def get_task_plan(
+    task_id: str,
+    user: Annotated[Optional[User], Depends(get_pipeline_auth)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    """获取 plan_pending 任务的方案内容，供详情页展示步骤/摘要/风险。"""
+    from ..services import plan_session
+
+    tid = _parse_task_id(task_id)
+    result = await db.execute(select(PipelineTask).where(PipelineTask.id == tid))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.status != "plan_pending":
+        raise HTTPException(status_code=400, detail="task is not in plan_pending status")
+
+    source = (task.source or "web").strip() or "web"
+    uid = (task.source_user_id or "").strip()
+    plan_payload = None
+    if uid:
+        plan_payload = await plan_session.load_plan(source, uid)
+
+    if not plan_payload:
+        return {
+            "taskId": str(task.id),
+            "found": False,
+            "plan": None,
+        }
+
+    plan = plan_payload.get("plan") or {}
+    return {
+        "taskId": str(task.id),
+        "found": True,
+        "source": source,
+        "userId": uid,
+        "title": plan_payload.get("title", ""),
+        "description": plan_payload.get("description", ""),
+        "plan": {
+            "summary": plan.get("summary", ""),
+            "steps": plan.get("steps") or [],
+            "risks": plan.get("risks") or [],
+            "estimate_min_total": plan.get("estimate_min_total"),
+            "confidence": plan.get("confidence", ""),
+            "deploy_target": plan.get("deploy_target", ""),
+        },
+        "rotation_count": int(plan_payload.get("rotation_count") or 0),
+    }
 
 
 @router.post("/tasks/{task_id}/resolve-plan-pending")
@@ -2712,6 +2823,7 @@ async def resume_pipeline(
             "force_continue": body.force_continue,
             "project_path": task.project_path,
         },
+        priority=task.priority,
     )
 
     return {
@@ -3037,6 +3149,7 @@ async def retry_dag_stage(
             "resume": True,
             "custom_stages": task.custom_stages if task.custom_stages else None,
         },
+        priority=task.priority,
     )
     await db.commit()
     return {
@@ -3049,3 +3162,151 @@ async def retry_dag_stage(
         "status": "retry_dag_scheduled",
         "message": "DAG 阶段重试已加入队列",
     }
+
+
+# ── 批量操作 ─────────────────────────────────────────────────────────────
+
+class BatchOperationRequest(BaseModel):
+    operation: str  # "retry" | "cancel" | "delete" | "set-priority"
+    task_ids: List[str]
+    priority: Optional[int] = None  # set-priority 时使用
+
+
+class BatchOperationItem(BaseModel):
+    task_id: str
+    ok: bool
+    error: Optional[str] = None
+
+
+class BatchOperationResponse(BaseModel):
+    results: List[BatchOperationItem]
+    summary: dict
+
+
+@router.post("/tasks/batch", response_model=BatchOperationResponse)
+async def batch_operate_tasks(
+    body: BatchOperationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """批量操作任务：retry / cancel / delete / set-priority"""
+    valid_ops = {"retry", "cancel", "delete", "set-priority"}
+    if body.operation not in valid_ops:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的操作类型: {body.operation}，可选: {', '.join(sorted(valid_ops))}",
+        )
+
+    if body.operation == "set-priority" and body.priority is None:
+        raise HTTPException(status_code=400, detail="set-priority 操作需要提供 priority 参数")
+
+    results: List[BatchOperationItem] = []
+    succeeded = 0
+    failed = 0
+
+    for raw_id in body.task_ids:
+        try:
+            tid = _parse_task_id(raw_id)
+        except HTTPException:
+            results.append(BatchOperationItem(
+                task_id=raw_id, ok=False, error="无效的任务 ID",
+            ))
+            failed += 1
+            continue
+
+        result = await db.execute(
+            select(PipelineTask).where(PipelineTask.id == tid)
+        )
+        task = result.scalar_one_or_none()
+
+        if task is None:
+            results.append(BatchOperationItem(
+                task_id=raw_id, ok=False, error="任务不存在",
+            ))
+            failed += 1
+            continue
+
+        try:
+            if body.operation == "retry":
+                await _batch_retry_task(db, task)
+            elif body.operation == "cancel":
+                await _batch_cancel_task(db, task)
+            elif body.operation == "delete":
+                await _batch_delete_task(db, task)
+            elif body.operation == "set-priority":
+                task.priority = body.priority
+                await db.commit()
+            results.append(BatchOperationItem(task_id=raw_id, ok=True))
+            succeeded += 1
+        except Exception as exc:
+            await db.rollback()
+            results.append(BatchOperationItem(
+                task_id=raw_id, ok=False, error=str(exc),
+            ))
+            failed += 1
+
+    return BatchOperationResponse(
+        results=results,
+        summary={
+            "total": len(body.task_ids),
+            "succeeded": succeeded,
+            "failed": failed,
+        },
+    )
+
+
+async def _batch_retry_task(db: AsyncSession, task: PipelineTask) -> None:
+    """批量重试：将失败/暂停的任务重新提交到调度器"""
+    from ..services.task_scheduler import get_scheduler
+
+    if task.status not in ("failed", "paused", "error"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务 {task.id} 当前状态为 {task.status}，不支持重试",
+        )
+
+    task.status = "active"
+    await db.commit()
+
+    scheduler = get_scheduler()
+    await scheduler.submit(
+        task_id=str(task.id),
+        label=f"batch-retry:{str(task.id)[:8]}",
+        kind="dag-run",
+        params={
+            "task_id": str(task.id),
+            "task_title": task.title,
+            "task_description": task.description,
+            "template": task.template or "full",
+            "project_path": task.project_path,
+            "resume": True,
+            "custom_stages": task.custom_stages if task.custom_stages else None,
+        },
+        priority=task.priority,
+    )
+
+
+async def _batch_cancel_task(db: AsyncSession, task: PipelineTask) -> None:
+    """批量取消：取消排队中的提交并将任务标记为已取消"""
+    from ..services.task_scheduler import get_scheduler
+
+    if task.status in ("done", "cancelled", "deleted"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"任务 {task.id} 当前状态为 {task.status}，无法取消",
+        )
+
+    scheduler = get_scheduler()
+    await scheduler.cancel_queued_for_task(str(task.id))
+    task.status = "cancelled"
+    await db.commit()
+
+
+async def _batch_delete_task(db: AsyncSession, task: PipelineTask) -> None:
+    """批量删除：取消排队并软删除任务"""
+    from ..services.task_scheduler import get_scheduler
+
+    scheduler = get_scheduler()
+    await scheduler.cancel_queued_for_task(str(task.id))
+    task.status = "deleted"
+    await db.commit()

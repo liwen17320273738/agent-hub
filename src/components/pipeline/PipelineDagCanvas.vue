@@ -37,7 +37,7 @@
           class="fallback-tag"
           :title="lastFallback.reason"
         >
-          🔄 自动降级 → {{ lastFallback.to_provider }}/{{ shortModel(lastFallback.to_model) }}
+          {{ $t('pipelineDagCanvas.autoDowngrade') }} → {{ lastFallback.to_provider }}/{{ shortModel(lastFallback.to_model) }}
         </el-tag>
         <el-tag
           :type="sseStatus === 'connected' ? 'success' : 'info'"
@@ -46,9 +46,9 @@
         >
           SSE: {{ sseStatusLabel }}
         </el-tag>
-        <el-button size="small" text @click="autoFit">
+        <el-button size="small" text @click="autoFit" aria-label="action">
           <el-icon><FullScreen /></el-icon>
-          适配视窗
+          {{ $t('pipelineDagCanvas.fitView') }}
         </el-button>
       </div>
     </div>
@@ -96,19 +96,19 @@
               @click="healCursor = Math.max(0, healCursor - 1)"
             >
               <el-icon><ArrowLeft /></el-icon>
-              上一次
+              {{ $t('pipelineDagCanvas.previous') }}
             </el-button>
             <el-button
               size="small"
               :disabled="healCursor >= healDrawerEvents.length - 1"
               @click="healCursor = Math.min(healDrawerEvents.length - 1, healCursor + 1)"
             >
-              下一次
+              {{ $t('pipelineDagCanvas.next') }}
               <el-icon><ArrowRight /></el-icon>
             </el-button>
           </el-button-group>
           <span class="heal-pager-meta">
-            第 {{ healCursor + 1 }} / {{ healDrawerEvents.length }} 次自愈 ·
+            {{ $t('pipelineDagCanvas.healCount', { current: healCursor + 1, total: healDrawerEvents.length }) }}
             <strong>{{ formatHealTime(currentHealEvent?.at) }}</strong>
           </span>
         </div>
@@ -116,29 +116,29 @@
         <div class="heal-card heal-feedback">
           <div class="heal-card-title">
             <span class="heal-card-icon">📝</span>
-            审阅反馈
+            {{ $t('pipelineDagCanvas.reviewFeedback') }}
             <span v-if="currentHealEvent?.reviewer" class="heal-reviewer">
               · {{ currentHealEvent.reviewer }}
             </span>
           </div>
-          <pre class="heal-feedback-text">{{ currentHealEvent?.feedback || '(无)' }}</pre>
+          <pre class="heal-feedback-text">{{ currentHealEvent?.feedback || $t('pipelineDagCanvas.none') }}</pre>
         </div>
 
         <div class="heal-card heal-before">
           <div class="heal-card-title">
             <span class="heal-card-icon">🚫</span>
-            被打回的草稿
+            {{ $t('pipelineDagCanvas.rejectedDraft') }}
             <el-tag v-if="currentHealEvent?.truncated" size="small" type="warning" effect="dark">
-              已截断
+              {{ $t('pipelineDagCanvas.truncated') }}
             </el-tag>
           </div>
-          <pre class="heal-draft">{{ currentHealEvent?.rejectedDraft || '(SSE 未携带草稿)' }}</pre>
+          <pre class="heal-draft">{{ currentHealEvent?.rejectedDraft || $t('pipelineDagCanvas.sseNoDraft') }}</pre>
         </div>
 
         <div class="heal-card heal-after">
           <div class="heal-card-title">
             <span class="heal-card-icon">✅</span>
-            最新产出（来自 task.stages）
+            {{ $t('pipelineDagCanvas.latestOutput') }}
             <el-button
               v-if="currentStageOutput"
               size="small"
@@ -146,10 +146,10 @@
               type="primary"
               @click="emit('node-click', healDrawerStageId)"
             >
-              在主面板打开 →
+              {{ $t('pipelineDagCanvas.openInPanel') }}
             </el-button>
           </div>
-          <pre class="heal-draft">{{ currentStageOutput?.slice(0, 4000) || '(尚无新产出)' }}</pre>
+          <pre class="heal-draft">{{ currentStageOutput?.slice(0, 4000) || $t('pipelineDagCanvas.noOutput') }}</pre>
         </div>
       </div>
     </el-drawer>
@@ -215,10 +215,10 @@ const sseRunStatus = ref<Map<string, { status: RunStatus; lastError?: string }>>
 const sseStatus = ref<SSEStatus>('disconnected')
 const sseStatusLabel = computed(() => {
   switch (sseStatus.value) {
-    case 'connected': return '已连接'
-    case 'connecting': return '连接中'
-    case 'reconnecting': return '重连中'
-    default: return '未连接'
+    case 'connected': return t('pipelineDagCanvas.connected')
+    case 'connecting': return t('pipelineDagCanvas.connecting')
+    case 'reconnecting': return t('pipelineDagCanvas.reconnecting')
+    default: return t('pipelineDagCanvas.disconnected')
   }
 })
 
@@ -265,7 +265,7 @@ const currentHealEvent = computed<SelfHealEvent | undefined>(
 const healDrawerTitle = computed(() => {
   const stage = props.task.stages.find((s) => s.id === healDrawerStageId.value)
   const label = stage?.label || healDrawerStageId.value
-  return `🔁 自愈历史 · ${label}`
+  return t('pipelineDagCanvas.healHistory', { label })
 })
 const currentStageOutput = computed(() => {
   const stage = props.task.stages.find((s) => s.id === healDrawerStageId.value)
@@ -441,7 +441,7 @@ function onSSE(evt: PipelineEvent) {
       if (stageId) setStageStatus(stageId, 'running', String(data.lastError || ''))
       break
     case 'stage:error':
-      if (stageId) setStageStatus(stageId, 'failed', String(data.error || '执行失败'))
+      if (stageId) setStageStatus(stageId, 'failed', String(data.error || t('pipelineDagCanvas.execFailed')))
       break
     case 'stage:awaiting-approval':
       if (stageId) setStageStatus(stageId, 'awaiting')
@@ -490,7 +490,7 @@ function onSSE(evt: PipelineEvent) {
       break
     }
     case 'pipeline:rollback':
-      if (stageId) setStageStatus(stageId, 'failed', String(data.reason || '回滚'))
+      if (stageId) setStageStatus(stageId, 'failed', String(data.reason || t('pipelineDagCanvas.rollback')))
       break
   }
 }
@@ -626,7 +626,7 @@ onBeforeUnmount(() => {
 .heal-reviewer {
   font-weight: 400;
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 12px;
 }
 .heal-feedback-text,
 .heal-draft {

@@ -57,7 +57,7 @@ async def test_testing_stage_blocks_when_real_qa_is_blocked(
 
     assert result["ok"] is False
     assert result.get("blocked") is True
-    assert "QA blocked" in result.get("error", "")
+    assert "QA blocked" in result.get("_rawError", "")
 
 
 @pytest.mark.asyncio
@@ -95,7 +95,7 @@ async def test_testing_stage_fails_when_real_qa_fails(
     )
 
     assert result["ok"] is False
-    assert "QA failed at browser_smoke" in result.get("error", "")
+    assert "QA failed at browser_smoke" in result.get("_rawError", "")
 
 
 @pytest.mark.asyncio
@@ -122,7 +122,7 @@ async def test_deployment_stage_blocks_when_no_deploy_channel(
 
     assert result["ok"] is False
     assert result.get("blocked") is True
-    assert "No deploy channel" in result.get("error", "")
+    assert "No deploy channel" in result.get("_rawError", "")
 
 
 @pytest.mark.asyncio

@@ -186,7 +186,14 @@ class VoiceProxy:
         if self._model is not None and self._model_name == model_name:
             return self._model
 
-        import whisper
+        try:
+            import whisper
+        except ImportError as e:
+            logger.error("[voice] whisper not installed: %s", e)
+            raise RuntimeError(
+                "Whisper is not installed. Install with: pip install openai-whisper"
+            ) from e
+
         global _MPS_AVAILABLE
 
         logger.info("[voice] loading whisper model '%s'...", model_name)
@@ -196,7 +203,7 @@ class VoiceProxy:
             self._model = whisper.load_model(model_name)
         except Exception as e:
             logger.error("[voice] failed to load whisper model: %s", e)
-            raise RuntimeError(f"Failed to load Whisper model '{model_name}': {e}")
+            raise RuntimeError(f"Failed to load Whisper model '{model_name}': {e}") from e
 
         self._model_name = model_name
         elapsed = time.monotonic() - started

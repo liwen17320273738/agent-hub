@@ -34,7 +34,7 @@
 
     <el-tabs
       v-model="activeTab"
-      type="border-card"
+      type="card"
       class="artifact-tabs"
     >
       <el-tab-pane

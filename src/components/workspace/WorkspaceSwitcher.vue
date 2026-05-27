@@ -130,24 +130,29 @@ onMounted(loadWorkspaces)
 
 <style scoped>
 .ws-switcher {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--glass-border);
 }
 
 .ws-current {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 8px;
-  transition: background 0.2s;
-  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  transition: all 0.2s;
+  font-size: 13px;
   font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
 }
 
 .ws-current:hover {
-  background: var(--el-fill-color-light);
+  background: var(--accent-soft);
+  border-color: rgba(129, 140, 248, 0.1);
+  color: var(--text-primary);
 }
 
 .ws-name {
@@ -159,11 +164,16 @@ onMounted(loadWorkspaces)
 
 .ws-arrow {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+
+.ws-current:hover .ws-arrow {
+  color: var(--accent);
 }
 
 :deep(.active) {
-  background: var(--el-color-primary-light-9);
-  color: var(--el-color-primary);
+  background: var(--primary-bg);
+  color: var(--accent);
 }
 </style>

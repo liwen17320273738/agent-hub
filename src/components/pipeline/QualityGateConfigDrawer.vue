@@ -41,10 +41,7 @@
     </div>
 
     <div v-else class="drawer-body">
-      <p class="drawer-hint">
-        每个 stage 的阈值优先级：<strong>本任务覆盖 &gt; 模板 &gt; 全局默认</strong>。
-        留空 = 用模板/全局默认。
-      </p>
+      <p class="drawer-hint" v-html="$t('QualityGateConfigDrawer.priorityHint')" />
 
       <el-collapse v-model="activeStages">
         <el-collapse-item
@@ -55,16 +52,16 @@
           <template #title>
             <div class="stage-header-row">
               <span class="stage-id-pill">{{ stage.stageId }}</span>
-              <span v-if="stageHasDirty(stage.stageId)" class="dirty-badge">已修改</span>
-              <span v-else-if="stage.hasOverrides" class="override-badge">已覆盖默认</span>
+              <span v-if="stageHasDirty(stage.stageId)" class="dirty-badge">{{ $t('QualityGateConfigDrawer.modified') }}</span>
+              <span v-else-if="stage.hasOverrides" class="override-badge">{{ $t('QualityGateConfigDrawer.overridden') }}</span>
             </div>
           </template>
 
           <div class="threshold-block">
             <div class="threshold-row">
               <label>
-                <span class="label-main">通过阈值</span>
-                <span class="label-sub">avg score ≥ 此值 → PASS</span>
+                <span class="label-main">{{ $t('QualityGateConfigDrawer.passThreshold') }}</span>
+                <span class="label-sub">{{ $t('QualityGateConfigDrawer.passThresholdSub') }}</span>
               </label>
               <div class="control-col">
                 <el-slider
@@ -80,8 +77,8 @@
 
             <div class="threshold-row">
               <label>
-                <span class="label-main">失败阈值</span>
-                <span class="label-sub">avg score &lt; 此值 → FAIL（阻断）</span>
+                <span class="label-main">{{ $t('QualityGateConfigDrawer.failThreshold') }}</span>
+                <span class="label-sub" v-html="$t('QualityGateConfigDrawer.failThresholdSub')" />
               </label>
               <div class="control-col">
                 <el-slider
@@ -97,8 +94,8 @@
 
             <div class="threshold-row">
               <label>
-                <span class="label-main">最小长度</span>
-                <span class="label-sub">输出字符数下限</span>
+                <span class="label-main">{{ $t('QualityGateConfigDrawer.minLength') }}</span>
+                <span class="label-sub">{{ $t('QualityGateConfigDrawer.minLengthSub') }}</span>
               </label>
               <div class="control-col">
                 <el-input-number
@@ -112,25 +109,25 @@
 
             <div class="threshold-row vertical">
               <label>
-                <span class="label-main">必需章节（逗号分隔）</span>
-                <span class="label-sub">输出 markdown 中必须出现的章节标题片段</span>
+                <span class="label-main">{{ $t('QualityGateConfigDrawer.requiredSections') }}</span>
+                <span class="label-sub">{{ $t('QualityGateConfigDrawer.requiredSectionsSub') }}</span>
               </label>
               <el-input
                 v-model="formState[stage.stageId].required_sections_text"
-                placeholder="例如：技术选型, API 设计, 数据模型"
+                :placeholder="$t('QualityGateConfigDrawer.requiredSectionsPlaceholder')"
                 size="small"
               />
             </div>
 
             <div class="threshold-row vertical">
               <label>
-                <span class="label-main">必需关键词（逗号分隔）</span>
-                <span class="label-sub">关键词命中模式: {{ formState[stage.stageId].keyword_mode === 'all' ? '全部命中' : '任一命中' }}</span>
+                <span class="label-main">{{ $t('QualityGateConfigDrawer.requiredKeywords') }}</span>
+                <span class="label-sub">{{ $t('QualityGateConfigDrawer.keywordModeLabel') }}: {{ formState[stage.stageId].keyword_mode === 'all' ? $t('QualityGateConfigDrawer.keywordModeAll') : $t('QualityGateConfigDrawer.keywordModeAny') }}</span>
               </label>
               <div class="kw-row">
                 <el-input
                   v-model="formState[stage.stageId].required_keywords_text"
-                  placeholder="例如：测试通过, 部署成功"
+                  :placeholder="$t('QualityGateConfigDrawer.requiredKeywordsPlaceholder')"
                   size="small"
                   class="kw-input"
                 />
@@ -138,8 +135,8 @@
                   v-model="formState[stage.stageId].keyword_mode"
                   size="small"
                 >
-                  <el-radio-button value="all">全部</el-radio-button>
-                  <el-radio-button value="any">任一</el-radio-button>
+                  <el-radio-button value="all">{{ $t('QualityGateConfigDrawer.keywordAll') }}</el-radio-button>
+                  <el-radio-button value="any">{{ $t('QualityGateConfigDrawer.keywordAny') }}</el-radio-button>
                 </el-radio-group>
               </div>
             </div>
@@ -151,9 +148,9 @@
                 type="warning"
                 :disabled="!stage.hasOverrides && !stageHasDirty(stage.stageId)"
                 @click="resetStage(stage.stageId)"
-              >
+               aria-label="action">
                 <el-icon><RefreshLeft /></el-icon>
-                恢复默认
+                {{ $t('QualityGateConfigDrawer.restoreDefault') }}
               </el-button>
             </div>
           </div>
@@ -163,14 +160,14 @@
 
     <template #footer>
       <div class="drawer-footer">
-        <el-button @click="handleClose">取消</el-button>
+        <el-button @click="handleClose">{{ $t('QualityGateConfigDrawer.cancel') }}</el-button>
         <el-button
           type="primary"
           :loading="saving"
           :disabled="!hasUnsavedChanges"
           @click="handleSave"
         >
-          保存
+          {{ $t('QualityGateConfigDrawer.save') }}
         </el-button>
       </div>
     </template>
@@ -262,7 +259,7 @@ async function loadConfig() {
       activeStages.value = [res.stages[0].stageId]
     }
   } catch (e: unknown) {
-    error.value = `加载失败: ${e instanceof Error ? e.message : String(e)}`
+    error.value = t('QualityGateConfigDrawer.loadFailed', { msg: e instanceof Error ? e.message : String(e) })
   } finally {
     loading.value = false
   }
@@ -297,10 +294,10 @@ function resetStage(stageId: string) {
 async function handleClose() {
   if (hasUnsavedChanges.value) {
     try {
-      await ElMessageBox.confirm('有未保存的修改，确定关闭？', '提示', {
+      await ElMessageBox.confirm(t('QualityGateConfigDrawer.unsavedConfirm'), t('QualityGateConfigDrawer.unsavedTitle'), {
         type: 'warning',
-        confirmButtonText: '关闭',
-        cancelButtonText: '继续编辑',
+        confirmButtonText: t('QualityGateConfigDrawer.unsavedClose'),
+        cancelButtonText: t('QualityGateConfigDrawer.unsavedContinue'),
       })
     } catch {
       return
@@ -341,7 +338,7 @@ async function handleSave() {
     emit('saved')
     visible.value = false
   } catch (e: unknown) {
-    ElMessage.error(`保存失败: ${e instanceof Error ? e.message : String(e)}`)
+    ElMessage.error(t('QualityGateConfigDrawer.saveFailed', { msg: e instanceof Error ? e.message : String(e) }))
   } finally {
     saving.value = false
   }
@@ -395,14 +392,14 @@ async function handleSave() {
   color: #cbd5e1;
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .dirty-badge {
   background: #fb923c;
   color: #0b1220;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
 }
 .override-badge {
@@ -411,7 +408,7 @@ async function handleSave() {
   border: 1px solid #1e3a5f;
   padding: 1px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .threshold-block {

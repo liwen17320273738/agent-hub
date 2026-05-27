@@ -243,10 +243,11 @@ function formatDate(iso: string) {
 <style scoped>
 .share-page {
   max-width: 900px;
+  width: 100%;
   margin: 0 auto;
   padding: 40px 24px;
   min-height: 100vh;
-  background: var(--el-bg-color-page, #f5f7fa);
+  background: var(--bg-primary);
 }
 
 .share-loading {
@@ -344,7 +345,7 @@ function formatDate(iso: string) {
   gap: 16px;
 }
 
-@media (max-width: 768px) {
+@media (max-max-width: 768px; width: 100%) {
   .visuals-grid {
     grid-template-columns: 1fr;
   }
