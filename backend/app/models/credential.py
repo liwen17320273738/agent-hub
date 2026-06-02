@@ -16,7 +16,7 @@ from sqlalchemy import String, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, utcnow_default
+from ..compat import GUID, utcnow_default, utcnow_callable
 from ..config import settings
 
 
@@ -42,8 +42,8 @@ class Credential(Base):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=utcnow_callable)
 
     def set_value(self, plaintext: str) -> None:
         self.encrypted_value = _fernet().encrypt(plaintext.encode()).decode()

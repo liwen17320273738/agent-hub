@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Text, TypeDecorator, func
 from sqlalchemy.types import JSON
@@ -127,3 +128,8 @@ class VectorType(TypeDecorator):
 def utcnow_default():
     """Cross-database 'now()' default for server_default."""
     return func.now()
+
+
+def utcnow_callable():
+    """Python-side UTC now() for onupdate (naive datetime matching column type)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)

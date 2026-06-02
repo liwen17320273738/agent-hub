@@ -411,19 +411,7 @@ async def create_task(
             params={"task_id": tid, "task_title": task.title, "task_description": task.description or ""},
         )
         payload["pipelineTriggered"] = True
-    
-    # Auto-execute via scheduler if requested
-    if body.auto_execute:
-        from ..services.task_scheduler import get_scheduler
-        tid = str(task.id)
-        await get_scheduler().submit(
-            task_id=tid,
-            label=f"auto:{tid[:8]}",
-            kind="dag-run",
-            params={"task_id": tid, "task_title": task.title, "task_description": task.description or ""},
-        )
-        payload["pipelineTriggered"] = True
-    
+
     return payload
 
 
@@ -1852,22 +1840,36 @@ async def resolve_plan_pending(
 
     if user and user.org_id and task.org_id is None:
         task.org_id = user.org_id
+    now = datetime.utcnow()
     task.status = "active"
     task.current_stage_id = "planning"
+    task.updated_at = now
     for stage in sorted(task.stages, key=lambda s: s.sort_order):
         if stage.stage_id == "planning":
             stage.status = "active"
-            stage.started_at = datetime.utcnow()
+            stage.started_at = now
         elif stage.status != "done":
             stage.status = "pending"
             stage.started_at = None
     await db.flush()
+
+    await emit_event("task:plan-resolved", {
+        "taskId": str(task.id),
+        "action": "plan_approved",
+        "status": "active",
+    })
 
     pause = not bool(task.auto_final_accept)
     title = str(task.title or "").strip() or "Task"
     description = str(task.description or task.title or "").strip()
 
     await gateway._commit_task_before_background(db, task)
+
+    logger.info(
+        "[plan-resolve] launching E2E background pipeline for task=%s title=%s",
+        str(task.id), title[:80],
+    )
+
     background_tasks.add_task(
         gateway._run_pipeline_background,
         str(task.id),

@@ -312,6 +312,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("translate pregen not scheduled: %s", exc)
 
+    # Scan for orphan tasks left by the previous process BEFORE scheduling
+    # the lifecycle watchdog. Orphans (DB status "active"/"paused" but not in
+    # any scheduler queue/running set) are surfaced via SSE so the UI can
+    # show them as "interrupted" rather than silently staying "执行中" forever.
+    # Active orphans are NOT auto-resumed (LLM double-spend risk); paused ones
+    # (blocked by quality gate) are safe to recover immediately.
+    if not os.environ.get("AGENTHUB_SKIP_ENGINE_DISPOSE"):
+        try:
+            from .services.task_scheduler import get_scheduler
+            scheduler = get_scheduler()
+            await scheduler._scan_orphan_tasks()
+        except Exception as exc:
+            logger.warning("Orphan task scan on startup failed: %s", exc)
+
     # Periodic task lifecycle watchdog — cancels in-flight tasks that haven't
     # advanced for TASK_STALE_IDLE_MINUTES (default 60), preventing the Inbox
     # from filling up with "执行中" zombies left by crashed workers, abandoned

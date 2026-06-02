@@ -27,7 +27,7 @@ from sqlalchemy import String, Boolean, Text, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, utcnow_default
+from ..compat import GUID, utcnow_default, utcnow_callable
 
 
 class SandboxRule(Base):
@@ -46,9 +46,9 @@ class SandboxRule(Base):
     allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_by: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=utcnow_default(), onupdate=datetime.utcnow,
+        server_default=utcnow_default(), onupdate=utcnow_callable,
     )
 
     __table_args__ = (

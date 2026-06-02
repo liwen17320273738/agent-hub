@@ -133,11 +133,23 @@ function progressPct(row: any): number {
   return Math.round((doneCount(row) / total) * 100)
 }
 
+// 后端返回的 UTC 时间可能不带时区标识（naive datetime），
+// JS 会将其当作本地时间解析，导致显示偏移 8 小时。
+// 此函数确保无时区字符串被当作 UTC 解析。
+function toUtcDate(ts: number | string): Date {
+  if (typeof ts === 'number') return new Date(ts)
+  const s = String(ts).trim()
+  // 已有时区信息（Z 结尾或含 +HH:MM / -HH:MM）→ 直接解析
+  if (/[+-]\d{2}:\d{2}$/.test(s) || s.endsWith('Z')) return new Date(s)
+  // 无时区 → 假定 UTC
+  return new Date(s + 'Z')
+}
+
 // Absolute time on hover, relative on screen — reading "5min ago" is faster
 // than reading "12-08 14:23" when triaging an inbox.
 function absDate(ts: number | string | null | undefined): string {
   if (!ts) return '-'
-  const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
+  const d = toUtcDate(ts)
   if (isNaN(d.getTime())) return '-'
   return d.toLocaleString(appLocaleToBcp47(locale.value), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
@@ -145,7 +157,7 @@ function absDate(ts: number | string | null | undefined): string {
 function relativeTime(ts: number | string | null | undefined): string {
   void timeTick.value // re-evaluate every 30s
   if (!ts) return '-'
-  const d = typeof ts === 'number' ? new Date(ts) : new Date(ts)
+  const d = toUtcDate(ts)
   const ms = Date.now() - d.getTime()
   if (isNaN(ms)) return '-'
   if (ms < 60_000) return t('taskTable.justNow')
@@ -160,7 +172,7 @@ function freshnessClass(row: any): string {
   void timeTick.value // re-evaluate every 30s
   const ts = row.updatedAt || row.createdAt
   if (!ts) return ''
-  const ms = Date.now() - new Date(ts).getTime()
+  const ms = Date.now() - toUtcDate(ts).getTime()
   if (ms < 5 * 60_000) return 'fresh-hot'
   if (ms < 60 * 60_000) return 'fresh-warm'
   if (ms < 24 * 60 * 60_000) return 'fresh-cool'

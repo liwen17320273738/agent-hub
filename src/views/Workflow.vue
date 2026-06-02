@@ -75,6 +75,7 @@ import { fetchTasks } from '@/services/pipelineApi'
 import { subscribePipelineEvents } from '@/services/pipelineApi'
 import { apiUrl } from '@/services/enterpriseApi'
 import { getAuthToken } from '@/services/api'
+import { ElMessage } from 'element-plus'
 import type { PipelineTask, PipelineEvent } from '@/agents/types'
 import TaskTable from '@/components/inbox/TaskTable.vue'
 

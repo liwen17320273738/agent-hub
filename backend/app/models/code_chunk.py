@@ -30,7 +30,7 @@ from sqlalchemy import (
     Column, DateTime, Index, Integer, String, Text,
 )
 
-from ..compat import GUID, JsonDict, VectorType, utcnow_default
+from ..compat import GUID, JsonDict, VectorType, utcnow_default, utcnow_callable
 from ..database import Base
 
 
@@ -57,12 +57,12 @@ class CodeChunk(Base):
     embedding_model = Column(String(100), nullable=False, default="")
     embedding_dim = Column(Integer, nullable=False, default=0)
 
-    created_at = Column(DateTime, server_default=utcnow_default(), default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=utcnow_default(), default=utcnow_callable)
     updated_at = Column(
         DateTime,
         server_default=utcnow_default(),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow_callable,
+        onupdate=utcnow_callable,
     )
 
     __table_args__ = (

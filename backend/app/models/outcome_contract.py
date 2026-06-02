@@ -32,7 +32,7 @@ from typing import Optional
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 from ..database import Base
 
 # ── Allowed enum values (validated at API layer, stored as plain strings
@@ -139,17 +139,13 @@ class OutcomeContract(Base):
     # ── Free-form notes (rationale, manual overrides, customer comments)
     notes: Mapped[str] = mapped_column(Text, default="")
 
-    # NB: Python-side ``default`` (UTC-naive) is intentional. The pipeline's
-    # checkpoint comparison uses ``datetime.utcnow()`` for ``window_end`` —
-    # if we use ``server_default=func.now()`` the PG session timezone bleeds
-    # into the stored value and readings get pushed outside the window.
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=utcnow_default(),
+        default=utcnow_callable, server_default=utcnow_default(),
     )
     updated_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow,
+        default=utcnow_callable,
         server_default=utcnow_default(),
-        onupdate=datetime.utcnow,
+        onupdate=utcnow_callable,
     )
 
     readings: Mapped[list["OutcomeMetricReading"]] = relationship(
@@ -196,10 +192,8 @@ class OutcomeMetricReading(Base):
     evidence_meta: Mapped[dict] = mapped_column(JsonDict(), default=dict, nullable=False)
 
     recorded_by: Mapped[str] = mapped_column(String(200), default="system")
-    # Python-side UTC default so the value is comparable to the
-    # ``datetime.utcnow()`` window_end used by run_checkpoint.
     recorded_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow,
+        default=utcnow_callable,
         server_default=utcnow_default(),
         index=True,
     )
@@ -253,7 +247,7 @@ class OutcomeCheckpoint(Base):
 
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(
-        default=datetime.utcnow, server_default=utcnow_default(),
+        default=utcnow_callable, server_default=utcnow_default(),
     )
 
     contract: Mapped[OutcomeContract] = relationship(back_populates="checkpoints")

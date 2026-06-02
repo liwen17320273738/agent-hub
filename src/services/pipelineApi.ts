@@ -785,6 +785,35 @@ export async function approveStage(
   })
 }
 
+/** 获取 plan_pending 任务的方案内容（摘要、步骤、风险）。 */
+export interface TaskPlan {
+  taskId: string
+  found: boolean
+  source?: string
+  userId?: string
+  title?: string
+  description?: string
+  plan?: {
+    summary: string
+    steps: Array<{
+      no: number
+      title: string
+      detail?: string
+      role?: string
+      estimate_min?: number
+    }>
+    risks: string[]
+    estimate_min_total?: number
+    confidence?: string
+    deploy_target?: string
+  } | null
+  rotation_count?: number
+}
+
+export async function getTaskPlan(taskId: string): Promise<TaskPlan> {
+  return apiFetch(`/pipeline/tasks/${encodeURIComponent(taskId)}/plan`)
+}
+
 /** Plan-first tasks: confirm or cancel without Redis (fixes stale plan_pending when gateway:plan is gone). */
 export async function resolvePlanPending(
   taskId: string,

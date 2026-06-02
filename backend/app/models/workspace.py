@@ -13,7 +13,7 @@ from sqlalchemy import String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from ..compat import GUID, utcnow_default
+from ..compat import GUID, utcnow_default, utcnow_callable
 
 
 class Workspace(Base):
@@ -30,8 +30,8 @@ class Workspace(Base):
     # ship "draft delivery" — the task lands in status="awaiting_evidence"
     # and the share page renders a draft banner.
     allow_draft_delivery: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=utcnow_callable)
 
     members: Mapped[list[WorkspaceMember]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan",
@@ -52,6 +52,6 @@ class WorkspaceMember(Base):
         GUID(), ForeignKey("users.id", ondelete="CASCADE"),
     )
     role: Mapped[str] = mapped_column(String(20), default="member")
-    joined_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    joined_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
 
     workspace: Mapped[Workspace] = relationship(back_populates="members")

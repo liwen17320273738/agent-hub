@@ -9,7 +9,7 @@ from sqlalchemy import String, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, utcnow_default
+from ..compat import GUID, utcnow_callable, utcnow_default
 
 
 class RelayApiKey(Base):
@@ -21,6 +21,6 @@ class RelayApiKey(Base):
     name: Mapped[str] = mapped_column(String(100), default="")
     key_prefix: Mapped[str] = mapped_column(String(40), index=True)
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
     last_used_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)

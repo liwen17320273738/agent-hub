@@ -10,7 +10,7 @@ from sqlalchemy import String, Text, Boolean, Float, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +72,8 @@ class ModelProvider(Base):
     api_key_encrypted: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     config: Mapped[dict] = mapped_column(JsonDict(), default=dict)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=utcnow_callable)
 
     def set_api_key(self, plaintext: str) -> None:
         self.api_key_encrypted = encrypt_api_key(plaintext)
@@ -102,4 +102,4 @@ class TokenUsage(Base):
     endpoint: Mapped[str] = mapped_column(String(50), default="chat")
     metadata_extra: Mapped[dict] = mapped_column(JsonDict(), default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())

@@ -28,7 +28,21 @@ def _build_engine():
         else:
             kwargs["connect_args"] = {"timeout": 30}
     else:
-        kwargs.update(pool_size=20, max_overflow=10, pool_pre_ping=True)
+        kwargs.update(
+            pool_size=20,
+            max_overflow=10,
+            pool_pre_ping=True,
+            pool_recycle=1800,  # 30 分钟回收连接，防止长任务期间连接被服务端关闭
+            connect_args={
+                "timeout": 30,
+                "command_timeout": 600,  # 10 分钟语句超时
+                "server_settings": {
+                    "tcp_keepalives_idle": "60",
+                    "tcp_keepalives_interval": "10",
+                    "tcp_keepalives_count": "5",
+                },
+            },
+        )
 
     return create_async_engine(url, **kwargs)
 

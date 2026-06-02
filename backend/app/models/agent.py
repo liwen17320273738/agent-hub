@@ -8,7 +8,7 @@ from sqlalchemy import String, Text, Boolean, Integer, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 
 class AgentDefinition(Base):
@@ -42,8 +42,8 @@ class AgentDefinition(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=utcnow_callable)
 
     skills: Mapped[list[AgentSkill]] = relationship(back_populates="agent", cascade="all, delete-orphan")
     rules: Mapped[list[AgentRule]] = relationship(back_populates="agent", cascade="all, delete-orphan")

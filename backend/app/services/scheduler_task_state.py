@@ -78,6 +78,9 @@ async def mark_scheduler_finished_failure(
     row.scheduler_run_kind = None
     row.scheduler_run_finished_at = datetime.utcnow()
     row.scheduler_last_error = (error or "")[:8000]
+    # 调度器崩溃意味着流水线未正常完成，将任务标记为 failed
+    if row.status not in ("done", "cancelled", "failed"):
+        row.status = "failed"
 
 
 async def mark_scheduler_orphaned(

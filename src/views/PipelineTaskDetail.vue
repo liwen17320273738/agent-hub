@@ -110,6 +110,51 @@
           </el-button>
         </div>
       </div>
+
+      <!-- 方案内容展示 -->
+      <div v-if="taskPlanLoading" class="plan-content-loading">
+        {{ t('pipelineTaskDetail.planLoading') }}
+      </div>
+      <div v-else-if="taskPlan?.found && taskPlan.plan" class="plan-content">
+        <div class="plan-summary-card">
+          <h4>{{ t('pipelineTaskDetail.planSummary') }}</h4>
+          <p>{{ taskPlan.plan.summary || taskPlan.description || t('pipelineTaskDetail.noPlanSummary') }}</p>
+        </div>
+        <div v-if="taskPlan.plan.steps?.length" class="plan-steps-card">
+          <h4>
+            {{ t('pipelineTaskDetail.planSteps') }}
+            <span class="plan-meta">
+              {{ t('pipelineTaskDetail.planStepsMeta', {
+                steps: taskPlan.plan.steps.length,
+                mins: taskPlan.plan.estimate_min_total || 0,
+                confidence: taskPlan.plan.confidence || ''
+              }) }}
+            </span>
+          </h4>
+          <div class="plan-step-list">
+            <div v-for="step in taskPlan.plan.steps" :key="step.no" class="plan-step-item">
+              <span class="plan-step-no">{{ step.no }}</span>
+              <div class="plan-step-body">
+                <div class="plan-step-title">{{ step.title }}</div>
+                <div v-if="step.detail" class="plan-step-detail">{{ step.detail }}</div>
+                <div class="plan-step-tags">
+                  <el-tag v-if="step.role" size="small" type="info" effect="plain">{{ step.role }}</el-tag>
+                  <span v-if="step.estimate_min" class="plan-step-est">{{ t('pipelineTaskDetail.planEstMin', { n: step.estimate_min }) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-if="taskPlan.plan.risks?.length" class="plan-risks-card">
+          <h4>{{ t('pipelineTaskDetail.planRisks') }}</h4>
+          <ul>
+            <li v-for="(r, i) in taskPlan.plan.risks" :key="i">{{ r }}</li>
+          </ul>
+        </div>
+      </div>
+      <div v-else-if="!taskPlanLoading && !taskPlan?.found && task.sourceUserId" class="plan-content-empty">
+        {{ t('pipelineTaskDetail.planExpired') }}
+      </div>
     </section>
 
     <!-- Always-visible execution panel — users land on 交付物 by default and
@@ -844,7 +889,8 @@ import { usePipelineStore } from '@/stores/pipeline'
 import {
   fetchTask, runStage as apiRunStage, autoRunPipeline, resumeAfterBuild,
   smartRunPipeline, subscribePipelineEvents, fetchPipelineSchedulerStatus,
-  approveStage as apiApproveStage, resumePipeline, resumeDagPipeline, resolvePlanPending,
+  approveStage as apiApproveStage, resumePipeline, resumeDagPipeline, resolvePlanPending, getTaskPlan,
+  type TaskPlan,
   compileDeliverables, fetchQualityReport, overrideQualityGate,
   uploadTaskAttachment, downloadTaskAttachment,
   getTaskRca,
@@ -890,6 +936,20 @@ const loadError = ref('')
 const activeMainTab = ref('overview')
 const tabInitialized = ref(false)
 const planGateLoading = ref<'approve' | 'reject' | null>(null)
+const taskPlan = ref<TaskPlan | null>(null)
+const taskPlanLoading = ref(false)
+
+async function fetchTaskPlan() {
+  if (!task.value?.id || task.value.status !== 'plan_pending') return
+  taskPlanLoading.value = true
+  try {
+    taskPlan.value = await getTaskPlan(String(task.value.id))
+  } catch {
+    taskPlan.value = null
+  } finally {
+    taskPlanLoading.value = false
+  }
+}
 
 async function handlePlanGateApprove() {
   if (!task.value?.id) return
@@ -2152,6 +2212,9 @@ async function loadTask() {
   loadError.value = ''
   try {
     task.value = await fetchTask(id)
+    if (task.value?.status === 'plan_pending') {
+      fetchTaskPlan()
+    }
     await syncRunFlagsFromScheduler()
     // Only infer background execution when the scheduler confirms a run.
     // A stage marked active on create used to look "stuck at 0%" forever.
@@ -2290,6 +2353,112 @@ watch(() => route.params.id, () => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.plan-content-loading {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.plan-content-empty {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.plan-content {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.plan-content h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px;
+}
+.plan-summary-card {
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+}
+.plan-summary-card p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-regular);
+}
+.plan-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: normal;
+  margin-left: 8px;
+}
+.plan-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-step-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-lighter);
+}
+.plan-step-no {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--el-color-primary);
+  color: #fff;
+  text-align: center;
+  line-height: 26px;
+  font-weight: 600;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.plan-step-body {
+  flex: 1;
+  min-width: 0;
+}
+.plan-step-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+.plan-step-detail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.plan-step-tags {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.plan-step-est {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.plan-risks-card {
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(230, 162, 60, 0.06);
+  border: 1px solid var(--el-color-warning-light-5);
+}
+.plan-risks-card ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--el-color-warning);
+}
+.plan-risks-card li {
+  margin-bottom: 4px;
 }
 
 .header-breadcrumb {

@@ -7,7 +7,7 @@ from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, UniqueConstra
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 
 class Skill(Base):
@@ -42,8 +42,8 @@ class Skill(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     install_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=utcnow_callable)
 
 
 class SkillRating(Base):
@@ -70,8 +70,8 @@ class SkillRating(Base):
     stars: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..5
     comment: Mapped[str] = mapped_column(Text, default="")
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
     updated_at: Mapped[datetime] = mapped_column(
         server_default=utcnow_default(),
-        onupdate=datetime.utcnow,
+        onupdate=utcnow_callable,
     )

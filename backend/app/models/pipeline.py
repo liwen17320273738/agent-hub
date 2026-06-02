@@ -8,7 +8,7 @@ from sqlalchemy import String, Text, Integer, Float, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 
 class PipelineTask(Base):
@@ -85,8 +85,8 @@ class PipelineTask(Base):
     #     "pr_url": "https://...", "ci_status": "passing", "commit_sha": "abc123"}]
     repo_refs: Mapped[list] = mapped_column(JsonDict(), default=list, nullable=False)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
-    updated_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default(), onupdate=utcnow_callable)
 
     # ── Phase 2: TaskScheduler persistence cues (crash / UI visibility) ──
     # While a queued ``kind`` is executing, ``submission_id`` is non-null.
@@ -182,6 +182,6 @@ class PipelineArtifact(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     stage_id: Mapped[str] = mapped_column(String(50))
     metadata_extra: Mapped[dict] = mapped_column(JsonDict(), default=dict)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
 
     task: Mapped[PipelineTask] = relationship(back_populates="artifacts")

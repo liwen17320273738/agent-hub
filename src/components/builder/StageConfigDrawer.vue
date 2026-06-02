@@ -14,7 +14,7 @@
   -->
   <el-drawer
     v-model="visibleProxy"
-    :title="`${$t('StageConfigDrawer.configStage')} · ${data?.label || data?.stageId || ''}`"
+    :title="`${$t('stageConfigDrawer.configStage')} · ${data?.label || data?.stageId || ''}`"
     direction="rtl"
     size="380px"
     :destroy-on-close="false"
@@ -30,21 +30,21 @@
             @input="onStageIdInput"
           >
             <template #append>
-              <el-tooltip :content="`${$t('StageConfigDrawer.stableId')}；${$t('StageConfigDrawer.lowercaseEnglish')}，${$t('StageConfigDrawer.alphanumeric')}`">
+              <el-tooltip :content="`${$t('stageConfigDrawer.stableId')}；${$t('stageConfigDrawer.lowercaseEnglish')}，${$t('stageConfigDrawer.alphanumeric')}`">
                 <el-icon><InfoFilled /></el-icon>
               </el-tooltip>
             </template>
           </el-input>
           <div v-if="stageIdError" class="hint hint-error">{{ stageIdError }}</div>
-          <div v-else class="hint">{{ $t('StageConfigDrawer.stageIdHint') }}</div>
+          <div v-else class="hint">{{ $t('stageConfigDrawer.stageIdHint') }}</div>
         </el-form-item>
 
-        <el-form-item :label="$t('StageConfigDrawer.label')">
-          <el-input v-model="data.label" :placeholder="$t('StageConfigDrawer.labelPlaceholder')" clearable />
+        <el-form-item :label="$t('stageConfigDrawer.label')">
+          <el-input v-model="data.label" :placeholder="$t('stageConfigDrawer.labelPlaceholder')" clearable />
         </el-form-item>
 
-        <el-form-item :label="$t('StageConfigDrawer.agentRole')">
-          <el-select v-model="data.role" :placeholder="$t('StageConfigDrawer.selectRole')" style="width: 100%">
+        <el-form-item :label="$t('stageConfigDrawer.agentRole')">
+          <el-select v-model="data.role" :placeholder="$t('stageConfigDrawer.selectRole')" style="width: 100%">
             <el-option
               v-for="r in KNOWN_ROLES"
               :key="r.value"
@@ -54,58 +54,58 @@
           </el-select>
         </el-form-item>
 
-        <el-divider content-position="left">{{ $t('StageConfigDrawer.advanced') }}</el-divider>
+        <el-divider content-position="left">{{ $t('stageConfigDrawer.advanced') }}</el-divider>
 
-        <el-form-item :label="$t('StageConfigDrawer.modelOverride')">
+        <el-form-item :label="$t('stageConfigDrawer.modelOverride')">
           <el-input
             v-model="modelInput"
-            :placeholder="$t('StageConfigDrawer.modelOverridePlaceholder')"
+            :placeholder="$t('stageConfigDrawer.modelOverridePlaceholder')"
             clearable
             @blur="commitModel"
             @keyup.enter="commitModel"
           />
-          <div class="hint">{{ $t('StageConfigDrawer.modelOverrideHint') }}</div>
+          <div class="hint">{{ $t('stageConfigDrawer.modelOverrideHint') }}</div>
         </el-form-item>
 
-        <el-form-item :label="$t('StageConfigDrawer.qualityThreshold')">
+        <el-form-item :label="$t('stageConfigDrawer.qualityThreshold')">
           <el-slider
             :model-value="(data.qualityGateMin ?? 0) * 100"
             :min="0"
             :max="100"
             :step="5"
-            :format-tooltip="(v: number) => v === 0 ? $t('StageConfigDrawer.qualityOff') : `${v}%`"
+            :format-tooltip="(v: number) => v === 0 ? $t('stageConfigDrawer.qualityOff') : `${v}%`"
             @input="(v: number) => (data.qualityGateMin = v === 0 ? undefined : v / 100)"
           />
-          <div class="hint">{{ $t('StageConfigDrawer.qualityHint') }}</div>
+          <div class="hint">{{ $t('stageConfigDrawer.qualityHint') }}</div>
         </el-form-item>
 
-        <el-form-item :label="$t('StageConfigDrawer.rejectAction')">
+        <el-form-item :label="$t('stageConfigDrawer.rejectAction')">
           <el-radio-group v-model="rejectActionProxy" size="small">
-            <el-radio-button value="self-heal">{{ $t('StageConfigDrawer.rejectSelfHeal') }}</el-radio-button>
-            <el-radio-button value="escalate">{{ $t('StageConfigDrawer.rejectEscalate') }}</el-radio-button>
-            <el-radio-button value="manual">{{ $t('StageConfigDrawer.rejectManual') }}</el-radio-button>
+            <el-radio-button value="self-heal">{{ $t('stageConfigDrawer.rejectSelfHeal') }}</el-radio-button>
+            <el-radio-button value="escalate">{{ $t('stageConfigDrawer.rejectEscalate') }}</el-radio-button>
+            <el-radio-button value="manual">{{ $t('stageConfigDrawer.rejectManual') }}</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
-        <el-form-item :label="$t('StageConfigDrawer.failureStrategy')">
+        <el-form-item :label="$t('stageConfigDrawer.failureStrategy')">
           <el-radio-group v-model="onFailureProxy" size="small">
-            <el-radio-button value="halt">{{ $t('StageConfigDrawer.failureHalt') }}</el-radio-button>
-            <el-radio-button value="rollback">{{ $t('StageConfigDrawer.failureRollback') }}</el-radio-button>
-            <el-radio-button value="skip">{{ $t('StageConfigDrawer.failureSkip') }}</el-radio-button>
+            <el-radio-button value="halt">{{ $t('stageConfigDrawer.failureHalt') }}</el-radio-button>
+            <el-radio-button value="rollback">{{ $t('stageConfigDrawer.failureRollback') }}</el-radio-button>
+            <el-radio-button value="skip">{{ $t('stageConfigDrawer.failureSkip') }}</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
         <el-form-item>
           <el-checkbox v-model="data.humanGate">
-            {{ $t('StageConfigDrawer.humanGate') }}
+            {{ $t('stageConfigDrawer.humanGate') }}
           </el-checkbox>
         </el-form-item>
       </el-form>
 
-      <el-divider content-position="left">{{ $t('StageConfigDrawer.dependencies') }}</el-divider>
+      <el-divider content-position="left">{{ $t('stageConfigDrawer.dependencies') }}</el-divider>
       <div class="deps-block">
         <div v-if="dependsOn.length === 0" class="hint">
-          {{ $t('StageConfigDrawer.noDeps') }}
+          {{ $t('stageConfigDrawer.noDeps') }}
         </div>
         <div v-else class="dep-list">
           <el-tag
@@ -123,7 +123,7 @@
       <div class="footer-actions">
         <el-button type="danger" plain size="small" @click="emit('delete', nodeId)">
           <el-icon><Delete /></el-icon>
-          {{ $t('StageConfigDrawer.deleteStage') }}
+          {{ $t('stageConfigDrawer.deleteStage') }}
         </el-button>
       </div>
     </div>
@@ -195,9 +195,9 @@ const onFailureProxy = computed({
 const STAGE_ID_RE = /^[a-z][a-z0-9-]{0,40}$/
 const stageIdError = computed(() => {
   const id = props.data?.stageId || ''
-  if (!id) return t('StageConfigDrawer.stageIdEmpty')
-  if (!STAGE_ID_RE.test(id)) return t('StageConfigDrawer.stageIdInvalid')
-  if (props.otherStageIds.includes(id)) return t('StageConfigDrawer.stageIdDuplicate', { id })
+  if (!id) return t('stageConfigDrawer.stageIdEmpty')
+  if (!STAGE_ID_RE.test(id)) return t('stageConfigDrawer.stageIdInvalid')
+  if (props.otherStageIds.includes(id)) return t('stageConfigDrawer.stageIdDuplicate', { id })
   return ''
 })
 

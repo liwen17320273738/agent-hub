@@ -120,7 +120,7 @@ async def _create_task_from_gateway(
         stage = PipelineStage(task_id=task.id, **stage_data)
         if stage_data["stage_id"] == "planning":
             stage.status = "active"
-            stage.started_at = datetime.utcnow()
+            stage.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.add(stage)
     await db.flush()
 
@@ -172,8 +172,13 @@ async def _run_pipeline_background(
     )
 
     timeout = int(os.getenv("GATEWAY_E2E_TIMEOUT", "1800"))
+    logger.info(f"[gateway] E2E background task starting for task={task_id} title={title[:80]}")
+    await emit_event("e2e:queued", {
+        "taskId": task_id, "title": title,
+    })
     try:
         async with _E2E_SEMAPHORE:
+            logger.info(f"[gateway] E2E semaphore acquired for task={task_id}, entering run_full_e2e")
             async with async_session_factory() as db:
                 result = await asyncio.wait_for(run_full_e2e(
                 db,
@@ -194,8 +199,12 @@ async def _run_pipeline_background(
                 f"awaiting={result.get('awaitingFinalAcceptance', False)} "
                 f"phases={phases}"
             )
+    except asyncio.TimeoutError:
+        logger.error(f"[gateway] E2E timed out for task {task_id} after {timeout}s")
+        await emit_event("e2e:failed", {"taskId": task_id, "error": f"timeout after {timeout}s"})
     except Exception as e:
-        logger.error(f"[gateway] E2E failed for task {task_id}: {e}")
+        logger.error(f"[gateway] E2E failed for task {task_id}: {e}", exc_info=True)
+        await emit_event("e2e:failed", {"taskId": task_id, "error": str(e)[:500]})
 
 
 def _strip_html(s: str) -> str:
@@ -748,7 +757,7 @@ async def _try_handle_plan_reply(
             for stage in sorted(task.stages, key=lambda s: s.sort_order):
                 if stage.stage_id == "planning":
                     stage.status = "active"
-                    stage.started_at = datetime.utcnow()
+                    stage.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 elif stage.status != "done":
                     stage.status = "pending"
                     stage.started_at = None
@@ -1220,7 +1229,7 @@ async def openclaw_approve_plan(
         for stage in sorted(task.stages, key=lambda s: s.sort_order):
             if stage.stage_id == "planning":
                 stage.status = "active"
-                stage.started_at = datetime.utcnow()
+                stage.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
             elif stage.status != "done":
                 stage.status = "pending"
                 stage.started_at = None
@@ -1975,7 +1984,7 @@ async def wechat_webhook(
         reply_xml = _WX_TEXT_REPLY_TMPL.format(
             to_user=from_user,
             from_user=to_user,
-            create_time=int(datetime.utcnow().timestamp()),
+            create_time=int(datetime.now(timezone.utc).replace(tzinfo=None).timestamp()),
             content=reply_text,
         )
         return Response(content=reply_xml, media_type="application/xml")
@@ -1986,7 +1995,7 @@ async def wechat_webhook(
             reply_xml = _WX_TEXT_REPLY_TMPL.format(
                 to_user=from_user,
                 from_user=to_user,
-                create_time=int(datetime.utcnow().timestamp()),
+                create_time=int(datetime.now(timezone.utc).replace(tzinfo=None).timestamp()),
                 content=(
                     "👋 欢迎使用 Agent Hub！\n"
                     "直接发送需求，AI 军团将自动处理。\n"

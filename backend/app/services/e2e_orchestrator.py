@@ -184,7 +184,15 @@ async def run_full_e2e(
     if not pipeline_result.get("ok"):
         e2e_result["ok"] = False
         e2e_result["stopped_at"] = "design_pipeline"
-        e2e_result["error"] = "Design pipeline failed"
+        e2e_result["error"] = pipeline_result.get("error") or "Design pipeline failed"
+        # 将任务状态同步为失败，避免前端看到永久 active/planning 的死锁状态
+        try:
+            if db_task is not None:
+                db_task.status = "failed"
+                db_task.scheduler_last_error = e2e_result["error"][:1000]
+                await db.commit()
+        except Exception as status_err:
+            logger.warning("[e2e] Failed to update task status on DAG failure: %s", status_err)
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "design-pipeline"})
         await _notify("failed", message="设计阶段失败，请在控制台查看详情",
                       extras={"阶段": "design-pipeline"})
@@ -243,6 +251,14 @@ async def run_full_e2e(
         e2e_result["ok"] = False
         e2e_result["stopped_at"] = "codegen"
         e2e_result["error"] = codegen_result.get("error", "Code generation failed")
+        # 将任务状态同步为失败，避免前端看到永久 active 的死锁状态
+        try:
+            if db_task is not None:
+                db_task.status = "failed"
+                db_task.scheduler_last_error = e2e_result["error"][:1000]
+                await db.commit()
+        except Exception as status_err:
+            logger.warning("[e2e] Failed to update task status on codegen failure: %s", status_err)
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "codegen"})
         await _notify(
             "failed",

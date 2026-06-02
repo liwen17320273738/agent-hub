@@ -9,7 +9,7 @@ from sqlalchemy import String, Text, Integer, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_callable, utcnow_default
 
 
 class TraceRecord(Base):
@@ -36,7 +36,7 @@ class TraceRecord(Base):
     models_used: Mapped[dict] = mapped_column(JsonDict(), default=dict)
     stage_durations: Mapped[dict] = mapped_column(JsonDict(), default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
 
 
 class SpanRecord(Base):
@@ -76,7 +76,7 @@ class SpanRecord(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     metadata_extra: Mapped[dict] = mapped_column(JsonDict(), default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
 
 
 class AuditLog(Base):
@@ -91,7 +91,7 @@ class AuditLog(Base):
     risk_level: Mapped[str] = mapped_column(String(30), default="auto_approve")
     outcome: Mapped[str] = mapped_column(String(50), nullable=False)
     details: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
 
     __table_args__ = (
         Index("ix_audit_logs_action", "action"),
@@ -117,7 +117,7 @@ class ApprovalRecord(Base):
     review_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     metadata_extra: Mapped[dict] = mapped_column(JsonDict(), default=dict)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
     resolved_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
 
 
@@ -135,5 +135,5 @@ class FeedbackRecord(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     resolution: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     iteration_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default())
+    created_at: Mapped[datetime] = mapped_column(default=utcnow_callable, server_default=utcnow_default())
     resolved_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)

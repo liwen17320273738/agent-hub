@@ -9,7 +9,7 @@ from sqlalchemy import String, Text, Integer, Float, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 
 class LearningSignal(Base):
@@ -87,7 +87,7 @@ class PromptOverride(Base):
 
     created_at: Mapped[datetime] = mapped_column(server_default=utcnow_default(), index=True)
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=utcnow_default(), onupdate=datetime.utcnow,
+        server_default=utcnow_default(), onupdate=utcnow_callable,
     )
 
     __table_args__ = (

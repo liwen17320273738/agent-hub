@@ -42,10 +42,26 @@
             :value="key"
           />
         </el-select>
-        <el-button size="small" @click="addStage">
+        <el-dropdown
+          :split-button="true"
+          size="small"
+          @click="addStage"
+          @command="addStageWithRole"
+        >
           <el-icon><Plus /></el-icon>
           {{ t('workflowBuilder.addStage') }}
-        </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="r in KNOWN_ROLES"
+                :key="r.value"
+                :command="r.value"
+              >
+                <span>{{ r.emoji }}</span> {{ r.label }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <el-button size="small" @click="autoLayout">{{ t('workflowBuilder.text_1') }}</el-button>
         <el-button size="small" @click="openSaveDialog">
           <el-icon><Folder /></el-icon>
@@ -312,6 +328,7 @@ import {
   checkTopology,
   exportDocAsJson,
   importDocFromJson,
+  KNOWN_ROLES,
   loadDocLocal,
   saveDocLocal,
   stagesToCustomApiPayload,
@@ -572,17 +589,46 @@ function insertStage(opts: {
   drawerOpen.value = true
 }
 
-function addStage() {
-  // Position: just to the right of the rightmost existing node.
+function addStage(role?: string) {
+  // 位置：放在最右侧节点的右边
   const maxX = nodes.value.length
     ? Math.max(...nodes.value.map((n) => n.position.x))
     : 60
+  const prevCount = nodes.value.length
+  // 默认使用 product-manager 角色，用户可拖拽或在抽屉中修改
   insertStage({
     position: { x: maxX + 240, y: 200 },
     stageId: 'stage',
     label: t('workflowBuilder.newStage'),
-    role: 'developer',
+    role: role || 'product-manager',
   })
+  // 自动连接：从之前选中的节点（或最右侧节点）连一条依赖边到新节点
+  if (prevCount > 0) {
+    const newNodeId = nodes.value[nodes.value.length - 1]?.id
+    if (!newNodeId) return
+    let sourceId: string | null = null
+    if (selectedNodeId.value && selectedNodeId.value !== newNodeId) {
+      sourceId = selectedNodeId.value
+    } else {
+      const others = nodes.value.filter((n) => n.id !== newNodeId)
+      if (others.length) {
+        sourceId = others.reduce((a, b) => (a.position.x > b.position.x ? a : b)).id
+      }
+    }
+    if (sourceId) {
+      edges.value.push({
+        id: `e_${sourceId}_${newNodeId}_${Date.now().toString(36)}`,
+        source: sourceId,
+        target: newNodeId,
+        type: 'smoothstep',
+        animated: true,
+      })
+    }
+  }
+}
+
+function addStageWithRole(role: string) {
+  addStage(role)
 }
 
 // ── Drag-and-drop from StagePalette ─────────────────────────────

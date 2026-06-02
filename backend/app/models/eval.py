@@ -26,7 +26,7 @@ from sqlalchemy import Column, DateTime, String, Text, Integer, Float, Boolean, 
 from sqlalchemy.orm import relationship
 
 from ..database import Base
-from ..compat import GUID, JsonDict, utcnow_default
+from ..compat import GUID, JsonDict, utcnow_default, utcnow_callable
 
 
 class EvalDataset(Base):
@@ -40,7 +40,7 @@ class EvalDataset(Base):
     target_role = Column(String(100), default="")  # default role if cases don't override
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=utcnow_default())
-    updated_at = Column(DateTime, server_default=utcnow_default(), onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, server_default=utcnow_default(), onupdate=utcnow_callable)
 
     cases = relationship("EvalCase", back_populates="dataset", cascade="all, delete-orphan")
 
