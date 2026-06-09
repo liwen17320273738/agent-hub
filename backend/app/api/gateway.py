@@ -14,7 +14,7 @@ import os
 import re
 import secrets as _secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -202,9 +202,31 @@ async def _run_pipeline_background(
     except asyncio.TimeoutError:
         logger.error(f"[gateway] E2E timed out for task {task_id} after {timeout}s")
         await emit_event("e2e:failed", {"taskId": task_id, "error": f"timeout after {timeout}s"})
+        # F5: propagate failure to task status so it doesn't appear "still running"
+        try:
+            async with async_session_factory() as db:
+                from ..models.pipeline import PipelineTask
+                t = await db.get(PipelineTask, uuid.UUID(task_id) if isinstance(task_id, str) else task_id)
+                if t and t.status not in ("done", "cancelled", "failed"):
+                    t.status = "failed"
+                    t.current_stage_id = t.current_stage_id or "unknown"
+                    await db.commit()
+        except Exception as update_err:
+            logger.warning("[gateway] Failed updating task status after timeout: %s", update_err)
     except Exception as e:
         logger.error(f"[gateway] E2E failed for task {task_id}: {e}", exc_info=True)
         await emit_event("e2e:failed", {"taskId": task_id, "error": str(e)[:500]})
+        # F5: propagate failure to task status
+        try:
+            async with async_session_factory() as db:
+                from ..models.pipeline import PipelineTask
+                t = await db.get(PipelineTask, uuid.UUID(task_id) if isinstance(task_id, str) else task_id)
+                if t and t.status not in ("done", "cancelled", "failed"):
+                    t.status = "failed"
+                    t.current_stage_id = t.current_stage_id or "unknown"
+                    await db.commit()
+        except Exception as update_err:
+            logger.warning("[gateway] Failed updating task status after exception: %s", update_err)
 
 
 def _strip_html(s: str) -> str:

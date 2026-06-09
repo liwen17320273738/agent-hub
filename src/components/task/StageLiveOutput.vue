@@ -15,8 +15,13 @@
     </div>
 
     <div ref="outputEl" class="live-output">
-      <div class="live-output-inner">
-        <span v-if="!outputText && isWriting" class="cursor-blink">▍</span>
+      <div v-if="!outputText && isWriting" class="live-skeleton">
+        <span class="skeleton-line shimmer" />
+        <span class="skeleton-line shimmer short" />
+        <span class="skeleton-line shimmer medium" />
+        <p class="live-waiting">{{ $t('stageLive.waitingForTokens') }}</p>
+      </div>
+      <div v-else class="live-output-inner">
         <pre class="live-content">{{ outputText }}</pre>
         <span v-if="isWriting" class="cursor-blink">▍</span>
       </div>
@@ -59,6 +64,12 @@ watch(outputText, async () => {
   }
 })
 
+/** Called when stage:processing / heartbeat arrives — show panel before tokens. */
+function onProcessingStart(_data?: Record<string, unknown>) {
+  isWriting.value = true
+  visible.value = true
+}
+
 /** Called by parent when stage:output-start event arrives. */
 function onOutputStart(_data?: Record<string, unknown>) {
   outputText.value = ''
@@ -83,7 +94,7 @@ function onOutputEnd(_data?: Record<string, unknown>) {
   setTimeout(() => { visible.value = false }, 5000)
 }
 
-defineExpose({ onOutputStart, onOutputChunk, onOutputEnd })
+defineExpose({ onProcessingStart, onOutputStart, onOutputChunk, onOutputEnd })
 </script>
 
 <style scoped>
@@ -201,6 +212,41 @@ defineExpose({ onOutputStart, onOutputChunk, onOutputEnd })
   padding: 0;
 }
 
+.live-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(124, 92, 255, 0.12);
+}
+
+.skeleton-line.short { width: 42%; }
+.skeleton-line.medium { width: 68%; }
+.skeleton-line:not(.short):not(.medium) { width: 88%; }
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(124, 92, 255, 0.08) 0%,
+    rgba(124, 92, 255, 0.22) 50%,
+    rgba(124, 92, 255, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.live-waiting {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted, #8a8f99);
+}
+
 @keyframes live-pulse {
   0% { box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.5); }
   70% { box-shadow: 0 0 0 6px rgba(124, 92, 255, 0); }
@@ -210,5 +256,10 @@ defineExpose({ onOutputStart, onOutputChunk, onOutputEnd })
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 </style>

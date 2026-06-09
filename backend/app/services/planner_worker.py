@@ -79,7 +79,7 @@ class ModelTier(str, Enum):
 
 
 _LOCAL_STRONG = settings.local_llm_model_strong or "qwen3.6-35b-a3b-claude-4.6-opus-reasoning-distilled@q6_k"
-_LOCAL_BASE = settings.llm_model or "google/gemma-4-26b-a4b"
+_LOCAL_BASE = settings.llm_model or _LOCAL_STRONG
 _LOCAL_MODELS = {_LOCAL_STRONG, _LOCAL_BASE}
 
 

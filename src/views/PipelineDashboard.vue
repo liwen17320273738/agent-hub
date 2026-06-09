@@ -397,7 +397,7 @@ import { Delete, Plus } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
 import AutoTranslated from '@/components/AutoTranslated.vue'
 import {
-  fetchPipelineHealth, autoRunPipeline, smartRunPipeline,
+  fetchPipelineHealth, autoRunPipeline,
   fetchTraces, fetchApprovals, resolveApproval as apiResolveApproval, fetchAuditLog,
   fetchTemplates, fetchSDLCTemplates,
   uploadTaskAttachment,
@@ -881,7 +881,12 @@ async function handleCreateTask() {
     showCreateDialog.value = false
 
     if (newTask.value.autoRun) {
-      await smartRunPipeline(task.id)
+      // Hero one-click path → the hardened full-maturation runner
+      // (execute_full_pipeline): per-stage commit, stage watchdog + heartbeat,
+      // auto-created stage rows, codegen/build/QA/deploy + quality gates.
+      // smart-run (lead_agent decomposition) is kept as an advanced API path
+      // but does NOT run codegen/preview, so it must not back the hero button.
+      await autoRunPipeline(task.id)
       router.push(`/pipeline/task/${task.id}`)
     }
 

@@ -86,9 +86,33 @@ _EMBEDDING_PROVIDERS = [
 ]
 
 
+_EMBEDDING_CIRCUIT_KEY = "memory:embedding:circuit_open"
+_EMBEDDING_CIRCUIT_TTL = 300  # skip embedding calls for 5m after a 429 storm
+
+
+async def _embedding_circuit_open() -> bool:
+    """Return True when embedding is temporarily disabled (rate-limit protection)."""
+    try:
+        r = get_redis()
+        return bool(await r.get(_EMBEDDING_CIRCUIT_KEY))
+    except Exception:
+        return False
+
+
+async def _trip_embedding_circuit(*, reason: str) -> None:
+    try:
+        r = get_redis()
+        await r.set(_EMBEDDING_CIRCUIT_KEY, reason[:200], ex=_EMBEDDING_CIRCUIT_TTL)
+    except Exception:
+        pass
+
+
 async def _get_embedding(text: str) -> Optional[List[float]]:
     """Generate embedding via the first available provider with an API key."""
     from ..config import settings
+
+    if await _embedding_circuit_open():
+        return None
 
     provider_keys = settings.get_provider_keys()
     if not provider_keys:
@@ -101,17 +125,34 @@ async def _get_embedding(text: str) -> Optional[List[float]]:
 
         embed_url = f"{provider['base_url'].rstrip('/')}/embeddings"
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.post(
                     embed_url,
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={"model": provider["model"], "input": text[:8000]},
                 )
+                if resp.status_code == 429:
+                    await _trip_embedding_circuit(reason=f"429:{provider['name']}")
+                    logger.warning(
+                        "[memory] Embedding rate-limited (429) via %s — circuit open %ds",
+                        provider["name"], _EMBEDDING_CIRCUIT_TTL,
+                    )
+                    return None
                 resp.raise_for_status()
                 data = resp.json()
                 return data["data"][0]["embedding"]
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                await _trip_embedding_circuit(reason=f"429:{provider['name']}")
+                logger.warning(
+                    "[memory] Embedding rate-limited (429) via %s — circuit open %ds",
+                    provider["name"], _EMBEDDING_CIRCUIT_TTL,
+                )
+                return None
+            logger.warning("[memory] Embedding via %s failed: %s", provider["name"], e)
+            continue
         except Exception as e:
-            logger.warning(f"[memory] Embedding via {provider['name']} failed: {e}")
+            logger.warning("[memory] Embedding via %s failed: %s", provider["name"], e)
             continue
 
     return None

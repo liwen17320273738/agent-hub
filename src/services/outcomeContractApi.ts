@@ -78,7 +78,17 @@ async function apiFetch<T>(
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
-    throw new Error(`outcome_contract_api_error: ${res.status} ${text}`)
+    let detail = ''
+    try {
+      const parsed = JSON.parse(text)
+      detail = parsed.detail || parsed.message || ''
+    } catch {
+      detail = text
+    }
+    if (typeof detail === 'object') {
+      detail = (detail as Record<string, unknown>)?.message as string || ''
+    }
+    throw new Error(detail || `HTTP ${res.status}`)
   }
   return res.json()
 }

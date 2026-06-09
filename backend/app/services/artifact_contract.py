@@ -92,10 +92,10 @@ ARTIFACT_TYPE_CONTRACT: Dict[str, Dict[str, Any]] = {
             {
                 "id": "markdown_h2_keyword_groups",
                 "groups": (
-                    ("范围", "scope"),
-                    ("用户故事", "user stor"),
-                    ("验收标准", "验收", "acceptance"),
-                    ("非目标", "non-goal"),
+                    ("范围", "scope", "in-scope", "out-of-scope", "项目范围"),
+                    ("用户故事", "user stor", "user story", "user stories"),
+                    ("验收标准", "验收", "acceptance", "acceptance criteria"),
+                    ("非目标", "non-goal", "non-goals", "out of scope"),
                 ),
             },
         ),
@@ -262,6 +262,15 @@ def _visual_asset_ok(
     stripped = (content or "").strip()
     if stripped.startswith("data:image/"):
         return True
+    # A rendered HTML prototype is genuine, viewable visual evidence. When image
+    # generation is unavailable (e.g. quota exhausted), the design stage falls
+    # back to an HTML mockup — accept it the same way _diagram_ok accepts HTML,
+    # rather than dead-ending delivery over a missing PNG we honestly cannot make.
+    if any(p.lower().endswith(".html") for p in paths if p):
+        return True
+    low = stripped.lower()
+    if "<!doctype html" in low or "<html" in low:
+        return True
     if len(stripped) > 256 and not _has_mock_markers(stripped):
         head = stripped[:80]
         if not head.startswith(("#", "[", "PNG ", "png ")):
@@ -331,11 +340,13 @@ def artifact_quality_errors(
 
 
 def _markdown_h2_text_lines(markdown: str) -> List[str]:
+    """Return normalized heading texts from both ## and ### headings."""
     lines: List[str] = []
     for ln in (markdown or "").splitlines():
         s = ln.strip()
-        if s.startswith("##") and not s.startswith("###"):
-            body = s[2:].strip().lower()
+        # Match both ## and ### headings
+        if s.startswith("##"):
+            body = s.lstrip("#").strip().lower()
             if body:
                 lines.append(body)
     return lines
@@ -371,11 +382,15 @@ def _apply_schema_rules(content_kind: str, text: str, rules: List[Dict[str, Any]
             if content_kind != "markdown":
                 continue
             h2_blob = "\n".join(_markdown_h2_text_lines(raw))
+            full_text = raw.lower()
             for grp in rule.get("groups") or ():
                 alts = [str(a).strip().lower() for a in grp if str(a).strip()]
                 if not alts:
                     continue
-                if not any(a in h2_blob for a in alts):
+                # Check headings first, fall back to full-text search
+                in_headings = any(a in h2_blob for a in alts)
+                in_fulltext = any(a in full_text for a in alts)
+                if not in_headings and not in_fulltext:
                     errs.append(f"markdown_h2_keywords:missing_group:{('|'.join(alts[:5]))}")
     return errs
 

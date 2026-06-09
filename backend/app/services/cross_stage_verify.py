@@ -319,6 +319,8 @@ def _extract_meaningful_terms(text: str, limit: int = 60) -> set:
     # 分层采样：每个长度取配额，按术语质量排序后截断
     by_len: Dict[int, list] = {}
     for t in terms:
+        if not t:
+            continue
         info_ratio = 1.0 - sum(1 for c in t if c in _cn_stop_chars) / len(t)
         by_len.setdefault(len(t), []).append((info_ratio, t))
     # 每组按信息密度降序排列，同分按字符串排序保证确定性

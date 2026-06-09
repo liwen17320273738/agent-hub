@@ -5,10 +5,9 @@
     "moduleResolution": "bundler",
     "strict": true,
     "jsx": "preserve",
-    "paths": { "@/*": ["./src/*"] }
-  },
-  "vueCompilerOptions": {
-    "plugins": ["@volar/vue-language-core"]
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] },
+    "typeRoots": ["./node_modules/@types"]
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts"],
   "exclude": ["node_modules"]

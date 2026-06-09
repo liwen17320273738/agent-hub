@@ -13,8 +13,12 @@ Template loading priority:
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger(__name__)
 
 
 _HERE = os.path.abspath(os.path.dirname(__file__))
@@ -57,6 +61,7 @@ PROJECT_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "files": {},
         "build_cmd": "pnpm install && pnpm build && pnpm test",
         "dev_cmd": "pnpm dev",
+        "test_cmd": "pnpm test",
         "dockerfile": """FROM node:20-alpine AS build
 WORKDIR /app
 COPY package*.json ./
@@ -289,6 +294,8 @@ def scaffold_project(
         rendered = content.replace("{{project_name}}", project_name)
         full_path = os.path.join(output_dir, rel_path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        if os.path.exists(full_path):
+            logger.debug("[templates] Overwriting %s in %s", rel_path, output_dir)
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(rendered)
         written.append(rel_path)

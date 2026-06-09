@@ -21,7 +21,7 @@ from typing import Any, Dict
 
 from ...config import settings
 from .docker_sandbox import docker_exec, is_docker_available_async
-from .sandbox import get_sandbox_root
+from .sandbox import get_sandbox_root, is_path_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +59,33 @@ _HARD_BLOCK_PATTERNS = [
     r"\bshutdown\b|\breboot\b|\bpoweroff\b|\bhalt\b",
 ]
 
+_CD_BYPASS_PATTERN = r"\bcd\s+/(?!workspace|tmp|var/tmp)"
 _BYPASS_PATTERNS = [
-    r"\bcd\s+/(?!workspace|tmp|var/tmp)",
+    _CD_BYPASS_PATTERN,
     r"^\s*\.\./",
     r"\$\{?HOME\}?[^a-zA-Z0-9_]?",
 ]
 
 _COMPILED_HARD = [re.compile(p, re.IGNORECASE) for p in _HARD_BLOCK_PATTERNS]
 _COMPILED_BYPASS = [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in _BYPASS_PATTERNS]
+# Extract absolute `cd /...` targets so we can allow navigation into the
+# per-task worktree (registered via sandbox.add_allowed_dir) while still
+# blocking escapes to the host root / system dirs.
+_CD_TARGET_RE = re.compile(r"\bcd\s+(/[^\s;&|]+)", re.IGNORECASE)
+
+
+def _all_absolute_cd_targets_allowed(command: str) -> bool:
+    """True only if every absolute ``cd`` target resolves inside the sandbox.
+
+    The agent often prepends ``cd <worktree> && npm install`` even though bash
+    already runs with ``cwd=workspace_dir``; that worktree lives under
+    ``data/workspace/tasks/...`` (not literally ``/workspace``), so the static
+    regex used to reject it. Consult the real allow-list instead.
+    """
+    targets = _CD_TARGET_RE.findall(command)
+    if not targets:
+        return False
+    return all(is_path_allowed(t) for t in targets)
 
 
 def _scan(command: str) -> str:
@@ -76,8 +95,12 @@ def _scan(command: str) -> str:
             return pat.pattern
     if settings.sandbox_strict_bash:
         for pat in _COMPILED_BYPASS:
-            if pat.search(command):
-                return pat.pattern
+            if not pat.search(command):
+                continue
+            # `cd` into an allowed sandbox/worktree dir is legitimate.
+            if pat.pattern == _CD_BYPASS_PATTERN and _all_absolute_cd_targets_allowed(command):
+                continue
+            return pat.pattern
     return ""
 
 

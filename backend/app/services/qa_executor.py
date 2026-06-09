@@ -124,6 +124,43 @@ def _extract_plan_from_manifest(manifest: Dict[str, Any]) -> QaExecutionPlan:
     return plan
 
 
+def _resolve_code_root(project_dir: str) -> str:
+    """Locate the directory that holds package.json / source_manifest (may be app/)."""
+    if os.path.isfile(os.path.join(project_dir, "source_manifest.json")):
+        return project_dir
+    for sub in ("app", "code", "frontend"):
+        candidate = os.path.join(project_dir, sub)
+        if os.path.isfile(os.path.join(candidate, "source_manifest.json")):
+            return candidate
+    if os.path.isfile(os.path.join(project_dir, "package.json")):
+        return project_dir
+    for sub in ("app", "code", "frontend"):
+        candidate = os.path.join(project_dir, sub)
+        if os.path.isfile(os.path.join(candidate, "package.json")):
+            return candidate
+    return project_dir
+
+
+def _project_has_test_script(project_dir: str) -> bool:
+    pkg_path = os.path.join(project_dir, "package.json")
+    if not os.path.isfile(pkg_path):
+        return False
+    try:
+        with open(pkg_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        scripts = data.get("scripts") or {}
+        return bool(str(scripts.get("test") or "").strip())
+    except Exception:
+        return False
+
+
+def _fill_plan_defaults(plan: QaExecutionPlan, project_dir: str) -> QaExecutionPlan:
+    """When source_manifest omits test_command, run pnpm test if package.json defines it."""
+    if not plan.test_command and _project_has_test_script(project_dir):
+        plan.test_command = _default_plan().test_command
+    return plan
+
+
 def _default_plan() -> QaExecutionPlan:
     """Default commands for a typical pnpm project."""
     return QaExecutionPlan(
@@ -141,7 +178,8 @@ class QaExecutor:
     """Executes real build/test/browser commands in a project directory."""
 
     def __init__(self, project_dir: str):
-        self.project_dir = project_dir
+        self.worktree_root = project_dir
+        self.project_dir = _resolve_code_root(project_dir)
         self._preview_process: Optional[subprocess.Popen] = None
 
     # ── Task 6.1: Resource Check ─────────────────────────────────────────
@@ -241,7 +279,10 @@ class QaExecutor:
     async def run_all_commands(self) -> Dict[str, Any]:
         """Run install → build → test sequentially, collect results."""
         manifest = _read_source_manifest(self.project_dir)
-        plan = _extract_plan_from_manifest(manifest) if manifest else _default_plan()
+        if manifest:
+            plan = _fill_plan_defaults(_extract_plan_from_manifest(manifest), self.project_dir)
+        else:
+            plan = _default_plan()
 
         results: Dict[str, Any] = {}
 
@@ -328,6 +369,7 @@ class QaExecutor:
             return result
 
         # Open page with Playwright / stealth_browser
+        browser = None
         try:
             from ..services.stealth_browser import StealthBrowser
             browser = StealthBrowser()
@@ -359,11 +401,17 @@ class QaExecutor:
                     result.page_text_preview = (text or "")[:2000]
                 except Exception:
                     result.page_text_preview = ""
-
-            await browser.close()
         except Exception as e:
             result.error = f"Browser error: {e}"
             # Still return partial result — screenshot may exist
+        finally:
+            # Always release the browser + driver, even on error, so chromium
+            # does not leak as a zombie process.
+            if browser is not None:
+                try:
+                    await browser.close()
+                except Exception as close_err:
+                    logger.warning("[qa] browser close failed: %s", close_err)
 
         self._cleanup_preview()
         return result

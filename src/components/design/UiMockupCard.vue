@@ -71,6 +71,7 @@ const props = withDefaults(defineProps<{
   compact?: boolean
   /** When set, show only the matching section (used by artifact tabs). */
   focus?: 'ui_mockup' | 'ui_mockup_html' | 'all'
+  refreshNonce?: number
 }>(), {
   focus: 'all',
 })
@@ -183,7 +184,7 @@ async function loadMockup() {
 }
 
 onMounted(() => loadMockup())
-watch(() => [props.taskId, props.shareToken, props.focus], () => loadMockup())
+watch(() => [props.taskId, props.shareToken, props.focus, props.refreshNonce], () => loadMockup())
 
 function openImage() {
   if (imagePath.value) {

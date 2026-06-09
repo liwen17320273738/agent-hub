@@ -122,6 +122,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Loading, Download } from '@element-plus/icons-vue'
 import DeliverableCards from '@/components/task/DeliverableCards.vue'
 import ArtifactContractPanel from '@/components/task/ArtifactContractPanel.vue'
@@ -162,11 +163,21 @@ function getBaseUrl(): string {
   return import.meta.env.VITE_API_BASE || '/api'
 }
 
+function _detailToMessage(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (detail && typeof detail === 'object') {
+    const d = detail as Record<string, unknown>
+    if (d.code === 'evidence_missing') return (d.message as string) || ''
+    if (typeof d.message === 'string') return d.message
+  }
+  return ''
+}
+
 async function shareFetch(path: string, options?: Parameters<typeof fetch>[1]) {
   const res = await fetch(`${getBaseUrl()}${path}`, options)
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.detail || `HTTP ${res.status}`)
+    throw new Error(_detailToMessage(body.detail) || `HTTP ${res.status}`)
   }
   return res.json()
 }
@@ -188,7 +199,12 @@ async function handleAccept() {
     task.value.status = 'done'
     task.value.final_acceptance_status = 'accepted'
   } catch (e: any) {
-    error.value = e.message
+    const msg = e.message || ''
+    if (msg.includes('交付证据不足') || msg.includes('evidence')) {
+      ElMessage.warning(t('shareEvidenceHint.genericHint'))
+      return
+    }
+    error.value = msg
   } finally {
     accepting.value = false
   }

@@ -57,6 +57,7 @@ const props = defineProps<{
   taskId: string
   shareToken?: string
   compact?: boolean
+  refreshNonce?: number
 }>()
 
 const { t } = useI18n()
@@ -127,7 +128,7 @@ async function fetchArchDiagram() {
 }
 
 onMounted(() => fetchArchDiagram())
-watch(() => [props.taskId, props.shareToken], () => fetchArchDiagram())
+watch(() => [props.taskId, props.shareToken, props.refreshNonce], () => fetchArchDiagram())
 </script>
 
 <style scoped>

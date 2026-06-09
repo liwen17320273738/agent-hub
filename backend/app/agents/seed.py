@@ -749,7 +749,7 @@ DEFAULT_AGENTS: list[dict] = [
                 "4. 风险确认 → 遗留问题和已知缺陷",
                 "5. 决策输出 → APPROVED/REJECTED + 理由",
             ],
-            "output_template": "## 验收报告\n\n### 一、验收范围\n- 任务: ...\n- 依据: PRD v...\n\n### 二、逐条检查\n| # | 验收标准 | 状态 | 说明 |\n|---|----------|------|------|\n| AC-01 | ... | ✅/❌ | ... |\n\n### 三、遗留问题\n| # | 描述 | 影响 | 建议处理 |\n\n### 四、结论\n**APPROVED / REJECTED**\n- 通过率: x/y\n- 理由: ...\n- 如 REJECTED，退回到: ...\n\n### 五、发布建议\n- ...",
+            "output_template": "## 验收报告\n\n### 一、评分\n| 维度 | 评分(0-100) | 说明 |\n|------|------------|------|\n| 需求覆盖度 | ... | ... |\n| 完整性 | ... | ... |\n| 质量 | ... | ... |\n| 可部署性 | ... | ... |\n\n**加权总分**: .../100\n\n### 二、需求覆盖\n| # | 需求点 | 状态 | 证据 |\n|---|--------|------|------|\n| US-01 | ... | ✅/⚠️/❌ | ... |\n\n### 三、关键证据\n- 代码: ... 行；构建: ✅/❌；测试/截图: ...\n\n### 四、遗留问题\n| # | 描述 | 影响 | 建议处理 |\n\n### 五、结论\n**APPROVED / REJECTED**\n- 通过率: x/y\n- 理由: ...\n- 如 REJECTED，退回到: ...",
             "success_metrics": [
                 "逐条列出验收标准检查结果",
                 "结论明确: APPROVED/REJECTED",
@@ -1382,6 +1382,51 @@ async def seed_agents(db: AsyncSession) -> None:
         agent = AgentDefinition(**agent_data)
         db.add(agent)
         logger.info(f"[seed] Created agent: {agent_data['id']}")
+    await db.flush()
+    await _reconcile_legacy_agent_clones(db)
+
+
+async def _reconcile_legacy_agent_clones(db: AsyncSession) -> None:
+    """Keep legacy org-prefixed agent clones in sync with the canonical seed.
+
+    The pipeline resolves stage agents to the canonical ``Agent-*`` rows only
+    (see stage_constants._AGENT_KEY_TO_SEED_ID), but earlier builds prefixed
+    agents with the org id (e.g. ``wayne-acceptance``). Those stale duplicates
+    still surface in the Team UI / ``/agents/{id}/run`` and previously drifted
+    from the canonical role_card whenever seed.py changed — forcing manual DB
+    patches. Propagate the canonical ``role_card`` + ``capabilities`` to every
+    same-role clone so a single source of truth (seed.py) can never drift again.
+    Non-destructive: clones are kept (preserves FK history), only their template
+    fields are refreshed.
+    """
+    canonical: dict[str, dict] = {}
+    for a in DEFAULT_AGENTS:
+        aid = a.get("id", "")
+        if aid.startswith("Agent-") and a.get("role_card"):
+            canonical[aid[len("Agent-"):]] = a
+    if not canonical:
+        return
+    rows = (await db.execute(select(AgentDefinition))).scalars().all()
+    synced = 0
+    for row in rows:
+        if not row.id or row.id.startswith("Agent-") or "-" not in row.id:
+            continue
+        suffix = row.id.split("-", 1)[1]
+        src = canonical.get(suffix)
+        if not src:
+            continue
+        new_card = src.get("role_card", {})
+        if new_card and row.role_card != new_card:
+            row.role_card = new_card
+            synced += 1
+            logger.info(f"[seed] Reconciled legacy clone role_card: {row.id} <- Agent-{suffix}")
+        new_caps = src.get("capabilities", {})
+        if new_caps:
+            merged = {**(row.capabilities or {}), **new_caps}
+            if merged != (row.capabilities or {}):
+                row.capabilities = merged
+    if synced:
+        logger.info(f"[seed] Reconciled {synced} legacy agent clone(s) to canonical templates")
     await db.flush()
 
 

@@ -243,6 +243,7 @@ class McpBridge:
         value: str,
         namespace: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        timeout: float = 120.0,
     ) -> Dict[str, Any]:
         """Store a value in Ruflo's persistent memory."""
         args: Dict[str, Any] = {"key": key, "value": value}
@@ -250,7 +251,7 @@ class McpBridge:
             args["namespace"] = namespace
         if metadata:
             args["metadata"] = metadata
-        return await self.call_tool("memory_store", args)
+        return await self.call_tool("memory_store", args, timeout=timeout)
 
     async def memory_retrieve(self, key: str, namespace: Optional[str] = None) -> Dict[str, Any]:
         """Retrieve a value from Ruflo memory."""

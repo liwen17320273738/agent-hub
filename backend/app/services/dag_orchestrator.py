@@ -20,7 +20,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 
 from ..database import async_session
@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 # DAG_PARALLEL_LIMIT. Keep modest by default — LLM provider rate limits and
 # Postgres pool size are usually the binding constraints, not CPU.
 _DAG_PARALLEL_LIMIT = max(1, int(os.getenv("DAG_PARALLEL_LIMIT", "4")))
+
+# ── Stage-level timeout ──────────────────────────────────────────
+# Prevents a single stage from hanging forever when an LLM provider
+# accepts a connection but never returns.  Also acts as a floor for
+# the overall DAG timeout in e2e_orchestrator.
+STAGE_TIMEOUT: float = float(os.getenv("AGENTHUB_STAGE_TIMEOUT", "900"))
+_HEARTBEAT_INTERVAL: float = 15.0  # seconds between heartbeat SSE events
 
 
 class StageStatus(str, Enum):
@@ -256,8 +263,6 @@ PIPELINE_TEMPLATES: Dict[str, List[DAGStage]] = {
     # 若此处再用 full 会重复跑 development（又一次 CodeGen）+ testing/reviewing，耗时翻倍。
     "e2e_intake": [
         DAGStage("planning", "需求规划", "product-manager"),
-        DAGStage("design", "UI/UX 设计", "designer", depends_on=["planning"]),
-        DAGStage("architecture", "架构设计", "architect", depends_on=["planning"]),
     ],
 }
 
@@ -279,8 +284,8 @@ TEMPLATE_DESCRIPTIONS: Dict[str, Dict[str, str]] = {
     "fintech": {"label": "金融 / 支付", "description": "金融级合规：财务评估 + 安全审计 + 法务审查 + 灰度部署", "icon": "💳"},
     "spec_driven": {"label": "规范驱动（Spec-Driven）", "description": "Spec-Kit 格式：原则→规格→技术计划→任务分解→实现，适合需求先行团队", "icon": "📋"},
     "e2e_intake": {
-        "label": "Gateway 全链路（设计前置）",
-        "description": "仅规划→设计+架构（并行）；开发/验收留给后续 CodeGen 与上线验收，避免重复跑流水线",
+        "label": "Gateway 全链路（最小闭环）",
+        "description": "仅规划；设计/架构在 codegen 中统一由 CodeGenAgent 处理，避免多 agent 评审+回炉过长耗时",
         "icon": "🚀",
     },
 }
@@ -476,7 +481,28 @@ async def _persist_stage_state(
         )
         row = result.scalar_one_or_none()
         if not row:
-            return
+            # The DAG is executing a stage that has no pipeline_stages row
+            # (custom_stages / template-vs-DB drift). Silently returning here
+            # used to make the stage invisible on the dashboard forever — the
+            # same class of bug fixed in the linear runner. Auto-create the
+            # row so execution is always observable. Append after existing
+            # rows by giving it the next sort_order.
+            max_sort = (await db.execute(
+                select(func.max(PipelineStage.sort_order)).where(
+                    PipelineStage.task_id == uuid.UUID(task_id)
+                )
+            )).scalar()
+            row = PipelineStage(
+                task_id=uuid.UUID(task_id),
+                stage_id=stage.stage_id,
+                label=stage.label or stage.stage_id,
+                status="pending",
+                owner_role=stage.role or "",
+                sort_order=(int(max_sort) + 1) if max_sort is not None else 0,
+            )
+            db.add(row)
+            await db.flush()
+            logger.info("[dag] Auto-created missing stage row: %s", stage.stage_id)
         if db_status:
             row.status = db_status
         if stage.output:
@@ -921,20 +947,64 @@ async def execute_dag_pipeline(
                 stage_db, task_id, stage, db_status="active",
             )
 
-            stage_result = await execute_stage(
-                stage_db,
-                task_id=task_id,
-                task_title=task_title,
-                task_description=task_description,
-                stage_id=stage.stage_id,
-                previous_outputs=outputs,
-                trace=trace,
-                complexity=complexity,
-                template=template,
-                project_path=project_path,
-                reject_feedback=stage.reject_feedback,
-                reject_count=stage.reject_count,
-            )
+            # Heartbeat task: emits a "still running" SSE event so the
+            # frontend can distinguish "working" from "hung" even during
+            # long LLM calls.  The heartbeat runner is cancelled when the
+            # stage completes or times out.
+            _heartbeat_stop = asyncio.Event()
+
+            async def _heartbeat_loop():
+                while not _heartbeat_stop.is_set():
+                    try:
+                        await emit_event("stage:heartbeat", {
+                            "taskId": task_id,
+                            "stageId": stage.stage_id,
+                            "elapsed_s": int(time.monotonic() - t0),
+                        })
+                    except Exception:
+                        pass
+                    try:
+                        await asyncio.wait_for(
+                            _heartbeat_stop.wait(),
+                            timeout=_HEARTBEAT_INTERVAL,
+                        )
+                    except asyncio.TimeoutError:
+                        continue
+
+            _heartbeat_task = asyncio.ensure_future(_heartbeat_loop())
+
+            try:
+                stage_result = await asyncio.wait_for(
+                    execute_stage(
+                        stage_db,
+                        task_id=task_id,
+                        task_title=task_title,
+                        task_description=task_description,
+                        stage_id=stage.stage_id,
+                        previous_outputs=outputs,
+                        trace=trace,
+                        complexity=complexity,
+                        template=template,
+                        project_path=project_path,
+                        reject_feedback=stage.reject_feedback,
+                        reject_count=stage.reject_count,
+                    ),
+                    timeout=STAGE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "[dag] Stage %s timed out after %ss for task %s",
+                    stage.stage_id, STAGE_TIMEOUT, task_id,
+                )
+                stage_result = {"ok": False, "error": f"Stage timeout after {STAGE_TIMEOUT}s"}
+                await emit_event("stage:timed-out", {
+                    "taskId": task_id,
+                    "stageId": stage.stage_id,
+                    "timeout": STAGE_TIMEOUT,
+                })
+            finally:
+                _heartbeat_stop.set()
+                _heartbeat_task.cancel()
             # One-shot consumption: clear the feedback after the agent
             # has seen it, so a subsequent retry-without-rejection
             # (e.g. a transient LLM error) doesn't keep replaying old
@@ -985,7 +1055,7 @@ async def execute_dag_pipeline(
                         db_stage.gate_status = gate_result.overall_status.value
                         db_stage.gate_score = gate_result.overall_score
                         db_stage.gate_details = {
-                            "checks": [c.dict() for c in gate_result.checks],
+                            "checks": [c.model_dump() for c in gate_result.checks],
                             "suggestions": gate_result.suggestions,
                             "block_reason": gate_result.block_reason,
                         }
@@ -1005,7 +1075,7 @@ async def execute_dag_pipeline(
                         stage.error = f"Quality gate failed: {gate_result.block_reason or 'score too low'}"
                         stage_result["ok"] = False
                         stage_result["gate_blocked"] = True
-                        stage_result["gate_result"] = gate_result.dict()
+                        stage_result["gate_result"] = gate_result.model_dump()
                         await emit_event("pipeline:auto-paused", {
                             "taskId": task_id,
                             "stoppedAt": stage.stage_id,
@@ -1272,6 +1342,12 @@ async def execute_dag_pipeline(
     all_ok = all(r.get("ok", False) for r in results if isinstance(r, dict))
     blocked_stage = next((s for s in stages if s.status == StageStatus.BLOCKED), None)
     failed_stage = next((s for s in stages if s.status == StageStatus.FAILED), None)
+    logger.info("[dag] final stage statuses: %s",
+        {s.stage_id: s.status.value for s in stages})
+    logger.info("[dag] results=%s ok=%s all_ok=%s blocked=%s failed=%s",
+        [{r.get("stageId", "?"): r.get("ok")} for r in results],
+        results[-1].get("ok") if results else "N/A", all_ok,
+        blocked_stage is not None, failed_stage is not None)
     if blocked_stage:
         await complete_trace(trace.trace_id, status="paused")
     else:

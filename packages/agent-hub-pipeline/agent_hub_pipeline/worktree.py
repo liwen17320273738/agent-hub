@@ -31,6 +31,13 @@ def detect_build_command(worktree: Path) -> Optional[str]:
     try:
         root_files = {f.name for f in worktree.iterdir() if f.is_file()}
         if "package.json" in root_files:
+            # Match the package manager the project was scaffolded with — npm's
+            # stricter peer-dep resolution (ERESOLVE) fails on lockfiles produced
+            # by pnpm/yarn, so prefer the manager whose lockfile is present.
+            if "pnpm-lock.yaml" in root_files:
+                return "pnpm install && pnpm run build"
+            if "yarn.lock" in root_files:
+                return "yarn install && yarn build"
             return "npm install && npm run build"
         if "requirements.txt" in root_files or "setup.py" in root_files or "pyproject.toml" in root_files:
             return "pip install -r requirements.txt && python -m pytest"
@@ -50,6 +57,10 @@ def detect_build_command(worktree: Path) -> Optional[str]:
             if sub.is_dir():
                 sub_files = {f.name for f in sub.iterdir() if f.is_file()}
                 if "package.json" in sub_files:
+                    if "pnpm-lock.yaml" in sub_files:
+                        return f"cd {sub.name} && pnpm install && pnpm run build"
+                    if "yarn.lock" in sub_files:
+                        return f"cd {sub.name} && yarn install && yarn build"
                     return f"cd {sub.name} && npm install && npm run build"
         return None
     except Exception as e:

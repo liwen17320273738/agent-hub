@@ -81,20 +81,80 @@ async def deploy_to_vercel(
             url = data.get("url", "")
             deploy_url = f"https://{url}" if url else ""
 
+            deployment_id = data.get("id", "")
+
+            # Poll for ready state (up to 120s)
+            ready_state = data.get("readyState", "")
+            if ready_state not in ("READY", "ERROR"):
+                import asyncio as _asyncio
+                for _ in range(24):
+                    await _asyncio.sleep(5)
+                    try:
+                        sr = await client.get(
+                            f"{VERCEL_API}/v13/deployments/{deployment_id}",
+                            headers=headers, params=params,
+                        )
+                        if sr.status_code == 200:
+                            sd = sr.json()
+                            ready_state = sd.get("readyState", "")
+                            if ready_state in ("READY", "ERROR"):
+                                break
+                    except Exception:
+                        continue
+
             await emit_event("deploy:complete", {
                 "platform": "vercel",
                 "project": project_name,
                 "url": deploy_url,
-                "deploymentId": data.get("id", ""),
+                "deploymentId": deployment_id,
+                "readyState": ready_state,
             })
+
+            if ready_state == "ERROR":
+                logger.warning("[vercel] Deployment %s entered ERROR state", deployment_id)
+                # Even when Vercel reports ERROR, do a best-effort health probe
+                # — some deploys are accessible before the state propagates.
+                _health = "unknown"
+                if deploy_url:
+                    try:
+                        hr = await client.get(deploy_url, timeout=10.0, follow_redirects=True)
+                        _health = "healthy" if hr.status_code < 500 else "unhealthy"
+                    except Exception:
+                        _health = "unhealthy"
+                return {
+                    "ok": _health == "healthy",
+                    "error": "" if _health == "healthy" else "Vercel deployment entered ERROR state. Check dashboard.",
+                    "platform": "vercel",
+                    "url": deploy_url,
+                    "deploymentId": deployment_id,
+                    "readyState": "ERROR",
+                    "target": "production" if production else "preview",
+                    "health_status": _health,
+                }
+
+            # Verify the deployed URL responds before declaring healthy.
+            # Vercel's readyState can flip through transient states; an HTTP
+            # health probe gives us a truthful answer for the delivery contract.
+            _health = "unknown"
+            if deploy_url:
+                try:
+                    hr = await client.get(deploy_url, timeout=15.0, follow_redirects=True)
+                    _health = "healthy" if hr.status_code < 500 else "unhealthy"
+                    logger.info(
+                        "[vercel] Health probe %s → %s (status=%s)",
+                        deploy_url, _health, hr.status_code,
+                    )
+                except Exception as he:
+                    logger.warning("[vercel] Health probe failed for %s: %s", deploy_url, he)
 
             return {
                 "ok": True,
                 "platform": "vercel",
                 "url": deploy_url,
-                "deploymentId": data.get("id", ""),
-                "readyState": data.get("readyState", ""),
+                "deploymentId": deployment_id,
+                "readyState": ready_state,
                 "target": "production" if production else "preview",
+                "health_status": _health,
             }
 
     except Exception as e:

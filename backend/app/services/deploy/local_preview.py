@@ -114,27 +114,35 @@ class LocalPreview:
         result.url = url
         result.port_used = port
 
-        # 3. Health check (up to 15s)
+        # 3. Health check (up to 15s) — HTTP GET, not just TCP socket
+        # Makes a real HTTP GET request to verify the server responds
+        # with a valid status code.  This catches cases where the server
+        # is accepting TCP connections but returning 5xx or hung.
         healthy = False
-        for _ in range(30):
-            await asyncio.sleep(0.5)
-            try:
-                s = socket.create_connection(("localhost", port), timeout=1)
-                s.close()
-                healthy = True
-                break
-            except (ConnectionRefusedError, OSError):
-                continue
+        import httpx as _httpx
+        async with _httpx.AsyncClient(timeout=_httpx.Timeout(5.0)) as hc:
+            for _ in range(30):
+                await asyncio.sleep(0.5)
+                try:
+                    r = await hc.get(url)
+                    if r.status_code < 500:
+                        healthy = True
+                        break
+                except (_httpx.ConnectError, _httpx.ConnectTimeout, _httpx.ReadTimeout):
+                    continue
+                except Exception:
+                    continue
 
         if not healthy:
             self._cleanup()
-            result.error = f"Preview server on port {port} not healthy after 15s"
+            result.error = f"Preview server on port {port} unhealthy after 15s (TCP connect succeeded or HTTP 5xx)"
             result.health_status = "unhealthy"
             return result
 
         result.health_status = "healthy"
 
         # 4. Screenshot via Playwright
+        browser = None
         try:
             from ..stealth_browser import StealthBrowser
             browser = StealthBrowser()
@@ -147,10 +155,16 @@ class LocalPreview:
                 ss_path = os.path.join(ss_dir, "deployed_screenshot.png")
                 await browser.screenshot(path=ss_path)
                 result.screenshot_path = ss_path
-
-            await browser.close()
         except Exception as e:
             logger.warning("[local_preview] Screenshot failed (non-fatal): %s", e)
+        finally:
+            # Always release the browser + driver, even if navigate/screenshot
+            # raised — otherwise chromium leaks as a zombie process.
+            if browser is not None:
+                try:
+                    await browser.close()
+                except Exception as close_err:
+                    logger.warning("[local_preview] browser close failed: %s", close_err)
 
         result.ok = True
         return result

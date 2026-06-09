@@ -92,6 +92,25 @@ class AgentRuntime:
     #   2. On timeout / transient error, retry with exponential backoff.
     #   3. Fallback model switch (cheaper or faster model) on last retry.
 
+    # Markers that some providers (notably DeepSeek) leak into assistant
+    # *content* when their native tool-call protocol isn't parsed back into
+    # structured tool_calls. If these show up in what we'd otherwise treat as
+    # the final answer, the deliverable is corrupted tool-call syntax — not a
+    # real document — so we must re-synthesise instead of persisting it.
+    _LEAKED_TOOLCALL_MARKERS = (
+        "<｜｜DSML｜｜",
+        "<｜tool▁calls▁begin｜>",
+        "<｜tool▁call▁begin｜>",
+        "｜DSML｜",
+        "<DSML",
+    )
+
+    @classmethod
+    def _looks_like_leaked_tool_markup(cls, text: str) -> bool:
+        if not text:
+            return False
+        return any(marker in text for marker in cls._LEAKED_TOOLCALL_MARKERS)
+
     @staticmethod
     def _truncate_tool_result(result: str, max_chars: int = 0) -> str:
         """Truncate oversized tool results to avoid overflowing LLM context."""
@@ -270,6 +289,15 @@ class AgentRuntime:
                     "content": observation,
                 })
 
+        _leaked = self._looks_like_leaked_tool_markup(final_output)
+        if _leaked:
+            logger.warning(
+                "[agent_runtime] %s: final output contains leaked tool-call markup "
+                "(provider protocol not parsed) — re-synthesising clean report",
+                self.agent_id,
+            )
+            final_output = ""
+
         if not (final_output or "").strip():
             synth_messages = list(messages)
             synth_messages.append({
@@ -290,6 +318,15 @@ class AgentRuntime:
             synth = await self._call_llm_safe(**synth_kwargs)
             if not synth.get("error"):
                 final_output = synth.get("content", "") or ""
+
+        # Last-resort: if markup still leaked through, drop the marker lines so
+        # the persisted deliverable is at least clean prose rather than raw
+        # tool-call tokens.
+        if self._looks_like_leaked_tool_markup(final_output):
+            final_output = "\n".join(
+                ln for ln in final_output.splitlines()
+                if not self._looks_like_leaked_tool_markup(ln)
+            ).strip()
 
         verification = verify_stage_output(
             stage_id="agent-output", role=self.agent_id, output=final_output,

@@ -741,119 +741,270 @@ async def delete_task(
 from ..services.task_scheduler import get_scheduler, register_kind  # noqa: E402
 
 
+async def _run_with_task_lock(task_id: str, label: str, body) -> None:
+    """Run ``body`` (a zero-arg coroutine factory) while holding the per-task
+    Redis mutex.
+
+    All run-level entry points (smart-run, dag-run, auto-run, run-stage,
+    resume-pipeline) share the same ``task_id`` key as the gateway
+    ``run_full_e2e``. This is the SINGLE point of per-task mutual exclusion —
+    the shared orchestrators (execute_stage / execute_dag_pipeline /
+    execute_full_pipeline) deliberately do NOT lock, so DAG parallel batches
+    and the gateway's internal orchestrator calls don't self-deadlock.
+
+    As a second safety net when Redis is unavailable (multi-worker bypass),
+    we also check the DB task status: if the task is already in a terminal
+    or running-like state we log a warning and skip.
+    """
+    from ..services.task_lock import TaskLock
+    from ..services.sse import emit_event
+    from ..models.pipeline import PipelineTask as PT
+    from sqlalchemy import select
+
+    lock = TaskLock(task_id, ttl=1800)
+    if not await lock.acquire():
+        logger.warning("[pipeline] %s blocked — task %s already running", label, task_id[:12])
+        await emit_event("pipeline:run-blocked", {
+            "taskId": task_id,
+            "label": label,
+            "message": "任务已在另一次执行中运行，已跳过重复触发",
+        })
+        return
+    try:
+        await body()
+    finally:
+        await lock.release()
+
+
 def _build_smart_run(params):
     async def _run(bg_db: AsyncSession):
-        from ..services.lead_agent import run_smart_pipeline
-        await run_smart_pipeline(
-            bg_db, params["task_id"], params["task_title"], params["task_description"],
-        )
+        async def _body():
+            from ..services.lead_agent import run_smart_pipeline
+            await run_smart_pipeline(
+                bg_db, params["task_id"], params["task_title"], params["task_description"],
+            )
+        await _run_with_task_lock(params["task_id"], "smart-run", _body)
     return _run
 
 
 def _build_dag_run(params):
     async def _run(bg_db: AsyncSession):
-        from ..services.dag_orchestrator import execute_dag_pipeline
-        await execute_dag_pipeline(
-            bg_db,
-            task_id=params["task_id"],
-            task_title=params["task_title"],
-            task_description=params["task_description"],
-            template=params.get("template", "full"),
-            complexity=params.get("complexity"),
-            project_path=params.get("project_path"),
-            resume=bool(params.get("resume", False)),
-            custom_stages=params.get("custom_stages"),
-        )
+        async def _body():
+            from ..services.dag_orchestrator import execute_dag_pipeline
+            await execute_dag_pipeline(
+                bg_db,
+                task_id=params["task_id"],
+                task_title=params["task_title"],
+                task_description=params["task_description"],
+                template=params.get("template", "full"),
+                complexity=params.get("complexity"),
+                project_path=params.get("project_path"),
+                resume=bool(params.get("resume", False)),
+                custom_stages=params.get("custom_stages"),
+            )
+        await _run_with_task_lock(params["task_id"], "dag-run", _body)
     return _run
 
 
 def _build_auto_run(params):
     async def _run(bg_db: AsyncSession):
-        from ..services.pipeline_engine import execute_full_pipeline
-        await execute_full_pipeline(
-            bg_db,
-            task_id=params["task_id"],
-            task_title=params["task_title"],
-            task_description=params["task_description"],
-            force_continue=bool(params.get("force_continue", True)),
-            project_path=params.get("project_path"),
-        )
+        async def _body():
+            from ..services.execute_full_pipeline import execute_full_pipeline
+            from ..models.pipeline import PipelineTask as PT
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            template_stages = params.get("stages")  # task's own ordered stages
+            stages_to_run = template_stages
+            prior: Dict[str, str] = {}
+
+            # Resume semantics: reuse already-`done` stages as context and only
+            # execute the ones still outstanding. Avoids redoing completed work
+            # (token/time waste) while keeping prior outputs available to
+            # downstream stages.
+            if template_stages:
+                try:
+                    tid = params["task_id"]
+                    res = await bg_db.execute(
+                        select(PT).options(selectinload(PT.stages)).where(
+                            PT.id == uuid.UUID(tid)
+                        )
+                    )
+                    db_task = res.scalar_one_or_none()
+                    if db_task:
+                        done = {
+                            s.stage_id: s.output
+                            for s in db_task.stages
+                            if s.status == "done" and s.output
+                        }
+                        prior = done
+                        outstanding = [s for s in template_stages if s not in done]
+                        if outstanding:
+                            stages_to_run = outstanding
+                except Exception as resume_err:
+                    logger.warning(
+                        "[pipeline] auto-run resume reconstruction failed: %s",
+                        resume_err,
+                    )
+
+            await execute_full_pipeline(
+                bg_db,
+                task_id=params["task_id"],
+                task_title=params["task_title"],
+                task_description=params["task_description"],
+                stages=stages_to_run,
+                prior_outputs=prior or None,
+                # Default OFF: quality gates / peer review / verify must be
+                # able to pause a bad run instead of silently marching to
+                # "done" (the "假装成功" failure mode). Callers can still opt
+                # in to best-effort completion by sending force_continue=true.
+                force_continue=bool(params.get("force_continue", False)),
+                project_path=params.get("project_path"),
+            )
+        await _run_with_task_lock(params["task_id"], "auto-run", _body)
     return _run
 
 
 def _build_run_stage(params):
     async def _run(bg_db: AsyncSession):
-        from ..services.pipeline_engine import execute_stage
-        from ..models.pipeline import PipelineTask as PT
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
+        async def _body():
+            from ..services.pipeline_engine import execute_stage
+            from ..models.pipeline import PipelineTask as PT
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
 
-        # Reconstruct previous_outputs from DB so we don't carry big
-        # blobs through Redis params.
-        tid = params["task_id"]
-        stage_id = params["stage_id"]
-        prev: Dict[str, Any] = {}
-        db_result = await bg_db.execute(
-            select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
-        )
-        db_task = db_result.scalar_one_or_none()
-        gate_feedback: Optional[Dict[str, Any]] = None
-        if db_task:
-            for s in sorted(db_task.stages, key=lambda x: x.sort_order):
-                if s.output:
-                    prev[s.stage_id] = s.output
-
-            # If the stage we're about to re-run previously failed its
-            # quality gate, hand the failure details to execute_stage so
-            # the agent's prompt actually targets what the gate flagged.
-            # Without this we tend to regenerate the same broken output
-            # that already scored 35% — the user perceives this as the
-            # AI "ignoring" them.
-            cur_stage = next(
-                (s for s in db_task.stages if s.stage_id == stage_id),
-                None,
+            # Reconstruct previous_outputs from DB so we don't carry big
+            # blobs through Redis params.
+            tid = params["task_id"]
+            stage_id = params["stage_id"]
+            prev: Dict[str, Any] = {}
+            db_result = await bg_db.execute(
+                select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
             )
-            if (
-                cur_stage is not None
-                and (cur_stage.gate_status or "").lower() == "failed"
-                and cur_stage.gate_details
-            ):
-                gate_feedback = {
-                    "score": cur_stage.gate_score,
-                    "details": cur_stage.gate_details,
-                    "attempt": int(
-                        (cur_stage.gate_details or {}).get("attempt") or 1
+            db_task = db_result.scalar_one_or_none()
+            gate_feedback: Optional[Dict[str, Any]] = None
+            if db_task:
+                for s in sorted(db_task.stages, key=lambda x: x.sort_order):
+                    if s.output:
+                        prev[s.stage_id] = s.output
+
+                # If the stage we're about to re-run previously failed its
+                # quality gate, hand the failure details to execute_stage so
+                # the agent's prompt actually targets what the gate flagged.
+                # Without this we tend to regenerate the same broken output
+                # that already scored 35% — the user perceives this as the
+                # AI "ignoring" them.
+                cur_stage = next(
+                    (s for s in db_task.stages if s.stage_id == stage_id),
+                    None,
+                )
+                if (
+                    cur_stage is not None
+                    and (cur_stage.gate_status or "").lower() == "failed"
+                    and cur_stage.gate_details
+                ):
+                    gate_feedback = {
+                        "score": cur_stage.gate_score,
+                        "details": cur_stage.gate_details,
+                        "attempt": int(
+                            (cur_stage.gate_details or {}).get("attempt") or 1
+                        )
+                        + 1,
+                    }
+
+            result = await execute_stage(
+                bg_db,
+                task_id=tid,
+                task_title=params["task_title"],
+                task_description=params["task_description"],
+                stage_id=stage_id,
+                previous_outputs=prev,
+                project_path=params.get("project_path"),
+                gate_feedback=gate_feedback,
+            )
+
+            if not result.get("ok"):
+                if db_task:
+                    db_task.status = "failed"
+                return
+
+            if db_task:
+                ss = sorted(db_task.stages, key=lambda x: x.sort_order)
+                cur = next((s for s in ss if s.stage_id == stage_id), None)
+                verification = result.get("verification") or {}
+                quality_score = (
+                    0.8 if verification.get("status") == "pass"
+                    else 0.5 if verification.get("status") == "warn"
+                    else 0.2
+                )
+                if cur:
+                    cur.output = result.get("content", "")
+                    cur.verify_status = verification.get("status")
+                    cur.verify_checks = verification.get("checks")
+                    cur.quality_score = quality_score
+                    cur.completed_at = datetime.utcnow()
+
+                # Quality gate (same path as execute_full_pipeline)
+                try:
+                    from ..services.quality_gates import evaluate_quality_gate
+                    from ..services.self_verify import (
+                        StageVerification,
+                        VerifyResult,
+                        VerifyStatus,
                     )
-                    + 1,
-                }
 
-        result = await execute_stage(
-            bg_db,
-            task_id=tid,
-            task_title=params["task_title"],
-            task_description=params["task_description"],
-            stage_id=stage_id,
-            previous_outputs=prev,
-            project_path=params.get("project_path"),
-            gate_feedback=gate_feedback,
-        )
+                    heuristic = StageVerification(
+                        stage_id=stage_id,
+                        role="",
+                        overall_status=VerifyStatus(verification.get("status", "pass")),
+                        checks=[
+                            VerifyResult(
+                                check_name=c.get("check_name", c.get("name", "")),
+                                status=VerifyStatus(c.get("status", "pass")),
+                                message=c.get("message", ""),
+                            )
+                            for c in verification.get("checks", [])
+                        ],
+                        auto_proceed=verification.get("auto_proceed", True),
+                    )
+                    gate_result = await evaluate_quality_gate(
+                        stage_id,
+                        result.get("content", ""),
+                        template=db_task.template,
+                        previous_outputs=prev,
+                        heuristic_result=heuristic,
+                        task_overrides=db_task.quality_gate_config,
+                    )
+                    if cur:
+                        cur.gate_status = gate_result.overall_status.value
+                        cur.gate_score = gate_result.overall_score
+                        cur.gate_details = {
+                            "checks": [c.model_dump() for c in gate_result.checks],
+                            "suggestions": gate_result.suggestions,
+                            "block_reason": gate_result.block_reason,
+                        }
+                    if not gate_result.can_proceed:
+                        db_task.status = "paused"
+                        if cur:
+                            cur.status = "blocked"
+                        return
+                except Exception as gate_err:
+                    logger.warning("[pipeline] run-stage gate eval failed for %s: %s", stage_id, gate_err)
 
-        if result.get("ok") and db_task:
-            ss = sorted(db_task.stages, key=lambda x: x.sort_order)
-            cur = next((s for s in ss if s.stage_id == stage_id), None)
-            if cur:
-                cur.output = result.get("content", "")
-                cur.status = "done"
-                cur.completed_at = datetime.utcnow()
-            cur_idx = next((i for i, s in enumerate(ss) if s.stage_id == stage_id), -1)
-            if cur_idx >= 0 and cur_idx + 1 < len(ss):
-                nxt = ss[cur_idx + 1]
-                nxt.status = "active"
-                nxt.started_at = datetime.utcnow()
-                db_task.current_stage_id = nxt.stage_id
-            elif cur_idx >= 0:
-                db_task.status = "done"
-                db_task.current_stage_id = "done"
+                if cur:
+                    cur.status = "done"
+                cur_idx = next((i for i, s in enumerate(ss) if s.stage_id == stage_id), -1)
+                if cur_idx >= 0 and cur_idx + 1 < len(ss):
+                    nxt = ss[cur_idx + 1]
+                    nxt.status = "active"
+                    nxt.started_at = datetime.utcnow()
+                    db_task.current_stage_id = nxt.stage_id
+                    db_task.status = "active"
+                elif cur_idx >= 0:
+                    db_task.status = "done"
+                    db_task.current_stage_id = "done"
+
+        await _run_with_task_lock(params["task_id"], "run-stage", _body)
     return _run
 
 
@@ -861,34 +1012,36 @@ def _build_resume_pipeline(params):
     """For the linear /resume endpoint. Reconstructs prior_outputs from
     DB so we don't carry large blobs through Redis."""
     async def _run(bg_db: AsyncSession):
-        from ..services.pipeline_engine import execute_full_pipeline
-        from ..models.pipeline import PipelineTask as PT
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
+        async def _body():
+            from ..services.execute_full_pipeline import execute_full_pipeline
+            from ..models.pipeline import PipelineTask as PT
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
 
-        tid = params["task_id"]
-        remaining = params["remaining_stages"]
+            tid = params["task_id"]
+            remaining = params["remaining_stages"]
 
-        db_result = await bg_db.execute(
-            select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
-        )
-        db_task = db_result.scalar_one_or_none()
-        prior: Dict[str, str] = {}
-        if db_task:
-            for s in db_task.stages:
-                if s.status == "done" and s.output and s.stage_id not in remaining:
-                    prior[s.stage_id] = s.output
+            db_result = await bg_db.execute(
+                select(PT).options(selectinload(PT.stages)).where(PT.id == uuid.UUID(tid))
+            )
+            db_task = db_result.scalar_one_or_none()
+            prior: Dict[str, str] = {}
+            if db_task:
+                for s in db_task.stages:
+                    if s.status == "done" and s.output and s.stage_id not in remaining:
+                        prior[s.stage_id] = s.output
 
-        await execute_full_pipeline(
-            bg_db,
-            task_id=tid,
-            task_title=params["task_title"],
-            task_description=params["task_description"],
-            stages=remaining,
-            force_continue=bool(params.get("force_continue", True)),
-            prior_outputs=prior,
-            project_path=params.get("project_path"),
-        )
+            await execute_full_pipeline(
+                bg_db,
+                task_id=tid,
+                task_title=params["task_title"],
+                task_description=params["task_description"],
+                stages=remaining,
+                force_continue=bool(params.get("force_continue", True)),
+                prior_outputs=prior,
+                project_path=params.get("project_path"),
+            )
+        await _run_with_task_lock(params["task_id"], "resume-pipeline", _body)
     return _run
 
 
@@ -1008,8 +1161,16 @@ async def auto_run_pipeline(
     Progress is reported via SSE events — the client does NOT need to hold
     the HTTP connection open for the entire duration.
     """
-    task = await _get_task_or_404(db, task_id, user, load_relations=False)
+    task = await _get_task_or_404(db, task_id, user, load_relations=True)
     tid, title, desc = str(task.id), task.title, task.description
+
+    # Run the task's OWN template stages (ordered), not the full 13-stage
+    # STAGE_ROLE_PROMPTS catalog. Otherwise a simple web_app task would also
+    # execute marketing/legal/finance/security stages — huge cost for no
+    # benefit. None ⇒ execute_full_pipeline falls back to all role prompts.
+    stage_ids = [
+        s.stage_id for s in sorted(task.stages, key=lambda x: x.sort_order)
+    ] or None
 
     submission_id = await _submit_task(
         tid, f"auto-run:{tid[:8]}",
@@ -1018,7 +1179,11 @@ async def auto_run_pipeline(
             "task_id": tid,
             "task_title": title,
             "task_description": desc,
-            "force_continue": True,
+            "stages": stage_ids,
+            # Honest gating: let quality gate / peer review / verify pause a
+            # bad run instead of force-marching to "done". (was True — the
+            # root cause of stages reporting success despite failed gates.)
+            "force_continue": False,
             "project_path": task.project_path,
         },
         priority=task.priority,
@@ -1812,6 +1977,7 @@ async def resolve_plan_pending(
     """
     from . import gateway
     from ..services import plan_session
+    from ..services.sse import emit_event
 
     tid = _parse_task_id(task_id)
     result = await db.execute(
@@ -2097,7 +2263,7 @@ async def get_review_config(
     user: User = Depends(get_current_user),
 ):
     """Get the review configuration for all pipeline stages."""
-    from ..services.pipeline_engine import STAGE_REVIEW_CONFIG, AGENT_PROFILES
+    from ..services.stage_constants import STAGE_REVIEW_CONFIG, AGENT_PROFILES
     config = {}
     for stage_id, conf in STAGE_REVIEW_CONFIG.items():
         reviewer_key = conf.get("reviewer_agent")
@@ -2756,7 +2922,7 @@ async def resume_pipeline(
     background_tasks: BackgroundTasks = None,
 ):
     """Resume a paused pipeline from the last completed stage or a specific stage."""
-    from ..services.pipeline_engine import STAGE_ROLE_PROMPTS
+    from ..services.stage_constants import STAGE_ROLE_PROMPTS
     from ..services.sse import emit_event
 
     result = await db.execute(

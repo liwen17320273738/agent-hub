@@ -208,7 +208,7 @@ async def _check_hermes_gate() -> Dict[str, Any]:
 
     # Check human_gate pipeline integration
     try:
-        from ..services.pipeline_engine import STAGE_ROLE_PROMPTS
+        from ..services.stage_constants import STAGE_ROLE_PROMPTS
         gate_stages = [s for s, c in STAGE_ROLE_PROMPTS.items() if c.get("human_gate")]
         status["checks"].append({
             "check": "human_gates",

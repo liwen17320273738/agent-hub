@@ -1,6 +1,6 @@
 <template>
   <div class="task-doc-tab">
-    <div class="doc-toolbar" v-if="versions.length > 1 || hasContent">
+    <div class="doc-toolbar" v-if="versions.length > 1 || hasPersistedContent">
       <div class="doc-version-select" v-if="versions.length > 1">
         <el-select
           v-model="selectedVersion"
@@ -34,11 +34,21 @@
       <span>{{ t('taskDocTab.text_1') }}</span>
     </div>
 
-    <div v-else-if="hasContent" class="doc-content">
+    <el-alert
+      v-if="isDraftPreview"
+      type="info"
+      :closable="false"
+      show-icon
+      class="doc-draft-banner"
+      :title="t('taskDocTab.draftPreviewTitle')"
+      :description="t('taskDocTab.draftPreviewBody')"
+    />
+
+    <div v-if="hasDisplayContent" class="doc-content">
       <div class="markdown-body" v-html="renderedContent"></div>
     </div>
 
-    <div v-else class="doc-empty">
+    <div v-else-if="!loading" class="doc-empty">
       <span class="empty-icon">{{ icon }}</span>
       <p>{{ $t('taskDocTab.notGenerated', { name: displayName }) }}</p>
       <p class="empty-hint">{{ t('taskDocTab.text_2') }}</p>
@@ -71,15 +81,26 @@ const props = defineProps<{
   artifactType: string
   displayName: string
   icon: string
+  /** Live stream draft before DB artifact is persisted. */
+  draftContent?: string
 }>()
 
 const loading = ref(false)
 const currentArtifact = ref<ArtifactDetail | null>(null)
 const selectedVersion = ref<number>(0)
 const versions = computed(() => currentArtifact.value?.versions || [])
-const hasContent = computed(() => !!(currentArtifact.value?.content))
+const hasPersistedContent = computed(() => !!(currentArtifact.value?.content))
+const isDraftPreview = computed(() =>
+  !hasPersistedContent.value && !!(props.draftContent || '').trim(),
+)
+const displayContent = computed(() =>
+  hasPersistedContent.value
+    ? (currentArtifact.value!.content)
+    : (props.draftContent || ''),
+)
+const hasDisplayContent = computed(() => !!displayContent.value.trim())
 const renderedContent = computed(() =>
-  hasContent.value ? renderMarkdown(currentArtifact.value!.content) : ''
+  hasDisplayContent.value ? renderMarkdown(displayContent.value) : '',
 )
 
 function formatTime(ts: string | null) {
@@ -175,10 +196,16 @@ onMounted(() => fetchArtifact())
 
 watch(() => props.taskId, () => fetchArtifact())
 watch(() => props.artifactType, () => fetchArtifact())
+watch(() => props.draftContent, () => {
+  if (!hasPersistedContent.value && props.draftContent) {
+    loading.value = false
+  }
+})
 </script>
 
 <style scoped>
 .task-doc-tab { padding: 16px 0; }
+.doc-draft-banner { margin-bottom: 12px; }
 
 .doc-toolbar {
   display: flex;

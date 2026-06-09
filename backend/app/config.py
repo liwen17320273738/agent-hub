@@ -43,6 +43,8 @@ def _default_db_url() -> str:
 class Settings(BaseSettings):
     app_name: str = "Agent Hub"
     debug: bool = False
+    # SQLAlchemy echo — off by default even when debug=true (dev logs are unusable otherwise).
+    sql_echo: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -174,6 +176,7 @@ class Settings(BaseSettings):
     ruflo_enabled: bool = True                  # enable Ruflo MCP integration (fails gracefully if not installed)
     ruflo_cmd: str = "ruflo"                    # path or command to ruflo CLI
     ruflo_memory_enrich: bool = True            # inject Ruflo memory context into stages
+    ruflo_pipeline_enrich: bool = False         # hero slice: off — MCP memory_store can block 120s per stage
     ruflo_auto_swarm: bool = True               # auto-init Ruflo swarm on first use
 
     # ── VibeVoice Speech AI (Microsoft) ────────────────────────────────
@@ -279,12 +282,14 @@ class Settings(BaseSettings):
         ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL. This app natively reads LLM_*,
         so when LLM_* is absent we map the aliases here.
         """
+        adopted_alias_url = False
         if not self.llm_api_url and self.anthropic_base_url:
             base = self.anthropic_base_url.strip().rstrip("/")
             if base.endswith("/v1/chat/completions"):
                 self.llm_api_url = base
             else:
                 self.llm_api_url = f"{base}/v1/chat/completions"
+            adopted_alias_url = True
 
         if not self.llm_api_key and self.anthropic_auth_token:
             self.llm_api_key = self.anthropic_auth_token
@@ -295,7 +300,16 @@ class Settings(BaseSettings):
             or self.anthropic_default_haiku_model
             or self.anthropic_default_opus_model
         )
-        if alias_model and (not self.llm_model or self.llm_model == "deepseek-chat"):
+        # Only adopt the alias model when we ALSO adopted the alias endpoint.
+        # Otherwise an alias model name (e.g. a local LM-Studio model) gets
+        # paired with an explicitly-configured LLM_API_URL of a different
+        # provider (e.g. DeepSeek), producing 422 "unsupported model name"
+        # errors that silently break peer review and circuit-open the provider.
+        if (
+            alias_model
+            and adopted_alias_url
+            and (not self.llm_model or self.llm_model == "deepseek-chat")
+        ):
             self.llm_model = alias_model
 
         return self

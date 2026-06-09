@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-06-05T08:54:01Z",
+  "task_id": "6585f2b8-ecd8-4477-8a8f-fd1f07794f99",
+  "stage": "planning",
+  "elapsed_sec": 58.73,
+  "target_sec": 90,
+  "passed_time": true,
+  "stage_status": "done",
+  "task_status": "active",
+  "quality_gate": "passed",
+  "quality_gate_score": 0.82,
+  "quality_score": 0.5,
+  "gate_ok": true,
+  "honest_pause": false,
+  "overall_pass": true,
+  "requirement": "做一个纯前端待办看板：增删改查、本地存储、简洁 UI。不要后端。"
+}

@@ -64,18 +64,22 @@
           v-else-if="tab.type === 'ui_mockup' || tab.type === 'ui_mockup_html'"
           :task-id="taskId"
           :focus="tab.type === 'ui_mockup_html' ? 'ui_mockup_html' : 'ui_mockup'"
+          :refresh-nonce="refreshNonce"
         />
         <TaskArchDiagram
           v-else-if="tab.type === 'architecture_diagram'"
           :task-id="taskId"
+          :refresh-nonce="refreshNonce"
         />
         <TaskQATab
           v-else-if="tab.type === 'test_report'"
           :task-id="taskId"
+          :refresh-nonce="refreshNonce"
         />
         <DeployPreviewCard
           v-else-if="tab.type === 'preview_url'"
           :task-id="taskId"
+          :refresh-nonce="refreshNonce"
         />
         <TaskDocTab
           v-else
@@ -83,6 +87,7 @@
           :artifact-type="tab.type"
           :display-name="tab.label"
           :icon="tab.icon"
+          :draft-content="draftByType[tab.type]"
         />
       </el-tab-pane>
     </el-tabs>
@@ -90,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TaskDocTab from './TaskDocTab.vue'
 import TaskCodeTab from './TaskCodeTab.vue'
@@ -126,6 +131,10 @@ const props = defineProps<{
   /** Lifecycle status of the task — forwarded to ArtifactContractPanel so it
    *  can soften language / collapse details once the task is closed. */
   taskStatus?: string
+  /** Live LLM draft keyed by artifact type (from stage output chunks). */
+  draftByType?: Record<string, string>
+  /** Bump to force visual artifact tabs to refetch. */
+  refreshNonce?: number
 }>()
 
 const activeTab = ref('brief')
@@ -146,12 +155,16 @@ const TAB_DEFS = computed(() =>
   })),
 )
 
+const draftByType = computed(() => props.draftByType || {})
+
 function artifactStatus(type: string): string {
+  if (draftByType.value[type]?.trim()) return 'generating'
   const item = artifactSummary.value.find(a => a.type_key === type)
   return item?.status || 'empty'
 }
 
 function statusClass(type: string): string {
+  if (draftByType.value[type]?.trim()) return 'status-generating'
   const item = artifactSummary.value.find(a => a.type_key === type)
   if (!item || item.status === 'empty') return 'status-empty'
   if (item.status === 'superseded') return 'status-superseded'
@@ -163,6 +176,7 @@ function statusTooltip(type: string): string {
   const tab = TAB_DEFS.value.find(t => t.type === type)
   const label = tab?.label || type
   const item = artifactSummary.value.find(a => a.type_key === type)
+  if (draftByType.value[type]?.trim()) return t('artifactTabs.tooltipGenerating', { label })
   if (!item || item.status === 'empty') return t('artifactTabs.tooltipEmpty', { label })
   if (item.status === 'superseded') return t('artifactTabs.tooltipSuperseded', { label, version: item.version })
   if (item.has_content) return t('artifactTabs.tooltipDone', { label, version: item.version })
@@ -183,8 +197,31 @@ async function loadSummary() {
   } catch { /* silent */ }
 }
 
-onMounted(() => loadSummary())
+let summaryPollTimer: ReturnType<typeof setInterval> | null = null
+
+function startSummaryPoll() {
+  stopSummaryPoll()
+  if (props.taskStatus !== 'active' && props.taskStatus !== 'running') return
+  summaryPollTimer = setInterval(() => { loadSummary() }, 12_000)
+}
+
+function stopSummaryPoll() {
+  if (summaryPollTimer !== null) {
+    clearInterval(summaryPollTimer)
+    summaryPollTimer = null
+  }
+}
+
+defineExpose({ refresh: loadSummary })
+
+onMounted(() => {
+  loadSummary()
+  startSummaryPoll()
+})
+onUnmounted(() => stopSummaryPoll())
 watch(() => props.taskId, () => loadSummary())
+watch(() => props.taskStatus, () => startSummaryPoll())
+watch(() => props.refreshNonce, () => loadSummary())
 </script>
 
 <style scoped>
@@ -227,6 +264,17 @@ watch(() => props.taskId, () => loadSummary())
   color: #a8abb2;
   border-color: #ebeef5;
 }
+.status-generating {
+  background: rgba(124, 92, 255, 0.12);
+  color: #7c5cff;
+  border-color: rgba(124, 92, 255, 0.35);
+  animation: generating-pulse 1.6s ease-in-out infinite;
+}
+@keyframes generating-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
 .status-done {
   background: linear-gradient(135deg, #f0f9eb, #e1f3d8);
   color: #529b2e;

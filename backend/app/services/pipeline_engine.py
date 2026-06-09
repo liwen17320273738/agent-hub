@@ -49,7 +49,7 @@ from .observability import (
 )
 from .llm_router import chat_completion_with_fallback as llm_chat_with_fallback
 from .token_tracker import estimate_cost
-from .sse import emit_event
+from .sse import emit_event, emit_synthetic_output_stream
 
 logger = logging.getLogger(__name__)
 
@@ -1474,10 +1474,24 @@ async def _stream_stage_output(
     from .llm_router import chat_completion_stream, chat_completion_with_fallback as llm_fb
 
     accumulated: List[str] = []
+    pending_flush: List[str] = []
     chunk_count = 0
     stream_ok = False
     last_flush = time.monotonic()
     _BATCH_INTERVAL = 0.15  # flush to SSE every 150ms to avoid flooding
+
+    async def _flush_pending() -> None:
+        nonlocal last_flush
+        if not pending_flush:
+            return
+        await emit_event("stage:output-chunk", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "text": "".join(pending_flush),
+            "chunkIndex": chunk_count,
+        })
+        pending_flush.clear()
+        last_flush = time.monotonic()
 
     try:
         stream = chat_completion_stream(
@@ -1516,19 +1530,15 @@ async def _stream_stage_output(
             text = payload.get("content", "")
             if text:
                 accumulated.append(text)
+                pending_flush.append(text)
                 chunk_count += 1
 
                 # Batch chunks to avoid flooding SSE/Redis
                 now = time.monotonic()
                 if now - last_flush >= _BATCH_INTERVAL or chunk_count <= 3:
-                    await emit_event("stage:output-chunk", {
-                        "taskId": task_id,
-                        "stageId": stage_id,
-                        "text": text,
-                        "chunkIndex": chunk_count,
-                    })
-                    last_flush = now
+                    await _flush_pending()
 
+        await _flush_pending()
         stream_ok = True
 
     except Exception as stream_err:
@@ -1540,7 +1550,6 @@ async def _stream_stage_output(
     content = "".join(accumulated)
 
     if stream_ok and content.strip():
-        # Emit final flush
         await emit_event("stage:output-end", {
             "taskId": task_id,
             "stageId": stage_id,
@@ -1549,9 +1558,9 @@ async def _stream_stage_output(
         })
         return {"content": content, "usage": {}, "streamed": True}
 
-    # Fallback to non-streaming
+    # Fallback to non-streaming — still emit synthetic chunks so the UI is live
     logger.info("[pipeline] Using non-streaming fallback for %s/%s", task_id, stage_id)
-    return await llm_fb(
+    result = await llm_fb(
         model=model,
         messages=messages,
         temperature=temperature,
@@ -1559,6 +1568,17 @@ async def _stream_stage_output(
         api_url=api_url or "",
         image_attachments=image_attachments,
     )
+    fallback_content = result.get("content", "") if isinstance(result, dict) else ""
+    if fallback_content:
+        await emit_synthetic_output_stream(
+            task_id=task_id,
+            stage_id=stage_id,
+            content=fallback_content,
+            model=model,
+        )
+        result["streamed"] = True
+        result["synthetic_stream"] = True
+    return result
 
 
 async def execute_stage(
@@ -3032,6 +3052,10 @@ async def execute_stage(
         except Exception:
             logger.debug("[pipeline] DB rollback after artifact write failure failed for %s", stage_id, exc_info=True)
 
+    # Default: contract passes.  We update this below when check runs.
+    ok_vc: bool = True
+    missing_vc: tuple = ()
+
     if app_settings.artifact_store_v2 and app_settings.artifact_contract_enforce:
         from .artifact_contract import (
             validate_stage_artifact_contract,
@@ -3075,6 +3099,38 @@ async def execute_stage(
                 await db.rollback()
             except Exception:
                 logger.error("[pipeline] DB rollback failed after artifact contract error for %s", stage_id, exc_info=True)
+
+    # F2: When contract check fails in strict mode, return degraded result
+    # so the caller knows the stage didn't produce required outputs.
+    if (
+        app_settings.artifact_store_v2
+        and app_settings.artifact_contract_enforce
+        and app_settings.artifact_contract_rules_strict
+        and not ok_vc
+    ):
+        logger.warning(
+            "[pipeline] F2-contract-block: stage %s has unmet artifacts %s — returning degraded",
+            stage_id, missing_vc)
+        await emit_event("stage:completed", {
+            "taskId": task_id,
+            "stageId": stage_id,
+            "agent": agent_name,
+            "icon": agent_icon,
+            "degraded": True,
+            "contractMissing": list(missing_vc),
+        })
+        return {
+            "ok": False,
+            "degraded": True,
+            "stopped_at": stage_id,
+            "reason": f"Artifact contract unmet (strict): missing {list(missing_vc)}",
+            "contract_missing": list(missing_vc),
+            "content": content,
+            "model": model,
+            "tier": tier,
+            "trace_id": trace.trace_id,
+            "span_id": span.span_id,
+        }
 
     await emit_event("stage:completed", {
         "taskId": task_id,

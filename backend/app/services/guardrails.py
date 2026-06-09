@@ -159,7 +159,7 @@ def _audit_entry_key(entry_id: str) -> str:
 async def _store_approval(approval: ApprovalRequest) -> None:
     """Persist an approval to Redis + PostgreSQL."""
     r = get_redis()
-    await cache_set(_approval_key(approval.id), approval.dict(), ttl=APPROVAL_TTL)
+    await cache_set(_approval_key(approval.id), approval.model_dump(), ttl=APPROVAL_TTL)
     await r.sadd("approvals:pending", approval.id)
     ts = datetime.fromisoformat(approval.created_at).timestamp()
     await r.zadd(f"approvals:task:{approval.task_id}", {approval.id: ts})
@@ -306,7 +306,7 @@ async def resolve_approval(
     approval.review_comment = comment
     approval.resolved_at = datetime.utcnow().isoformat()
 
-    await cache_set(_approval_key(approval.id), approval.dict(), ttl=APPROVAL_TTL)
+    await cache_set(_approval_key(approval.id), approval.model_dump(), ttl=APPROVAL_TTL)
 
     r = get_redis()
     await r.srem("approvals:pending", approval.id)
@@ -444,7 +444,7 @@ async def _log_audit(
     )
 
     r = get_redis()
-    await cache_set(_audit_entry_key(entry.id), entry.dict(), ttl=AUDIT_ENTRY_TTL)
+    await cache_set(_audit_entry_key(entry.id), entry.model_dump(), ttl=AUDIT_ENTRY_TTL)
 
     ts = datetime.fromisoformat(entry.created_at).timestamp()
     await r.zadd("audit:log", {entry.id: ts})

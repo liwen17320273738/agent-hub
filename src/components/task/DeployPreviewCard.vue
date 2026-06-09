@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getAuthToken } from '@/services/api'
 import { Link } from '@element-plus/icons-vue'
@@ -78,6 +78,7 @@ import { Link } from '@element-plus/icons-vue'
 const props = defineProps<{
   taskId: string
   shareToken?: string
+  refreshNonce?: number
 }>()
 
 const { t } = useI18n()
@@ -91,7 +92,9 @@ const provider = ref('')
 const deployedAt = ref('')
 const screenshotB64 = ref('')
 
-onMounted(async () => {
+async function loadDeployData() {
+  loading.value = true
+  error.value = false
   try {
     const baseUrl = import.meta.env.VITE_API_BASE || '/api'
     let arts: any[] = []
@@ -146,7 +149,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(() => loadDeployData())
+watch(() => [props.taskId, props.refreshNonce], () => loadDeployData())
 
 const healthTagType = computed(() => {
   switch (healthStatus.value) {

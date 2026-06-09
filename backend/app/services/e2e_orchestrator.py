@@ -7,15 +7,16 @@ This is what makes "send a message from your phone → get a live app" possible.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-import re
 import time
 from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.pipeline import PipelineTask, PipelineArtifact
+from .codegen.codegen_agent import _slugify
 from .sse import emit_event
 from .notify import notify_task_event
 
@@ -64,6 +65,15 @@ def _detect_deploy_platform(template_id: str, description: str = "") -> str:
 
 MAX_FIX_RETRIES = 3
 
+# ── Run-loop timeouts ──────────────────────────────────────────────
+# Each phase in run_full_e2e gets a total wall-clock budget.  When the
+# budget expires the phase is reported as failed (instead of hanging
+# silently until the 1800s gateway timeout).
+# Phase 1: DAG preamble (planning + design + architecture)
+#   - default: each stage has its own STAGE_TIMEOUT below
+#   - but the whole DAG must finish within DAG_TIMEOUT
+DAG_TIMEOUT: float = float(os.getenv("AGENTHUB_DAG_TIMEOUT", "900"))
+
 
 async def run_full_e2e(
     db: AsyncSession,
@@ -97,6 +107,46 @@ async def run_full_e2e(
 
     Returns a comprehensive result dict.
     """
+    # Per-task Redis mutex: prevent concurrent runs on the same task
+    # (gateway e2e + manual dag-run triggering simultaneously).
+    from .task_lock import TaskLock
+    _lock = TaskLock(task_id, ttl=1800)
+    if not await _lock.acquire():
+        logger.warning("[e2e] Concurrent execution blocked for task %s", task_id)
+        return {
+            "ok": False,
+            "error": "Task is already being executed in another pipeline run",
+            "stopped_at": "lock",
+        }
+
+    # Suppress the stage→e2e SSE bridge for this context: run_full_e2e emits
+    # its own rich e2e:* events, so bridging internal stage:* would duplicate.
+    from .sse import suppress_e2e_bridge, restore_e2e_bridge
+    _bridge_token = suppress_e2e_bridge()
+    try:
+        return await _run_e2e_body(
+            db, task_id=task_id, task_title=task_title,
+            task_description=task_description, auto_deploy=auto_deploy,
+            dag_template=dag_template,
+            existing_project_dir=existing_project_dir,
+            pause_for_acceptance=pause_for_acceptance,
+        )
+    finally:
+        restore_e2e_bridge(_bridge_token)
+        await _lock.release()
+
+
+async def _run_e2e_body(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    task_title: str,
+    task_description: str,
+    auto_deploy: bool = True,
+    dag_template: str = DEFAULT_GATEWAY_E2E_DAG_TEMPLATE,
+    existing_project_dir: Optional[str] = None,
+    pause_for_acceptance: bool = False,
+) -> Dict[str, Any]:
     e2e_result: Dict[str, Any] = {
         "task_id": task_id,
         "title": task_title,
@@ -114,7 +164,7 @@ async def run_full_e2e(
                 "taskId": task_id, "event": event, **result.to_dict(),
             })
         except Exception as e:
-            logger.warning(f"[e2e] notify {event} failed: {e}")
+            logger.error("[e2e] notify %s failed for task %s: %s", event, task_id, e, exc_info=True)
 
     # Inject existing project context into description so all pipeline agents see it
     effective_description = task_description
@@ -140,6 +190,28 @@ async def run_full_e2e(
         extras={"自动部署": "是" if auto_deploy else "否"},
     )
 
+    # ── Pre-flight: log environment state so diagnosis is not guesswork ──
+    _pre_flight: Dict[str, str] = {}
+    import shutil, sys
+    _pre_flight["node"] = shutil.which("node") or "MISSING"
+    _pre_flight["pnpm"] = shutil.which("pnpm") or "MISSING"
+    _pre_flight["claude"] = shutil.which("claude") or "MISSING (codegen fallback)"
+    try:
+        import playwright; _pre_flight["playwright"] = "ok"
+    except ImportError:
+        _pre_flight["playwright"] = "MISSING (QA screenshots will degrade)"
+    from ..config import settings
+    _pre_flight["vercel_token"] = "set" if settings.vercel_token or os.environ.get("VERCEL_TOKEN") else "MISSING (fallback to local preview)"
+    _pre_flight["cloudflare_token"] = "set" if settings.cloudflare_api_token or os.environ.get("CLOUDFLARE_API_TOKEN") else "MISSING"
+    logger.info(
+        "[e2e] pre-flight for task=%s: %s",
+        task_id, {k: v for k, v in _pre_flight.items() if v != "ok"},
+    )
+    await emit_event("e2e:preflight", {
+        "taskId": task_id,
+        "checks": _pre_flight,
+    })
+
     # ── Phase 1: DAG preamble (default ``e2e_intake``: planning → design ∥ architecture) ─────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "design-pipeline", "status": "running"})
     _t_design = time.monotonic()
@@ -156,13 +228,16 @@ async def run_full_e2e(
         await db.flush()
 
     try:
-        pipeline_result = await execute_dag_pipeline(
-            db,
-            task_id=task_id,
-            task_title=task_title,
-            task_description=effective_description,
-            template=dag_template,
-            project_path=existing_project_dir,
+        pipeline_result = await asyncio.wait_for(
+            execute_dag_pipeline(
+                db,
+                task_id=task_id,
+                task_title=task_title,
+                task_description=effective_description,
+                template=dag_template,
+                project_path=existing_project_dir,
+            ),
+            timeout=DAG_TIMEOUT,
         )
         logger.info(
             "[e2e] phase=dag-preamble template=%s wall_s=%.1f stages_completed=%s",
@@ -170,6 +245,14 @@ async def run_full_e2e(
             time.monotonic() - _t_design,
             (pipeline_result.get("summary") or {}).get("stagesCompleted", "?"),
         )
+    except asyncio.TimeoutError:
+        pipeline_result = {
+            "ok": False,
+            "error": f"DAG timeout after {DAG_TIMEOUT}s",
+        }
+        await emit_event("e2e:phase", {
+            "taskId": task_id, "phase": "design-pipeline", "status": "timed_out",
+        })
     finally:
         if db_task is not None and not user_auto_final_accept:
             db_task.auto_final_accept = False
@@ -192,7 +275,8 @@ async def run_full_e2e(
                 db_task.scheduler_last_error = e2e_result["error"][:1000]
                 await db.commit()
         except Exception as status_err:
-            logger.warning("[e2e] Failed to update task status on DAG failure: %s", status_err)
+            logger.error("[e2e] Failed to update task status on DAG failure for task %s: %s", task_id, status_err, exc_info=True)
+            logger.error("[e2e] DAG pipeline_result=%s", pipeline_result.get("error", "unknown"))
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "design-pipeline"})
         await _notify("failed", message="设计阶段失败，请在控制台查看详情",
                       extras={"阶段": "design-pipeline"})
@@ -258,7 +342,8 @@ async def run_full_e2e(
                 db_task.scheduler_last_error = e2e_result["error"][:1000]
                 await db.commit()
         except Exception as status_err:
-            logger.warning("[e2e] Failed to update task status on codegen failure: %s", status_err)
+            logger.error("[e2e] Failed to update task status on codegen failure for task %s: %s", task_id, status_err, exc_info=True)
+            logger.error("[e2e] codegen error=%s", codegen_result.get("error", "unknown"))
         await emit_event("e2e:failed", {"taskId": task_id, "phase": "codegen"})
         await _notify(
             "failed",
@@ -276,14 +361,25 @@ async def run_full_e2e(
         "engine": codegen_result.get("engine"),
         "filesWritten": codegen_result.get("total_files", 0),
     })
+    await _notify(
+        "progress",
+        message="代码生成完成，开始构建验证",
+        extras={"引擎": codegen_result.get("engine", "unknown"), "文件数": codegen_result.get("total_files", 0)},
+    )
 
     # ── Phase 3: Build + Test → Fix Loop ────────────────────────────
     await emit_event("e2e:phase", {"taskId": task_id, "phase": "build-test", "status": "running"})
-    _t_build = time.monotonic()
 
     from .codegen.templates import get_template
     template = get_template(template_id)
     build_cmd = template.get("build_cmd", "") if template else ""
+
+    await _notify(
+        "progress",
+        message="正在构建与测试代码",
+        extras={"构建命令": build_cmd or "（未定义）"},
+    )
+    _t_build = time.monotonic()
 
     build_test_result: Dict[str, Any] = {"ok": True, "skipped": not build_cmd, "attempts": 0}
 
@@ -291,18 +387,34 @@ async def run_full_e2e(
         for attempt in range(1, MAX_FIX_RETRIES + 1):
             build_test_result["attempts"] = attempt
 
+            await emit_event("e2e:build-progress", {
+                "taskId": task_id,
+                "attempt": attempt,
+                "maxRetries": MAX_FIX_RETRIES,
+                "status": "running",
+                "message": f"Build attempt {attempt}/{MAX_FIX_RETRIES}",
+            })
+
             build_output = await codegen.run_build(project_dir, build_cmd)
             build_test_result["build_output"] = build_output.get("output", "")[:1000]
 
             if build_output.get("ok"):
                 build_test_result["ok"] = True
                 build_test_result["fixed_on_attempt"] = attempt if attempt > 1 else None
+                await emit_event("e2e:build-progress", {
+                    "taskId": task_id,
+                    "attempt": attempt,
+                    "maxRetries": MAX_FIX_RETRIES,
+                    "status": "done",
+                    "message": "Build passed" if attempt == 1 else f"Build passed after auto-fix",
+                })
                 break
 
             await emit_event("e2e:build-failed", {
                 "taskId": task_id,
                 "attempt": attempt,
                 "maxRetries": MAX_FIX_RETRIES,
+                "errorSnippet": build_output.get("output", "")[:500],
             })
 
             if attempt >= MAX_FIX_RETRIES:
@@ -310,10 +422,11 @@ async def run_full_e2e(
                 build_test_result["error"] = f"Build failed after {MAX_FIX_RETRIES} attempts"
                 break
 
+            build_log_path = os.path.join(project_dir, "build.log")
             fix_result = await codegen.auto_fix(
                 task_id=task_id,
                 project_dir=project_dir,
-                error_output=build_output.get("output", ""),
+                build_log_path=build_log_path,
                 attempt=attempt,
             )
 
@@ -321,6 +434,7 @@ async def run_full_e2e(
                 "taskId": task_id,
                 "attempt": attempt,
                 "fixOk": fix_result.get("ok", False),
+                "message": f"Auto-fix attempt {attempt}: {'ok' if fix_result.get('ok') else 'failed'}",
             })
 
             if not fix_result.get("ok"):
@@ -337,28 +451,116 @@ async def run_full_e2e(
         build_test_result.get("skipped"),
     )
 
-    if not build_test_result.get("ok") and not build_test_result.get("skipped"):
-        e2e_result["ok"] = False
-        e2e_result["stopped_at"] = "build_test"
-        e2e_result["error"] = build_test_result.get("error", "Build failed")
-        await emit_event("e2e:failed", {"taskId": task_id, "phase": "build-test"})
-        await _notify(
-            "failed",
-            message="构建/测试失败，自动修复重试已用尽",
-            extras={"重试次数": build_test_result.get("attempts", 0)},
-        )
-        return e2e_result
+    if not build_test_result.get("ok"):
+        if build_test_result.get("skipped"):
+            # F6: on auto-deploy golden path, skipped build is not acceptable.
+            e2e_result["ok"] = False
+            e2e_result["stopped_at"] = "build_test"
+            e2e_result["error"] = "No build command defined for this project template; cannot verify code quality"
+            await emit_event("e2e:failed", {"taskId": task_id, "phase": "build-test", "reason": "build_skipped"})
+            await _notify("failed", message="构建跳过：未定义构建命令，无法验证代码质量")
+            return e2e_result
+        else:
+            e2e_result["ok"] = False
+            e2e_result["stopped_at"] = "build_test"
+            e2e_result["error"] = build_test_result.get("error", "Build failed")
+            await emit_event("e2e:failed", {"taskId": task_id, "phase": "build-test"})
+            await _notify(
+                "failed",
+                message="构建/测试失败，自动修复重试已用尽",
+                extras={"重试次数": build_test_result.get("attempts", 0)},
+            )
+            return e2e_result
 
     await emit_event("e2e:phase", {
         "taskId": task_id, "phase": "build-test", "status": "done",
         "attempts": build_test_result.get("attempts", 0),
     })
+    await _notify(
+        "progress",
+        message="构建验证通过",
+        extras={"尝试次数": build_test_result.get("attempts", 0)},
+    )
+
+    # ── Write code artifacts (source_manifest + build.log) to DB ────
+    # If artifacts fail to persist, the delivery contract cannot verify
+    # code generation: treat as a codegen phase failure instead of silently
+    # continuing with no evidence.
+    try:
+        from .artifact_writer import write_code_artifacts
+        await write_code_artifacts(db, task_id=task_id, project_dir=project_dir, agent_name="Agent-developer")
+        logger.info("[e2e] write_code_artifacts done for task %s", task_id)
+    except Exception as e:
+        logger.error("[e2e] write_code_artifacts failed for task %s: %s", task_id, e, exc_info=True)
+        await emit_event("e2e:phase", {
+            "taskId": task_id, "phase": "codegen", "status": "degraded",
+            "error": f"代码工件写入失败: {e}",
+        })
+        await _notify("failed", message="代码构件写入失败，阶段标记降级")
+        e2e_result["phases"]["codegen"] = {
+            "ok": False, "error": f"write_code_artifacts failed: {e}",
+        }
+        e2e_result["ok"] = False
+        return e2e_result
+
+    # ── Phase 3.5: Real QA execution → test_report / test_log evidence ──
+    # The build loop above only proves the project compiles. The delivery
+    # contract (verify_delivery_evidence) additionally requires test_report
+    # and test_log artifacts. QaExecutor runs install/build/test + browser
+    # smoke and persists structured evidence. QA is best-effort here: missing
+    # tooling (e.g. playwright) must NOT regress the deploy-only golden path,
+    # so failures are recorded but do not stop the flow.
+    qa_summary: Dict[str, Any] = {"ok": False, "ran": False}
+    try:
+        from .qa_executor import QaExecutor
+        from .artifact_writer import write_qa_artifacts
+
+        await emit_event("e2e:phase", {"taskId": task_id, "phase": "qa", "status": "running"})
+        await _notify("progress", message="正在运行真实测试与冒烟检查")
+
+        qa = QaExecutor(project_dir)
+        qa_result = await qa.run_full_qa()
+        qa_summary = {
+            "ok": bool(qa_result.get("ok")),
+            "ran": True,
+            "blocked": bool(qa_result.get("blocked")),
+            "failed_step": qa_result.get("failed_step"),
+        }
+
+        # Always persist whatever evidence QA produced (test_report/test_log/...)
+        try:
+            qa_arts = await write_qa_artifacts(db, task_id, project_dir, qa_result)
+            logger.info("[e2e] write_qa_artifacts wrote %d artifacts for task %s", len(qa_arts), task_id)
+        except Exception as we:
+            logger.error("[e2e] write_qa_artifacts failed for task %s: %s", task_id, we, exc_info=True)
+
+        await emit_event("e2e:phase", {
+            "taskId": task_id, "phase": "qa",
+            "status": "done" if qa_summary["ok"] else "degraded",
+            "blocked": qa_summary["blocked"],
+            "failedStep": qa_summary["failed_step"],
+        })
+        if not qa_summary["ok"]:
+            logger.warning(
+                "[e2e] QA did not fully pass for task %s (blocked=%s, failed_step=%s) — continuing to deploy",
+                task_id, qa_summary["blocked"], qa_summary["failed_step"],
+            )
+    except Exception as qa_err:
+        logger.error("[e2e] QA execution error for task %s: %s — continuing", task_id, qa_err, exc_info=True)
+        await emit_event("e2e:phase", {"taskId": task_id, "phase": "qa", "status": "degraded"})
+
+    e2e_result["phases"]["qa"] = qa_summary
 
     # ── Phase 4: Deploy ─────────────────────────────────────────────
     deploy_result: Dict[str, Any] = {"ok": False, "skipped": True}
 
     if auto_deploy:
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "deploy", "status": "running"})
+        await _notify(
+            "progress",
+            message="正在部署到线上环境",
+            extras={"平台": _detect_deploy_platform(template_id, task_description)},
+        )
 
         platform = _detect_deploy_platform(template_id, task_description)
         deploy_result = await _auto_deploy(
@@ -386,6 +588,8 @@ async def run_full_e2e(
             "phase": "deploy",
             "status": "done" if deploy_result.get("ok") else "failed",
             "url": deploy_result.get("url", ""),
+            "provider": deploy_result.get("provider", platform),
+            "healthStatus": deploy_result.get("health_status"),
         })
 
         if not deploy_result.get("ok"):
@@ -440,26 +644,43 @@ async def run_full_e2e(
 
     if preview_url:
         await emit_event("e2e:phase", {"taskId": task_id, "phase": "preview", "status": "running"})
+        await _notify(
+            "progress",
+            message="正在截取部署预览截图",
+            extras={"URL": preview_url},
+        )
 
-        try:
-            from .interaction.preview import PreviewService
-            preview_svc = PreviewService()
-            screenshot_dir = "/tmp/agent-hub-previews"
-            os.makedirs(screenshot_dir, exist_ok=True)
-            screenshot_path = os.path.join(screenshot_dir, f"{task_id}.png")
-            shot = await preview_svc.capture_screenshot(
-                url=preview_url, output_path=screenshot_path,
-            )
-            screenshot_ok = bool(shot.get("ok"))
-            preview_result = {
-                "ok": screenshot_ok,
-                "screenshotOk": screenshot_ok,
-                "screenshotPath": screenshot_path if screenshot_ok else "",
-                "error": "" if screenshot_ok else (shot.get("error") or "preview screenshot failed"),
-            }
-        except Exception as e:
-            logger.warning(f"[e2e] screenshot failed: {e}")
-            preview_result = {"ok": False, "screenshotOk": False, "error": str(e)}
+        # Use existing local screenshot from LocalPreview if available;
+        # otherwise capture one via StealthBrowser (Playwright) — NOT
+        # PreviewService (which uses Puppeteer and blocks localhost).
+        screenshot_path: str = deploy_result.get("screenshot_path") or ""
+        screenshot_ok = bool(screenshot_path) and os.path.isfile(screenshot_path)
+
+        if not screenshot_ok and preview_url:
+            try:
+                from .stealth_browser import StealthBrowser as _SB
+                ss_dir = deploy_result.get("screenshot_dir") or "/tmp/agent-hub-previews"
+                os.makedirs(ss_dir, exist_ok=True)
+                ss_path = os.path.join(ss_dir, f"{task_id}.png")
+                _b = _SB()
+                await _b.open(headless=True, viewport="1280x720")
+                nav = await _b.navigate(preview_url, wait_until="networkidle")
+                if nav.get("success"):
+                    await _b.screenshot(path=ss_path)
+                    screenshot_path = ss_path
+                    screenshot_ok = True
+                await _b.close()
+            except Exception as ss_e:
+                logger.error("[e2e] StealthBrowser screenshot failed for task %s, url=%s: %s", task_id, preview_url, ss_e, exc_info=True)
+                screenshot_ok = False
+                screenshot_path = ""
+
+        preview_result = {
+            "ok": screenshot_ok,
+            "screenshotOk": screenshot_ok,
+            "screenshotPath": screenshot_path if screenshot_ok else "",
+            "error": "" if screenshot_ok else "deploy screenshot unavailable (LocalPreview did not capture it and StealthBrowser failed)",
+        }
 
         e2e_result["phases"]["preview"] = preview_result
         await emit_event("e2e:phase", {
@@ -487,6 +708,26 @@ async def run_full_e2e(
     else:
         e2e_result["phases"]["preview"] = preview_result
 
+    # ── Write deploy artifacts (preview_url, screenshot, ops_runbook) to DB ──
+    if deploy_result.get("ok"):
+        try:
+            from .artifact_writer import write_deploy_artifacts
+            deploy_payload = dict(deploy_result)
+            if preview_result.get("screenshotPath"):
+                deploy_payload["screenshot_path"] = preview_result["screenshotPath"]
+            await write_deploy_artifacts(db, task_id=task_id, project_dir=project_dir, deploy_result=deploy_payload)
+            logger.info("[e2e] write_deploy_artifacts done for task %s", task_id)
+        except Exception as e:
+            logger.error("[e2e] write_deploy_artifacts failed for task %s: %s", task_id, e, exc_info=True)
+            await emit_event("e2e:phase", {
+                "taskId": task_id, "phase": "deploy", "status": "degraded",
+                "error": f"部署工件写入失败: {e}",
+            })
+            await _notify("failed", message="部署构件写入失败，阶段标记降级")
+            deploy_result = dict(deploy_result)
+            deploy_result["ok"] = False
+            deploy_result["error"] = f"write_deploy_artifacts failed: {e}"
+
     # ── Phase 5.5: Post-deploy Acceptance (evidence-based) ───────────
     # Re-invoke the reviewing stage with the live URL + screenshot baked
     # into previous_outputs so the acceptance-agent can use browser_*
@@ -496,6 +737,11 @@ async def run_full_e2e(
         await emit_event("e2e:phase", {
             "taskId": task_id, "phase": "acceptance", "status": "running",
         })
+        await _notify(
+            "progress",
+            message="AI 正在对上线内容做最终验收",
+            extras={"URL": preview_url},
+        )
         try:
             from .pipeline_engine import execute_stage
 
@@ -528,7 +774,7 @@ async def run_full_e2e(
                 "cost_usd": acc.get("cost_usd"),
             }
         except Exception as e:
-            logger.warning(f"[e2e] post-deploy acceptance failed: {e}")
+            logger.error("[e2e] post-deploy acceptance failed for task %s: %s", task_id, e, exc_info=True)
             acceptance_result = {"ok": False, "skipped": False, "error": str(e)}
 
         e2e_result["phases"]["acceptance"] = acceptance_result
@@ -567,9 +813,58 @@ async def run_full_e2e(
     # orchestrator may have already moved the task into a terminal state
     # (because we let it run to completion above); here we explicitly
     # override it so we own the decision.
-    pause_now = pause_for_acceptance and all_ok and bool(db_task)
+    # ── Phase 5.8: Delivery Contract Gate (F1) ─────────────────────
+    # Before auto-accepting, verify that the delivery evidence actually
+    # exists (real test passing, real preview URL with healthy status,
+    # real acceptance evidence).  This is the hard gate that prevents
+    # "trust-killer" silent OK where we mark a task done without real
+    # proof of working software.
+    contract_pass = True
+    if db_task and all_ok and not pause_for_acceptance:
+        try:
+            from .delivery_contract import verify_delivery_evidence
+            ev = await verify_delivery_evidence(db, db_task)
+            contract_pass = ev.ok
+            if not contract_pass:
+                logger.error(
+                    "[e2e] Delivery contract BLOCKED auto-accept for task %s: %s",
+                    task_id, ev.summary,
+                )
+                # Do NOT mark task as done — downgrade to awaiting evidence
+                db_task.status = "awaiting_evidence"
+                db_task.current_stage_id = "final_acceptance"
+                db_task.final_acceptance_status = "pending"
+                await db.flush()
+                await emit_event("e2e:contract-blocked", {
+                    "taskId": task_id,
+                    "summary": ev.summary,
+                    "missing": list(ev.missing),
+                })
+        except Exception as contract_err:
+            # Fail-closed: if we cannot verify the delivery contract, do NOT
+            # auto-publish. Downgrade to awaiting_evidence so a human reviews
+            # rather than silently shipping unverified work.
+            logger.error(
+                "[e2e] Delivery contract check errored for task %s — failing closed (awaiting evidence): %s",
+                task_id, contract_err, exc_info=True,
+            )
+            contract_pass = False
+            if db_task:
+                db_task.status = "awaiting_evidence"
+                db_task.current_stage_id = "final_acceptance"
+                db_task.final_acceptance_status = "pending"
+                await db.flush()
+                await emit_event("e2e:contract-blocked", {
+                    "taskId": task_id,
+                    "summary": "交付证据校验异常，已转入人工复核",
+                    "missing": [],
+                })
+    else:
+        contract_pass = True
 
-    if db_task and all_ok and not pause_now:
+    pause_now = pause_for_acceptance and all_ok and bool(db_task) and contract_pass
+
+    if db_task and all_ok and not pause_now and contract_pass:
         db_task.status = "done"
         # Auto-publish path: stamp the auto-acceptance so the dashboard's
         # final-acceptance banner doesn't blink for already-done tasks.
@@ -642,16 +937,41 @@ async def _auto_deploy(
 
     if platform == "vercel":
         token = settings.vercel_token or os.environ.get("VERCEL_TOKEN", "")
-        if not token:
-            return {"ok": False, "error": "VERCEL_TOKEN not configured", "skipped": True}
+        if token:
+            from .deploy.vercel import deploy_to_vercel
+            result = await deploy_to_vercel(
+                project_dir=project_dir,
+                project_name=project_name,
+                token=token,
+                production=False,
+            )
+            if result.get("ok"):
+                result["provider"] = "vercel"
+                return result
+            logger.warning("[e2e] Vercel deploy failed for task %s (%s); falling back to local preview", task_id, result.get("error", "unknown"))
 
-        from .deploy.vercel import deploy_to_vercel
-        return await deploy_to_vercel(
-            project_dir=project_dir,
-            project_name=project_name,
-            token=token,
-            production=False,
-        )
+        # Fallback to local preview
+        from .deploy.local_preview import LocalPreview
+        local = LocalPreview(project_dir)
+        res = await local.deploy()
+        if not res.ok:
+            local._cleanup()
+            return {
+                "ok": False,
+                "error": f"Vercel not available and local preview failed: {res.error}",
+                "skipped": False,
+                "url": res.url or "",
+            }
+        local.detach()
+        return {
+            "ok": True,
+            "provider": "local",
+            "url": res.url,
+            "port_used": res.port_used,
+            "health_status": res.health_status,
+            "screenshot_path": res.screenshot_path or "",
+            "deployed_at": res.deployed_at,
+        }
 
     if platform == "cloudflare":
         token = settings.cloudflare_api_token or os.environ.get("CLOUDFLARE_API_TOKEN", "")
@@ -681,12 +1001,6 @@ async def _auto_deploy(
         )
 
     return {"ok": False, "error": f"Unknown platform: {platform}", "skipped": True}
-
-
-def _slugify(text: str) -> str:
-    slug = re.sub(r'[^\w\s-]', '', text.lower())
-    slug = re.sub(r'[\s_]+', '-', slug)
-    return slug[:64].strip("-") or "project"
 
 
 def _parse_uuid(task_id: str):

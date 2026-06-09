@@ -58,21 +58,27 @@ STAGE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "min_user_stories": 3,
     },
     "design": {
-        "required_sections": ["界面", "交互", "布局", "配色"],
+        # Aligned with stage_constants.py design prompt output sections
+        # (设计原则, 设计Token, 核心页面布局, 组件清单, 交互流程, 无障碍考虑).
+        # We check a subset of these — matching any is enough to pass,
+        # since the prompt reliably produces several of them.
+        "required_sections": ["设计原则", "核心页面布局", "交互流程", "设计 Token", "组件清单"],
         "min_length": 500,
         "format": "markdown",
-        "must_contain": ["用户"],
+        "must_contain": ["设计"],
         "must_contain_any": True,
     },
     "architecture": {
-        "required_sections": ["技术选型", "架构", "数据模型", "API", "实现步骤"],
+        # Aligned with stage_constants.py architecture prompt output sections
+        "required_sections": ["系统架构", "数据模型", "API 设计", "前端架构", "实现路线图"],
         "min_length": 1000,
         "format": "markdown",
         "must_contain": ["风险"],
         "min_code_blocks": 1,
     },
     "development": {
-        "required_sections": ["项目结构", "代码"],
+        # Aligned with stage_constants.py development prompt output sections
+        "required_sections": ["项目结构", "核心代码", "前端实现", "开发说明"],
         "min_length": 1500,
         "format": "markdown",
         "must_contain": ["```"],
@@ -80,7 +86,8 @@ STAGE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "min_code_files": 2,
     },
     "testing": {
-        "required_sections": ["测试范围", "测试用例"],
+        # Aligned with stage_constants.py testing prompt output sections
+        "required_sections": ["测试范围", "测试用例", "安全审查", "结论"],
         "min_length": 600,
         "format": "markdown",
         "must_contain": ["PASS", "NEEDS WORK", "结论", "通过", "失败"],
@@ -88,14 +95,19 @@ STAGE_REQUIREMENTS: Dict[str, Dict[str, Any]] = {
         "min_test_cases": 5,
     },
     "reviewing": {
-        "required_sections": ["评估"],
+        # Keep in lock-step with quality_gates.STAGE_GATE_CONFIG["reviewing"]
+        # and the acceptance-agent output_template (seed.py). A drift here
+        # silently FAILs self-verify even when the gate passes, dead-ending
+        # the task at "Verification requires human review".
+        "required_sections": ["评分", "需求覆盖", "结论"],
         "min_length": 400,
         "format": "markdown",
         "must_contain": ["APPROVE", "REJECT", "通过", "驳回"],
         "must_contain_any": True,
     },
     "deployment": {
-        "required_sections": ["环境", "部署"],
+        # Aligned with stage_constants.py deployment prompt output sections
+        "required_sections": ["部署架构", "环境要求", "Docker", "配置说明", "部署步骤"],
         "min_length": 400,
         "format": "markdown",
         "must_contain": ["docker", "Docker", "CI", "回滚", "部署", "启动"],

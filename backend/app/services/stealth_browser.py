@@ -27,6 +27,7 @@ class StealthBrowser:
         self._browser = None
         self._context = None
         self._page = None
+        self._playwright = None
         self._stealth_mode = True
     
     async def open(
@@ -61,6 +62,9 @@ class StealthBrowser:
         width, height = map(int, viewport.split("x"))
         
         pw = await async_playwright().start()
+        # Retain the driver so close() can stop it — otherwise the playwright
+        # node driver (and the chromium it manages) leaks as a zombie process.
+        self._playwright = pw
         
         # Stealth launch args
         launch_args = [
@@ -265,13 +269,27 @@ class StealthBrowser:
             await self._context.add_cookies(cookies)
     
     async def close(self) -> None:
-        """Close the browser"""
+        """Close the browser and stop the underlying playwright driver.
+
+        Both steps run independently so that a failure closing the browser
+        still stops the driver — leaving the driver running is what leaks
+        zombie chromium processes after preview/qa runs.
+        """
         if self._browser:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception as e:
+                logger.warning("Stealth browser close failed: %s", e)
             self._browser = None
             self._context = None
             self._page = None
-            logger.info("Stealth browser closed")
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception as e:
+                logger.warning("Playwright driver stop failed: %s", e)
+            self._playwright = None
+        logger.info("Stealth browser closed")
 
 
 # Singleton

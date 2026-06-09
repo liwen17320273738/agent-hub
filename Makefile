@@ -7,7 +7,7 @@
 #   - Redis (port 6379): Cache + SSE pub/sub + working memory
 #   - Nginx (port 80): Reverse proxy (Docker only)
 
-.PHONY: help check config install dev dev-daemon start stop clean test test-relay lint format-backend migrate \
+.PHONY: help doctor check config install dev dev-daemon start stop clean test test-relay lint format-backend migrate \
         docker-start docker-stop docker-logs docker-build backup reset-admin verify-login \
         provision deploy-server
 
@@ -18,6 +18,7 @@ REPO_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 help:
 	@echo "Agent Hub Development Commands:"
 	@echo ""
+	@echo "  make doctor          - Pre-flight health check for golden-path E2E flow"
 	@echo "  make check           - Check if all required tools are installed"
 	@echo "  make config          - Generate local config files from examples"
 	@echo "  make install         - Install all dependencies (frontend + backend)"
@@ -45,6 +46,12 @@ help:
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make backup          - Backup PostgreSQL database"
+
+# ── Doctor (golden-path preflight) ───────────────────────────────────────────
+
+doctor:
+	@cd backend && $(PYTHON) ../scripts/doctor.py
+.PHONY: doctor
 
 # ── Check Dependencies ──────────────────────────────────────────────────────
 

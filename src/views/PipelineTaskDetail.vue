@@ -48,7 +48,7 @@
           <el-icon><Download /></el-icon> {{ $t('task.download') }}
         </el-button>
         <el-dropdown @command="generateShareLink" trigger="click">
-          <el-button size="small">
+          <el-button size="small" :disabled="isRunningNow" :title="isRunningNow ? t('pipelineTaskDetail.shareDisabledWhileRunning') : ''">
             <el-icon><Share /></el-icon> {{ $t('task.share') }}
           </el-button>
           <template #dropdown>
@@ -181,7 +181,13 @@
 
     <el-tabs v-model="activeMainTab" class="task-main-tabs">
       <el-tab-pane :label="t('pipelineTaskDetail.tabArtifacts')" name="artifacts">
-        <TaskArtifactTabs :task-id="task.id" :task-status="task.status" />
+        <TaskArtifactTabs
+          ref="artifactTabsRef"
+          :task-id="task.id"
+          :task-status="task.status"
+          :draft-by-type="artifactDrafts"
+          :refresh-nonce="artifactRefreshNonce"
+        />
       </el-tab-pane>
       <el-tab-pane :label="t('pipelineTaskDetail.tabOverview')" name="overview" lazy>
     <section v-if="qualitySummary.total > 0" class="quality-summary">
@@ -206,6 +212,9 @@
         <span class="live-icon">{{ processingNarrative.icon }}</span>
         <span class="live-agent">{{ processingNarrative.agent }}</span>
         <span class="live-text">{{ processingNarrative.narrative }}</span>
+        <span v-if="isRunningNow && liveElapsedSec > 0" class="live-elapsed">
+          <el-icon :size="12"><Timer /></el-icon>{{ liveElapsedLabel }}
+        </span>
       </div>
       <ul v-if="narrativeFeed.length > 1" class="live-narrative-feed">
         <li v-for="(n, i) in narrativeFeed.slice(1)" :key="`${n.stageId}-${n.at}-${i}`">
@@ -438,7 +447,7 @@
             <el-icon><Close /></el-icon> {{ t('pipelineTaskDetail.rejectRedo') }}
           </el-button>
           <el-dropdown @command="generateShareLink" trigger="click">
-            <el-button size="large">
+            <el-button size="large" :disabled="isRunningNow" :title="isRunningNow ? t('pipelineTaskDetail.shareDisabledWhileRunning') : ''">
               <el-icon><Share /></el-icon> {{ t('pipelineTaskDetail.genShareLink') }}
             </el-button>
             <template #dropdown>
@@ -519,8 +528,40 @@
           <div class="exec-banner-sub">{{ execBannerSub }}</div>
         </div>
         <div class="exec-banner-action">
+          <!-- 待你审批：把"批准/驳回"直接放在状态卡里，不用再滚回上面找阶段卡 -->
+          <template v-if="!isRunningNow && currentStage?.status === 'awaiting_approval'">
+            <el-button
+              type="success"
+              size="large"
+              @click="handleApproveStage(currentStage.id, true)"
+              :loading="approvingStage === currentStage.id"
+            >
+              <el-icon><Check /></el-icon>
+              {{ t('pipelineTaskDetail.btnApproveContinue') }}
+            </el-button>
+            <el-button
+              size="large"
+              plain
+              @click="handleApproveStage(currentStage.id, false)"
+              :loading="approvingStage === currentStage.id"
+            >
+              <el-icon><Close /></el-icon>
+              {{ t('pipelineTaskDetail.btnReject') }}
+            </el-button>
+          </template>
+          <!-- 疑似中断：主按钮 = 从断点继续（resume），而非重新规划 -->
           <el-button
-            v-if="!isRunningNow && task.currentStageId !== 'done' && currentStage?.status !== 'awaiting_approval'"
+            v-else-if="!isRunningNow && isLikelyInterrupted"
+            type="warning"
+            size="large"
+            @click="handleResumeDag"
+            :loading="resumingDag"
+          >
+            <el-icon><Refresh /></el-icon>
+            {{ primaryRunLabel }}
+          </el-button>
+          <el-button
+            v-else-if="!isRunningNow && task.currentStageId !== 'done'"
             :type="currentStageGateFailed ? 'warning' : 'primary'"
             size="large"
             @click="handlePrimaryRun"
@@ -882,7 +923,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AutoTranslated from '@/components/AutoTranslated.vue'
 import {
   ArrowDown, ArrowLeft, Back, Bell, CaretRight, Check, Close, CloseBold,
-  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Share, Unlock,
+  ChatDotSquare, Document, Download, Loading, Refresh, RefreshRight, Right, Setting, Share, Timer, Unlock,
   VideoPlay, View, Warning, WarningFilled,
 } from '@element-plus/icons-vue'
 import { usePipelineStore } from '@/stores/pipeline'
@@ -905,6 +946,10 @@ import type { UploadRequestOptions } from 'element-plus'
 import type { QualityReport } from '@/services/pipelineApi'
 import type { PipelineTask, PipelineEvent, SubtaskInfo } from '@/agents/types'
 import { renderMarkdown } from '@/services/markdown'
+import {
+  artifactTypesForStage,
+  primaryArtifactForStage,
+} from '@/services/stageArtifactMap'
 import SubtaskCard from '@/components/SubtaskCard.vue'
 import ArtifactCompletionBar from '@/components/task/ArtifactCompletionBar.vue'
 import TaskArtifactTabs from '@/components/task/TaskArtifactTabs.vue'
@@ -1035,6 +1080,34 @@ const subtasks = ref<SubtaskInfo[]>([])
 const processingStage = ref<string | null>(null)
 const processingNarrative = ref<{ agent: string; icon: string; role: string; narrative: string; stageId: string; at: number } | null>(null)
 const narrativeFeed = ref<Array<{ agent: string; icon: string; narrative: string; stageId: string; at: number }>>([])
+
+// ── Live "this stage has been working for Ns" timer (B1) ──
+// Backend emits `stage:heartbeat` (execute_full_pipeline every 30s,
+// dag_orchestrator every 15s) but the frontend never consumed it, so a
+// running stage looked frozen between coarse status changes. We sync the
+// authoritative elapsed from each heartbeat and run a local 1s ticker to
+// fill the gaps, so the number visibly moves every second.
+const liveElapsedSec = ref(0)
+let elapsedTicker: ReturnType<typeof setInterval> | null = null
+function startElapsedTicker() {
+  if (elapsedTicker !== null) return
+  elapsedTicker = setInterval(() => { liveElapsedSec.value += 1 }, 1000)
+}
+function stopElapsedTicker() {
+  if (elapsedTicker !== null) { clearInterval(elapsedTicker); elapsedTicker = null }
+  liveElapsedSec.value = 0
+}
+function formatElapsedShort(totalSec: number): string {
+  const s = Math.max(0, Math.floor(totalSec))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rs = s % 60
+  if (m < 60) return `${m}m ${String(rs).padStart(2, '0')}s`
+  const h = Math.floor(m / 60)
+  const rm = m % 60
+  return `${h}h ${String(rm).padStart(2, '0')}m`
+}
+const liveElapsedLabel = computed(() => formatElapsedShort(liveElapsedSec.value))
 const showRejectDialog = ref(false)
 const rejectTarget = ref('')
 const rejectReason = ref('')
@@ -1090,6 +1163,11 @@ const completedSubtasks = computed(() =>
 
 const statusLabel = computed(() => {
   const s = task.value?.status || ''
+  // active 是个总称，但徽章别撒谎：在等你审批 / 疑似中断时如实说。
+  if (s === 'active') {
+    if (currentStage.value?.status === 'awaiting_approval') return t('pipelineTaskDetail.taskStatusWaitYou')
+    if (isLikelyInterrupted.value) return t('pipelineTaskDetail.taskStatusInterrupted')
+  }
   const key = `status.${s}`
   const translated = t(key)
   if (translated !== key) return translated
@@ -1102,6 +1180,10 @@ const statusLabel = computed(() => {
 
 const statusTagType = computed(() => {
   const s = task.value?.status || ''
+  if (s === 'active') {
+    if (currentStage.value?.status === 'awaiting_approval') return 'warning'
+    if (isLikelyInterrupted.value) return 'warning'
+  }
   const map: Record<string, string> = {
     active: 'primary',
     running: 'primary',
@@ -1265,6 +1347,34 @@ const isSchedulerQueued = computed(() => {
   return false
 })
 
+// "排队中" 与 "悄无声息地死了" 的诚实区分。
+// reload/崩溃会杀掉在途协程，DB 里 task 留在 active 永不转终态（诊断 #11）。
+// 若任务 active、当前阶段无产出、调度器里又没有真在跑的作业，且已超过阈值
+// 没有任何更新 —— 就别再用 "正在等待执行槽位" 安抚用户，直说 "可能已中断"。
+const STUCK_AFTER_MS = 3 * 60 * 1000
+const interruptedElapsedMs = computed(() => {
+  const tsk = task.value
+  if (!tsk) return 0
+  const updated = tsk.updatedAt || tsk.createdAt || 0
+  return updated > 0 ? Date.now() - updated : 0
+})
+const isLikelyInterrupted = computed(() => {
+  const tsk = task.value
+  if (!tsk || tsk.status !== 'active') return false
+  if (tsk.currentStageId === 'done') return false
+  if (isRunningNow.value) return false
+  const stg = currentStage.value
+  if (!stg) return false
+  // 待审批是另一种诚实状态（在等你），不算中断
+  if (stg.status === 'awaiting_approval') return false
+  // 已经产出过内容 = 不是卡在阶段中途
+  if (stg.output) return false
+  return interruptedElapsedMs.value > STUCK_AFTER_MS
+})
+const interruptedElapsedLabel = computed(() =>
+  formatSLAElapsed(interruptedElapsedMs.value),
+)
+
 const stageProgressStats = computed(() => {
   const stages = task.value?.stages ?? []
   const total = stages.length
@@ -1317,6 +1427,7 @@ const execBannerClass = computed(() => {
     return 'exec-banner-warn'
   }
   if (currentStage.value?.status === 'awaiting_approval') return 'exec-banner-warn'
+  if (isLikelyInterrupted.value) return 'exec-banner-warn'
   if (currentStageGateFailed.value) return 'exec-banner-warn'
   if (task.value?.currentStageId === 'done') return 'exec-banner-done'
   return 'exec-banner-idle'
@@ -1334,6 +1445,11 @@ const execBannerTitle = computed(() => {
   const stg = currentStage.value
   if (stg?.status === 'awaiting_approval') {
     return t('pipelineTaskDetail.execBannerWaitYou', { label: stg.label })
+  }
+  if (isLikelyInterrupted.value) {
+    return t('pipelineTaskDetail.execBannerInterrupted', {
+      label: stg?.label ?? task.value.currentStageId,
+    })
   }
   if (currentStageGateFailed.value) {
     return t('pipelineTaskDetail.execBannerGateFail', {
@@ -1356,7 +1472,15 @@ const execBannerSub = computed(() => {
     const msg = rawSched.length > 420 ? `${rawSched.slice(0, 420)}\u2026` : rawSched
     return t('pipelineTaskDetail.execSubSchedulerError', { kind, msg })
   }
-  if (anyExecutionRunning.value) {
+  if (isRunningNow.value) {
+    const stats = stageProgressStats.value
+    if (stats.total > 0) {
+      return t('pipelineTaskDetail.execSubRunLive', {
+        elapsed: liveElapsedLabel.value,
+        step: Math.min(stats.done + 1, stats.total),
+        total: stats.total,
+      })
+    }
     return t('pipelineTaskDetail.execSubRunBg')
   }
   if (
@@ -1366,6 +1490,10 @@ const execBannerSub = computed(() => {
     && !currentStage.value.output
     && currentStage.value.status !== 'awaiting_approval'
   ) {
+    // 卡太久且没有真在跑的作业 → 诚实承认可能已中断，而非继续安抚
+    if (isLikelyInterrupted.value) {
+      return t('pipelineTaskDetail.execSubInterrupted', { elapsed: interruptedElapsedLabel.value })
+    }
     // 区分调度器排队 vs 通用准备中
     if (isSchedulerQueued.value) {
       const kind = task.value.schedulerRunKind === 'dag-run' ? 'DAG' : t('pipelineTaskDetail.pipeline')
@@ -1399,6 +1527,7 @@ const execBannerSub = computed(() => {
 
 const primaryRunLabel = computed(() => {
   if (!task.value) return t('pipelineTaskDetail.runAi')
+  if (isLikelyInterrupted.value) return t('pipelineTaskDetail.execResume')
   if (task.value.currentStageId === 'planning') return t('pipelineTaskDetail.runSmartLead')
   if (currentStageGateFailed.value) return t('pipelineTaskDetail.runAiRerun')
   return t('pipelineTaskDetail.runThisStage')
@@ -1484,6 +1613,7 @@ function formatLogTime(ts: number) {
 function formatEventName(event: string) {
   switch (event) {
     case 'stage:queued': return t('pipelineTaskDetail.evStageQueued')
+    case 'artifact:written': return t('pipelineTaskDetail.evArtifactWritten')
     case 'stage:processing': return t('pipelineTaskDetail.evStageProcessing')
     case 'stage:completed': return t('pipelineTaskDetail.evStageCompleted')
     case 'stage:error': return t('pipelineTaskDetail.evStageError')
@@ -1516,7 +1646,6 @@ function formatEventName(event: string) {
     case 'executor:killed': return t('pipelineTaskDetail.evExecutorKilled')
     case 'stage:quality-gate': return t('pipelineTaskDetail.evStageQualityGate')
     case 'stage:gate-overridden': return t('pipelineTaskDetail.evStageGateOverridden')
-    case 'stage:peer-reviewing': return t('pipelineTaskDetail.evStagePeerReviewing')
     case 'stage:peer-review-approved': return t('pipelineTaskDetail.evStagePeerApproved')
     case 'stage:peer-review-rejected': return t('pipelineTaskDetail.evStagePeerRejected')
     case 'stage:peer-review-error': return t('pipelineTaskDetail.evStagePeerError')
@@ -1538,6 +1667,14 @@ function formatEventName(event: string) {
     case 'learning:override-injected': return t('pipelineTaskDetail.evLearningOverride')
     case 'learning:self-heal-injected': return t('pipelineTaskDetail.evLearningSelfHeal')
     case 'learning:gate-self-heal-injected': return t('pipelineTaskDetail.evLearningGateSelfHeal')
+    case 'e2e:start': return t('pipelineTaskDetail.evE2eStart')
+    case 'e2e:phase': return t('pipelineTaskDetail.evE2ePhase')
+    case 'e2e:build-progress': return t('pipelineTaskDetail.evE2eBuildProgress')
+    case 'e2e:build-failed': return t('pipelineTaskDetail.evE2eBuildFailed')
+    case 'e2e:auto-fix': return t('pipelineTaskDetail.evE2eAutoFix')
+    case 'e2e:failed': return t('pipelineTaskDetail.evE2eFailed')
+    case 'e2e:complete': return t('pipelineTaskDetail.evE2eComplete')
+    case 'e2e:contract-blocked': return t('pipelineTaskDetail.evE2eContractBlocked')
     default: return event
   }
 }
@@ -1699,6 +1836,33 @@ function addLog(event: string, data?: Record<string, unknown>) {
     })
   } else if (data?.from && data?.to) {
     detail = `${data.from} → ${data.to}`
+  } else if (event === 'e2e:start') {
+    detail = data?.title ? `"${String(data.title).slice(0, 60)}"` : undefined
+  } else if (event === 'e2e:phase' && data?.phase) {
+    const d = data as Record<string, unknown>
+    const phase = String(d.phase)
+    const status = (d.status as string) || ''
+    const extras: string[] = []
+    if (d.engine) extras.push(String(d.engine))
+    if (d.filesWritten) extras.push(`${d.filesWritten} files`)
+    if (d.url) extras.push(String(d.url))
+    if (d.provider) extras.push(String(d.provider))
+    if (d.verdict) extras.push(String(d.verdict))
+    if (d.blocked) extras.push('blocked')
+    const extra = extras.length ? ` · ${extras.join(', ')}` : ''
+    detail = `${phase}: ${status}${extra}`
+  } else if (event === 'e2e:build-progress' && data?.attempt) {
+    detail = `attempt ${data.attempt}/${data.maxRetries}`
+  } else if (event === 'e2e:build-failed' && data?.attempt) {
+    detail = `attempt ${data.attempt}/${data.maxRetries}`
+  } else if (event === 'e2e:auto-fix' && data?.attempt) {
+    detail = `attempt ${data.attempt}`
+  } else if (event === 'e2e:failed' && data?.phase) {
+    detail = `${data.phase}`
+  } else if (event === 'e2e:complete' && data?.url) {
+    detail = `url: ${data.url}`
+  } else if (event === 'e2e:contract-blocked' && data?.summary) {
+    detail = String(data.summary)
   }
 
   stageLogs.value.push({
@@ -1715,6 +1879,37 @@ function addLog(event: string, data?: Record<string, unknown>) {
 }
 
 const stageLiveRef = ref<InstanceType<typeof StageLiveOutput> | null>(null)
+const artifactTabsRef = ref<InstanceType<typeof import('@/components/task/TaskArtifactTabs.vue').default> | null>(null)
+const artifactDrafts = ref<Record<string, string>>({})
+const artifactRefreshNonce = ref(0)
+
+function clearDraftsForStage(stageId: string) {
+  const types = artifactTypesForStage(stageId)
+  if (!types.length) return
+  const next = { ...artifactDrafts.value }
+  for (const t of types) delete next[t]
+  artifactDrafts.value = next
+}
+
+function appendArtifactDraft(stageId: string, text: string) {
+  const primary = primaryArtifactForStage(stageId)
+  if (!primary || !text) return
+  artifactDrafts.value = {
+    ...artifactDrafts.value,
+    [primary]: (artifactDrafts.value[primary] || '') + text,
+  }
+}
+
+function handleArtifactWritten(data?: Record<string, unknown>) {
+  const artifactType = String(data?.artifactType || '')
+  if (artifactType) {
+    const next = { ...artifactDrafts.value }
+    delete next[artifactType]
+    artifactDrafts.value = next
+  }
+  artifactRefreshNonce.value += 1
+  artifactTabsRef.value?.refresh()
+}
 let unsubSSE: (() => void) | null = null
 
 // SSE connection status — surfaced so the user knows if live updates are active
@@ -1741,45 +1936,247 @@ function setupSSE() {
 
     // ── Stage live output streaming ──
     if (evt.event === 'stage:output-start') {
+      const stageId = String((data?.stageId as string) ?? '')
+      if (stageId) clearDraftsForStage(stageId)
       stageLiveRef.value?.onOutputStart(data as Record<string, unknown>)
     }
     if (evt.event === 'stage:output-chunk') {
+      const stageId = String((data?.stageId as string) ?? processingStage.value ?? '')
+      const text = String((data?.text as string) ?? '')
+      if (stageId) appendArtifactDraft(stageId, text)
       stageLiveRef.value?.onOutputChunk(data as Record<string, unknown>)
+    }
+    if (evt.event === 'artifact:written') {
+      handleArtifactWritten(data as Record<string, unknown>)
     }
     if (evt.event === 'stage:output-end') {
       stageLiveRef.value?.onOutputEnd(data as Record<string, unknown>)
     }
 
+    // ── E2E pipeline live progress ──
+    if (evt.event === 'e2e:start') {
+      autoRunning.value = true
+      processingStage.value = 'e2e'
+      processingNarrative.value = {
+        agent: 'E2E',
+        icon: '🚀',
+        role: 'orchestrator',
+        narrative: t('pipelineTaskDetail.evE2eStart'),
+        stageId: 'e2e',
+        at: Date.now(),
+      }
+      narrativeFeed.value = [
+        { agent: 'E2E', icon: '🚀', narrative: t('pipelineTaskDetail.evE2eStart'), stageId: 'e2e', at: Date.now() },
+      ]
+    }
+
+    if (evt.event === 'e2e:phase' && data?.phase) {
+      const phase = data.phase as string
+      const status = (data.status as string) || ''
+      const statusIcon = status === 'done' ? '✅' : status === 'failed' ? '❌' : '⏳'
+      const icon = phase === 'design-pipeline' ? '📐' : phase === 'codegen' ? '💻' : phase === 'build-test' ? '🔨' : phase === 'deploy' ? '🚀' : phase === 'preview' ? '👁️' : phase === 'acceptance' ? '✅' : '📌'
+
+      processingStage.value = status === 'running' ? `e2e:${phase}` : null
+
+      // Build a richer narrative from available event data
+      const d = data as Record<string, unknown>
+      let narrativeText = ''
+      if (status === 'running') {
+        const runMsgs: Record<string, string> = {
+          'design-pipeline': '需求分析与架构设计',
+          'codegen': '代码生成中',
+          'build-test': '构建与测试',
+          'qa': '真实测试与冒烟检查',
+          'deploy': '部署中',
+          'preview': '截取部署预览',
+          'acceptance': '验收评估',
+        }
+        narrativeText = runMsgs[phase] || `${phase}`
+        if (d.engine) narrativeText += ` (${d.engine})`
+      } else if (status === 'done') {
+        const doneParts: string[] = []
+        if (d.engine) doneParts.push(String(d.engine))
+        if (d.filesWritten) doneParts.push(`${d.filesWritten} 个文件`)
+        if (d.url) doneParts.push(String(d.url))
+        if (d.verdict) doneParts.push(String(d.verdict))
+        narrativeText = doneParts.length ? `${phase} 完成 — ${doneParts.join(', ')}` : `${phase} 完成`
+      } else if (status === 'failed' || status === 'degraded') {
+        narrativeText = d.error ? `${phase} 失败: ${d.error}` : `${phase} 失败`
+      } else {
+        narrativeText = `${phase}: ${status}`
+      }
+
+      processingNarrative.value = {
+        agent: 'E2E',
+        icon,
+        role: 'orchestrator',
+        narrative: narrativeText,
+        stageId: `e2e:${phase}`,
+        at: Date.now(),
+      }
+      narrativeFeed.value = [
+        { agent: 'E2E', icon: statusIcon, narrative: `${phase}: ${status}`, stageId: `e2e:${phase}`, at: Date.now() },
+        ...narrativeFeed.value,
+      ].slice(0, 5)
+    }
+
+    if (evt.event === 'e2e:build-progress' && data?.attempt) {
+      const attempt = data.attempt as number
+      const maxRetries = data.maxRetries as number
+      processingNarrative.value = {
+        agent: 'E2E',
+        icon: '🔨',
+        role: 'orchestrator',
+        narrative: t('pipelineTaskDetail.evE2eBuildProgress', { attempt, maxRetries }),
+        stageId: 'e2e:build-test',
+        at: Date.now(),
+      }
+    }
+
+    if (evt.event === 'e2e:build-failed' && data?.attempt) {
+      const attempt = data.attempt as number
+      const maxRetries = data.maxRetries as number
+      processingNarrative.value = {
+        agent: 'E2E',
+        icon: '❌',
+        role: 'orchestrator',
+        narrative: t('pipelineTaskDetail.evE2eBuildFailed', { attempt, maxRetries }),
+        stageId: 'e2e:build-test',
+        at: Date.now(),
+      }
+    }
+
+    if (evt.event === 'e2e:auto-fix' && data?.attempt) {
+      const attempt = data.attempt as number
+      const ok = data.fixOk as boolean
+      processingNarrative.value = {
+        agent: 'E2E',
+        icon: '🔧',
+        role: 'orchestrator',
+        narrative: t('pipelineTaskDetail.evE2eAutoFix', { attempt, status: ok ? 'ok' : 'failed' }),
+        stageId: 'e2e:build-test',
+        at: Date.now(),
+      }
+    }
+
+    if (evt.event === 'e2e:failed' && data?.phase) {
+      autoRunning.value = false
+      processingStage.value = null
+      processingNarrative.value = null
+      ElMessage.error(t('pipelineTaskDetail.elMessage_18', {
+        err: data.error
+          ? `${data.phase}: ${String(data.error).slice(0, 200)}`
+          : t('pipelineTaskDetail.evE2eFailed', { phase: data.phase as string }),
+      }))
+    }
+
+    if (evt.event === 'e2e:complete') {
+      autoRunning.value = false
+      processingStage.value = null
+      processingNarrative.value = null
+      if (data?.ok) {
+        ElMessage.success(t('pipelineTaskDetail.elMessage_3'))
+      }
+      loadTask()
+    }
+
+    if (evt.event === 'e2e:contract-blocked') {
+      ElMessage.warning({
+        message: (data as { summary?: string })?.summary || t('pipelineTaskDetail.evE2eContractBlocked'),
+        duration: 8000,
+      })
+      loadTask()
+    }
+
     if (evt.event === 'stage:processing') {
-      processingStage.value = (data?.stageId as string) || null
+      const stageId = (data?.stageId as string) || null
+      processingStage.value = stageId
+      stageRunning.value = true
+      if (stageId) clearDraftsForStage(stageId)
+      stageLiveRef.value?.onProcessingStart(data as Record<string, unknown>)
+      const statusIcon = '⏳'
       const entry = {
-        agent: (data?.agent as string) || '',
+        agent: 'Stage',
         icon: (data?.icon as string) || '🤖',
-        role: (data?.role as string) || '',
-        narrative: (data?.narrative as string) || (data?.label as string) || '',
+        role: 'orchestrator',
+        narrative: (data?.narrative as string) || (data?.label as string) || String(data?.stageId ?? ''),
         stageId: (data?.stageId as string) || '',
         at: Date.now(),
       }
       processingNarrative.value = entry
       narrativeFeed.value = [entry, ...narrativeFeed.value].slice(0, 5)
+      liveElapsedSec.value = 0
+      startElapsedTicker()
+    }
+
+    // ── Heartbeat: keep the running stage visibly alive (B1) ──
+    if (evt.event === 'stage:heartbeat') {
+      const hbStage = String((data?.stageId as string) ?? '')
+      // backend field name differs by path: elapsedSeconds | elapsed_s
+      const serverElapsed = Number(
+        (data?.elapsedSeconds as number) ?? (data?.elapsed_s as number) ?? 0,
+      ) || 0
+      if (serverElapsed > 0) liveElapsedSec.value = serverElapsed
+      if (hbStage) {
+        processingStage.value = hbStage
+        if (!processingNarrative.value) {
+          const stg = task.value?.stages.find(s => s.id === hbStage)
+          processingNarrative.value = {
+            agent: 'Stage',
+            icon: '⏳',
+            role: stg?.ownerRole || 'orchestrator',
+            narrative: stg?.label || hbStage,
+            stageId: hbStage,
+            at: Date.now(),
+          }
+        }
+      }
+      startElapsedTicker()
+      stageLiveRef.value?.onProcessingStart(data as Record<string, unknown>)
     }
 
     if (evt.event === 'stage:completed') {
       processingStage.value = null
+      processingNarrative.value = null
       stageRunning.value = false
+      // Push a completion entry so the swimlane shows past stages
+      if (data?.stageId) {
+        narrativeFeed.value = [{
+          agent: 'Stage',
+          icon: '✅',
+          role: 'orchestrator',
+          narrative: `完成: ${String(data.stageId)}`,
+          stageId: String(data.stageId),
+          at: Date.now(),
+        }, ...narrativeFeed.value].slice(0, 5)
+      }
+      handleArtifactWritten()
       loadTask()
     }
     if (evt.event === 'stage:error') {
       processingStage.value = null
+      processingNarrative.value = null
       stageRunning.value = false
+      const stageId = data?.stageId as string | undefined
+      narrativeFeed.value = [{
+        agent: 'Stage',
+        icon: '❌',
+        role: 'orchestrator',
+        narrative: `失败: ${stageId || 'unknown'}`,
+        stageId: stageId || '',
+        at: Date.now(),
+      }, ...narrativeFeed.value].slice(0, 5)
+      ElMessage.error(t('pipelineTaskDetail.elMessage_18', { err: stageId || 'stage' }))
     }
 
     if (evt.event === 'stage:peer-reviewing' || evt.event === 'stage:rework') {
       processingStage.value = null
+      processingNarrative.value = null
       loadTask()
     }
     if (evt.event === 'stage:quality-gate' || evt.event === 'stage:gate-overridden') {
       processingStage.value = null
+      processingNarrative.value = null
       loadTask()
       loadQualityReport()
     }
@@ -1794,6 +2191,7 @@ function setupSSE() {
       evt.event === 'pipeline:resumed'
     ) {
       processingStage.value = null
+      processingNarrative.value = null
       autoRunning.value = false
       smartRunning.value = false
       loadTask()
@@ -1884,7 +2282,10 @@ function setupSSE() {
 
     if (evt.event === 'pipeline:auto-paused') {
       autoRunning.value = false
+      smartRunning.value = false
+      stageRunning.value = false
       ElMessage.info(t('pipelineTaskDetail.elMessage_4'))
+      loadTask()
     }
 
     if (evt.event === 'pipeline:auto-error' || evt.event === 'stage:error' || evt.event === 'pipeline:smart-error') {
@@ -1997,7 +2398,14 @@ async function generateShareLink(ttlDays: number = 7) {
     if (!res.ok) {
       const detail = data.detail
       if (typeof detail === 'object' && detail?.code === 'evidence_missing') {
-        ElMessage.error(detail.message || t('draftDelivery.shareBlocked'))
+        const nextStep = (detail.evidence?.next_step as string) || ''
+        if (nextStep === 'pipeline_in_progress') {
+          ElMessage.info(t('shareEvidenceHint.inProgressHint'))
+        } else if (nextStep === 'pipeline_errored') {
+          ElMessage.error(t('shareEvidenceHint.erroredHint'))
+        } else {
+          ElMessage.warning(t('shareEvidenceHint.genericHint'))
+        }
         return
       }
       ElMessage.error(typeof detail === 'string' ? detail : t('pipelineTaskDetail.elMessage_shareApi'))
@@ -2241,25 +2649,86 @@ async function loadTask() {
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : t('pipelineTaskDetail.elMessage_31')
     console.error(t('pipelineTaskDetail.elMessage_31'), e)
+  } finally {
+    // Restart polling after every fetch so the safety net stays alive
+    // even after an SSE-triggered reload transitions into a new state.
+    startPollingIfActive()
   }
 }
 
+// ── Polling fallback ──
+// SSE is the primary real-time channel, but it can silently drop
+// (auth expiry, proxy buffering, Redis restart).  Without a polling
+// safety net the task detail page freezes — the user sees stale
+// stages / status and has no idea the AI is still working.
+//
+// Strategy:
+//  • Always poll while the task is live (active / running / plan_pending /
+//    awaiting_final_acceptance / awaiting_evidence).
+//  • Poll faster when SSE is disconnected (3s) than when it's healthy
+//    (8s) — when SSE flakes we want quick recovery.
+//  • Stop polling the moment the task reaches a terminal state.
+const POLL_ACTIVE_MS = 8_000
+const POLL_FALLBACK_MS = 3_000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const LIVE_STATUSES = ['active', 'running', 'plan_pending', 'awaiting_final_acceptance', 'awaiting_evidence']
+
+function startPollingIfActive() {
+  stopPolling()
+  if (!task.value || !LIVE_STATUSES.includes(task.value.status)) return
+  const interval = sseStatus.value === 'connected' ? POLL_ACTIVE_MS : POLL_FALLBACK_MS
+  pollTimer = setInterval(() => {
+    if (!task.value || !LIVE_STATUSES.includes(task.value.status)) {
+      stopPolling()
+      return
+    }
+    loadTask()
+  }, interval)
+}
+
+function stopPolling() {
+  if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null }
+}
+
+// Drive the live elapsed ticker off the single "is it running" signal.
+// Seeds from the stage's startedAt so a mid-stage page load shows the
+// real elapsed immediately (heartbeats then keep it authoritative).
+watch(isRunningNow, (running) => {
+  if (running) {
+    if (liveElapsedSec.value === 0) {
+      const stg = currentStage.value
+      if (stg?.startedAt) {
+        liveElapsedSec.value = Math.max(0, Math.floor((Date.now() - stg.startedAt) / 1000))
+      }
+    }
+    startElapsedTicker()
+  } else {
+    stopElapsedTicker()
+  }
+})
+
 onMounted(() => {
-  loadTask().then(() => loadQualityReport())
+  loadTask().then(() => { loadQualityReport(); startPollingIfActive() })
   setupSSE()
 })
 
 onUnmounted(() => {
   unsubSSE?.()
+  stopPolling()
+  stopElapsedTicker()
 })
 
 watch(() => route.params.id, () => {
+  stopPolling()
+  stopElapsedTicker()
   tabInitialized.value = false
-  loadTask()
+  loadTask().then(() => startPollingIfActive())
   stageLogs.value = []
   processingStage.value = null
   processingNarrative.value = null
   narrativeFeed.value = []
+  artifactDrafts.value = {}
 })
 </script>
 
@@ -2296,6 +2765,19 @@ watch(() => route.params.id, () => {
 .live-icon { font-size: 18px; }
 .live-agent { font-weight: 600; }
 .live-text { color: var(--text-secondary); }
+.live-elapsed {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  background: rgba(129, 140, 248, 0.12);
+  border: 1px solid rgba(129, 140, 248, 0.25);
+}
 .live-narrative-feed {
   margin: 10px 0 0;
   padding: 0;

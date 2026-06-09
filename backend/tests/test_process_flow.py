@@ -79,7 +79,7 @@ async def test_process_flow_auto_run_scheduler_lifetime(
         return {"ok": True}
 
     monkeypatch.setattr(
-        "app.services.pipeline_engine.execute_full_pipeline",
+        "app.services.execute_full_pipeline.execute_full_pipeline",
         _noop_full_pipeline,
     )
 

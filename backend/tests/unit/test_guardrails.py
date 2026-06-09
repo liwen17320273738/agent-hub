@@ -180,7 +180,7 @@ class TestResolveApproval:
         )
         # Mock cache_get to return this approval
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=approval.dict())):
+                   AsyncMock(return_value=approval.model_dump())):
             result = await resolve_approval(
                 approval_id=approval.id,
                 approved=True,
@@ -200,7 +200,7 @@ class TestResolveApproval:
             risk_level=GuardrailLevel.REQUIRE_REVIEW,
         )
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=approval.dict())):
+                   AsyncMock(return_value=approval.model_dump())):
             result = await resolve_approval(
                 approval_id=approval.id,
                 approved=False,
@@ -236,7 +236,7 @@ class TestGetPendingApprovals:
         # Mock Redis to return the approval ID
         mock_redis.smembers.return_value = {approval.id}
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=approval.dict())):
+                   AsyncMock(return_value=approval.model_dump())):
             approvals = await get_pending_approvals()
             assert len(approvals) == 1
             assert approvals[0].id == approval.id
@@ -250,7 +250,7 @@ class TestGetPendingApprovals:
         )
         mock_redis.zrange.return_value = [approval.id]
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=approval.dict())):
+                   AsyncMock(return_value=approval.model_dump())):
             approvals = await get_pending_approvals(task_id="task-specific")
             assert len(approvals) == 1
             mock_redis.zrange.assert_called_with("approvals:task:task-specific", 0, -1)
@@ -271,7 +271,7 @@ class TestGetAuditLog:
         )
         mock_redis.zrevrange.return_value = [entry.id]
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=entry.dict())):
+                   AsyncMock(return_value=entry.model_dump())):
             entries = await get_audit_log()
             assert len(entries) == 1
             assert entries[0].action == "deploy_production"
@@ -285,7 +285,7 @@ class TestGetAuditLog:
         )
         mock_redis.zrevrange.return_value = [entry.id]
         with patch('app.services.guardrails.cache_get',
-                   AsyncMock(return_value=entry.dict())):
+                   AsyncMock(return_value=entry.model_dump())):
             entries = await get_audit_log(task_id="task-a")
             assert len(entries) == 1
 

@@ -164,6 +164,7 @@ async def test_orphan_scan_clears_stale_scheduler_marker(db, test_user):
     assert row.scheduler_run_finished_at is not None
     assert row.scheduler_last_error
     assert "Scheduler process restarted" in row.scheduler_last_error
+    assert row.status == "paused"
 
 
 @pytest.mark.asyncio

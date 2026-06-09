@@ -347,6 +347,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as exc:
             logger.warning("Task lifecycle watchdog not scheduled: %s", exc)
 
+    # SSE → IM Notify Bridge  — background listener that forwards error/failure
+    # SSE events to the originating IM platform for any IM-sourced task.
+    _sse_notify_bridge_task = None
+    if not _test_minimal_lifespan:
+        try:
+            from .services.notify.sse_notify_bridge import run_sse_notify_bridge
+            import asyncio as _asyncio
+            _sse_notify_bridge_task = _asyncio.create_task(run_sse_notify_bridge())
+            logger.info("SSE→IM notify bridge started.")
+        except Exception as exc:
+            logger.warning("SSE→IM notify bridge not started: %s", exc)
+
     yield
 
     try:

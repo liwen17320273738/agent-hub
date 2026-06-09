@@ -21,6 +21,10 @@ class TraceSpan:
     request_id: Optional[str] = None
     metadata: dict = field(default_factory=dict)
 
+    def set_metadata(self, key: str, value: object) -> None:
+        """Attach a metadata key/value to this span (in place)."""
+        self.metadata[key] = value
+
     def new_child(self, metadata: Optional[dict] = None) -> "TraceSpan":
         """Create a child span, preserving trace_id and request_id."""
         child_meta = dict(self.metadata)

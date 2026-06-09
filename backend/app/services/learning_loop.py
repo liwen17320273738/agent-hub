@@ -709,8 +709,13 @@ async def get_active_addendum(
     active_payload = cached.get("active") if isinstance(cached, dict) else None
     shadow_payload = cached.get("shadow") if isinstance(cached, dict) else None
 
-    # Roll for the shadow only if both sides exist; lone shadow waiting for
-    # a baseline still gets full traffic so it can collect data at all.
+    # Shadow only rides alongside a *vetted* active baseline, at
+    # SHADOW_TRAFFIC_RATIO. A lone shadow (no active) must NOT hijack 100% of
+    # production traffic: it's an un-vetted, auto-distilled prompt with no
+    # baseline to A/B against, and injecting it everywhere lets a single bad
+    # distillation poison the stage (its section structure can even conflict
+    # with the artifact contract → systematic rejection). In that case fall
+    # back to the base prompt (None) so the contract-aligned prompt governs.
     if shadow_payload and active_payload:
         if random.random() < SHADOW_TRAFFIC_RATIO:
             return {**shadow_payload, "mode": "shadow"}
@@ -718,8 +723,6 @@ async def get_active_addendum(
 
     if active_payload:
         return {**active_payload, "mode": "active"}
-    if shadow_payload:
-        return {**shadow_payload, "mode": "shadow"}
     return None
 
 

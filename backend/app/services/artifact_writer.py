@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models.task_artifact import TaskArtifact
+from .sse import emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +140,17 @@ async def _write_one_artifact(
         "[artifact_writer] Wrote %s v%d for task %s",
         artifact_type, new_version, task_id,
     )
+    try:
+        await emit_event("artifact:written", {
+            "taskId": str(task_id),
+            "stageId": stage_id,
+            "artifactType": artifact_type,
+            "version": new_version,
+            "contentLength": len(content or ""),
+            "hasContent": bool((content or "").strip()),
+        })
+    except Exception:
+        pass
     return art
 
 
@@ -352,13 +364,36 @@ async def write_qa_artifacts(
         ))
 
     # --- test.log ---
-    test_log_path = os.path.join(project_dir, "test.log")
-    if os.path.isfile(test_log_path):
-        with open(test_log_path, "r", encoding="utf-8") as f:
-            raw_log = f.read()
+    code_roots = [project_dir]
+    for sub in ("app", "code", "frontend"):
+        candidate = os.path.join(project_dir, sub)
+        if os.path.isdir(candidate):
+            code_roots.append(candidate)
+    raw_log = ""
+    test_log_rel = "test.log"
+    for root in code_roots:
+        test_log_path = os.path.join(root, "test.log")
+        if os.path.isfile(test_log_path):
+            with open(test_log_path, "r", encoding="utf-8") as f:
+                raw_log = f.read()
+            test_log_rel = os.path.relpath(test_log_path, project_dir)
+            break
+    if not raw_log.strip():
+        test_step = qa_result.get("test") or {}
+        stdout = str(test_step.get("stdout_full") or test_step.get("stdout_summary") or "")
+        stderr = str(test_step.get("stderr_full") or test_step.get("stderr_summary") or "")
+        if stdout or stderr:
+            raw_log = (
+                f"# Command: {test_step.get('command', '')}\n"
+                f"# Exit code: {test_step.get('exit_code', 'N/A')}\n"
+                f"# Duration: {test_step.get('duration_ms', 0):.0f}ms\n\n"
+                f"{stdout}"
+                + (f"\n# STDERR:\n{stderr}" if stderr else "")
+            )
+    if raw_log.strip():
         written.append(await _write_one_artifact(
             db, task_id, "testing", "test_log", raw_log,
-            "test.log", "Agent-qa",
+            test_log_rel, "Agent-qa",
         ))
 
     # --- browser_screenshot.png ---

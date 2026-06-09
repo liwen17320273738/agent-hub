@@ -30,6 +30,8 @@ from app.services.qa_executor import (
     _read_source_manifest,
     _extract_plan_from_manifest,
     _default_plan,
+    _fill_plan_defaults,
+    _resolve_code_root,
 )
 from app.models.task_artifact import BUILTIN_ARTIFACT_TYPES
 
@@ -104,6 +106,27 @@ class TestSourceManifestParsing:
         assert plan.run_command == "pnpm preview"
         assert plan.preview_port == 4173
 
+    def test_fill_plan_defaults_adds_test_when_package_json_has_test_script(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pkg = {
+                "name": "demo",
+                "scripts": {"test": "vitest run", "build": "vite build"},
+            }
+            with open(os.path.join(tmpdir, "package.json"), "w") as f:
+                json.dump(pkg, f)
+            plan = _fill_plan_defaults(_extract_plan_from_manifest({
+                "build_command": "pnpm install && pnpm run build",
+            }), tmpdir)
+            assert plan.test_command == "pnpm test"
+
+    def test_resolve_code_root_finds_app_subdir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            app_dir = os.path.join(tmpdir, "app")
+            os.makedirs(app_dir)
+            with open(os.path.join(app_dir, "source_manifest.json"), "w") as f:
+                json.dump({"build_command": "pnpm build"}, f)
+            assert _resolve_code_root(tmpdir) == app_dir
+
 
 # ── Task 6.2: Command Execution ──────────────────────────────────────────
 
@@ -156,6 +179,23 @@ class TestCommandExecution:
             assert "install" in result
             assert "build" in result
             assert "test" in result
+
+    @pytest.mark.asyncio
+    async def test_run_all_commands_runs_test_when_manifest_omits_test_command(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            manifest = {
+                "build_command": "echo build-done",
+            }
+            with open(os.path.join(tmpdir, "source_manifest.json"), "w") as f:
+                json.dump(manifest, f)
+            with open(os.path.join(tmpdir, "package.json"), "w") as f:
+                json.dump({"scripts": {"test": "echo test-done"}}, f)
+
+            executor = QaExecutor(tmpdir)
+            result = await executor.run_all_commands()
+            assert result.get("ok") is True
+            assert "test" in result
+            assert os.path.isfile(os.path.join(tmpdir, "test.log"))
 
     @pytest.mark.asyncio
     async def test_run_all_commands_build_fails(self):

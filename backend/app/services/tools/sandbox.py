@@ -78,6 +78,19 @@ def resolve_safe_path(path: str) -> str:
     raise ValueError(f"Path traversal denied: {path} resolves outside sandbox and allowed dirs")
 
 
+def is_path_allowed(path: str) -> bool:
+    """True if ``path`` resolves within the sandbox root or an allowed dir.
+
+    Unlike :func:`resolve_safe_path` this never raises — it is meant for
+    advisory checks (e.g. deciding whether a ``cd <dir>`` is permitted).
+    """
+    try:
+        resolve_safe_path(path)
+        return True
+    except ValueError:
+        return False
+
+
 def check_file_size(path: str) -> None:
     """Raise ValueError if file exceeds size limit."""
     if os.path.exists(path):

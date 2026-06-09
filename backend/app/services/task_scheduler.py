@@ -379,24 +379,41 @@ class TaskScheduler:
 
         Called once at startup via _resume_pending. Paused tasks are
         auto-recovered (safe — they were blocked by a quality gate, not mid-LLM).
-        Active tasks are only reported via SSE to avoid double-spending LLM budget.
+        Mid-run active orphans are reconciled to ``paused`` with stuck stages
+        marked ``error`` so the UI can resume instead of lying 执行中 forever.
+        Bare inbox rows (never queued) are left untouched.
         """
         from ..database import async_session as session_factory
         from ..models.pipeline import PipelineTask
+        from .orphan_reconciliation import (
+            ORPHAN_INTERRUPT_MSG,
+            emit_reconciliation_events,
+            reconcile_interrupted_orphan,
+            reconcile_terminal_tasks_with_stuck_stages,
+            task_had_mid_run,
+        )
         from .scheduler_task_state import mark_scheduler_orphaned
         from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
 
         try:
             async with session_factory() as db:
                 result = await db.execute(
-                    select(PipelineTask).where(
-                        PipelineTask.status.in_(["active", "paused"])
-                    )
+                    select(PipelineTask)
+                    .options(selectinload(PipelineTask.stages))
+                    .where(PipelineTask.status.in_(["active", "paused"]))
                 )
                 db_tasks = result.scalars().all()
         except Exception as exc:
             logger.warning("[scheduler] orphan scan DB query failed: %s", exc)
             return
+
+        # Fix task=failed/done but stage still active (coroutine crash path).
+        try:
+            async with session_factory() as db:
+                await reconcile_terminal_tasks_with_stuck_stages(db)
+        except Exception as exc:
+            logger.warning("[scheduler] terminal stuck-stage reconcile failed: %s", exc)
 
         if not db_tasks:
             return
@@ -416,17 +433,68 @@ class TaskScheduler:
             len(orphans), len(active_orphans), len(paused_orphans),
         )
 
+        marker_msg = (
+            "Scheduler process restarted before this run finished; "
+            "rerun or resume the task."
+        )
         orphaned_scheduler_markers = 0
+        had_submission: dict[str, bool] = {
+            str(t.id): bool(t.scheduler_run_submission_id) for t in orphans
+        }
         try:
             async with session_factory() as db:
                 orphaned_scheduler_markers = await mark_scheduler_orphaned(
                     db,
                     [str(t.id) for t in orphans],
-                    error="Scheduler process restarted before this run finished; rerun or resume the task.",
+                    error=marker_msg,
                 )
                 await db.commit()
         except Exception as exc:
             logger.warning("[scheduler] orphan marker cleanup failed: %s", exc)
+
+        interrupted_active = 0
+        reconcile_outcomes: list[dict] = []
+        interrupt_candidates = [
+            t for t in active_orphans
+            if task_had_mid_run(
+                t,
+                t.stages,
+                had_scheduler_submission=had_submission.get(str(t.id)),
+            )
+        ]
+        if interrupt_candidates:
+            try:
+                async with session_factory() as db:
+                    for task_snapshot in interrupt_candidates:
+                        loaded = await db.execute(
+                            select(PipelineTask)
+                            .options(selectinload(PipelineTask.stages))
+                            .where(PipelineTask.id == task_snapshot.id)
+                        )
+                        row = loaded.scalar_one_or_none()
+                        if not row:
+                            continue
+                        outcome = await reconcile_interrupted_orphan(
+                            db,
+                            row,
+                            row.stages,
+                            had_scheduler_submission=had_submission.get(str(row.id)),
+                        )
+                        reconcile_outcomes.append(outcome)
+                        if outcome.get("reconciled"):
+                            interrupted_active += 1
+                    await db.commit()
+                logger.info(
+                    "[scheduler] reconciled %d active orphan tasks to paused",
+                    interrupted_active,
+                )
+            except Exception as exc:
+                logger.warning("[scheduler] active orphan reconcile failed: %s", exc)
+
+        try:
+            await emit_reconciliation_events(reconcile_outcomes, reason=ORPHAN_INTERRUPT_MSG)
+        except Exception as exc:
+            logger.warning("[scheduler] orphan reconcile SSE emit failed: %s", exc)
 
         recovered = 0
         for task in paused_orphans:
@@ -442,6 +510,8 @@ class TaskScheduler:
         await self._emit("scheduler:orphans", {
             "count": len(orphans),
             "activeOrphans": len(active_orphans),
+            "activeInterrupted": interrupted_active,
+            "activeReconciled": interrupted_active,
             "pausedRecovered": recovered,
             "schedulerMarkersCleared": orphaned_scheduler_markers,
             "activeTaskIds": [str(t.id) for t in active_orphans],

@@ -20,7 +20,7 @@ def _build_engine():
     url = settings.database_url
     is_sqlite = url.startswith("sqlite")
 
-    kwargs = {"echo": settings.debug}
+    kwargs = {"echo": settings.sql_echo}
     if is_sqlite:
         if os.environ.get("AGENTHUB_SQLITE_STATIC_POOL"):
             kwargs["poolclass"] = StaticPool
