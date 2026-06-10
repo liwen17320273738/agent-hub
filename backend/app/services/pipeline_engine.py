@@ -2688,15 +2688,27 @@ async def execute_stage(
                             metadata_json={"format": "mermaid", "diagrams": list(mermaid_raw.keys())},
                         )
 
-                    # Write architecture.html
+                    # Write architecture_diagram — prefer the Nano Banana Pro PNG,
+                    # fall back to the Mermaid-rendered HTML when no image was generated.
+                    arch_image = diagram_result.get("imagePath")
+                    if arch_image:
+                        arch_content = f"![架构图]({arch_image})"
+                        arch_storage = arch_image
+                        arch_degraded = False
+                    else:
+                        arch_content = f"[降级] 架构图（Mermaid/HTML 渲染，未生成真实图像）:\n{diagram_result['htmlPath']}"
+                        arch_storage = diagram_result["htmlPath"]
+                        arch_degraded = True
                     await _write_art_custom(
                         db, task_id=str(task_id), stage_id=stage_id,
                         artifact_type="architecture_diagram",
-                        content=f"架构图:\n{diagram_result['htmlPath']}",
-                        storage_path=diagram_result["htmlPath"],
+                        content=arch_content,
+                        storage_path=arch_storage,
                         agent_name=agent_name,
                         metadata_json={
-                            "filePath": diagram_result["htmlPath"],
+                            "filePath": arch_storage,
+                            "imagePath": arch_image or "",
+                            "htmlPath": diagram_result["htmlPath"],
                             "componentCount": diagram_result.get("componentCount", 0),
                             "flowCount": diagram_result.get("flowCount", 0),
                             "api_contract": arch_result.get("api_contract", {}),
@@ -2704,6 +2716,7 @@ async def execute_stage(
                             "file_plan": arch_result.get("file_plan", {}),
                             "consistency_ok": arch_result.get("consistency_ok", True),
                             "consistency_issues": arch_result.get("consistency_issues", []),
+                            "degraded": arch_degraded,
                         },
                     )
 

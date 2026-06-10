@@ -1,371 +1,421 @@
-好的，情况很清楚了。`docs/03-architecture.md` 和 `docs/04-implementation-notes.md` 还是空的模板占位符，`src/` 和 `config/` 目录也是空的。现在我来基于 PRD 和 UI Spec 输出完整的架构方案，并填写所有缺失的内容。
+# 架构设计方案 — 智能客服问答系统
+
+**文档状态**: Draft v1.0 | **版本**: 1.0 | **作者**: CTO / 架构师 | **日期**: 2026-06-09
 
 ---
 
-## 架构方案
-
-### 一、技术选型
+## 一、技术选型
 
 | 领域 | 选型 | 理由 | 替代方案 |
-|------|------|------|----------|
-| **框架** | Vanilla JS (ES2020+) | 零构建步骤、单HTML交付、<100KB体积、无需npm/node；PRD明确要求"打开即用" | React 18（300KB+，需构建工具，过度设计）、Vue 3（仍需Vite构建，对纯前端待办看板过重） |
-| **存储** | `localStorage` (key: `todos`) | 浏览器原生支持、无后端依赖、~5MB容量足够500+条任务 | IndexedDB（API复杂，异步操作增加代码复杂度，对简单CRUD过度设计）、SessionStorage（关闭即丢失，不符合持久化需求） |
-| **ID生成** | `crypto.randomUUID()` | 浏览器原生API、无需第三方库、符合UUIDv4标准 | `Math.random()` + `Date.now()`（碰撞概率高）、nanoid（需npm引入） |
-| **CSS方案** | CSS Custom Properties + Scoped Styles | 零依赖、设计Token直接映射为CSS变量、`backdrop-filter`原生支持毛玻璃 | Tailwind CSS（需构建步骤，增加体积）、CSS Modules（需构建工具） |
-| **字体** | 系统字体栈 + `font-display: swap` | 零网络请求、无FOIT问题、`-apple-system`在各平台均有原生美型字体 | Google Fonts Inter（增加网络请求和FOIT风险，与PRD ≤200KB目标冲突） |
-| **图标** | Unicode Emoji + SVG inline | 零依赖、跨平台兼容、可缩放 | Font Awesome（~150KB，过度设计）、Heroicons（需npm引入） |
-| **部署** | 静态HTML (GitHub Pages / Vercel / Netlify) | 零服务器、零运维、单文件上传即用 | Docker/Nginx（严重过度设计） |
+|------|------|------|---------|
+| **前端框架** | React 18 + TypeScript | 组件生态成熟（Chat UI 组件库丰富），SSR/SSG 灵活，团队 React 经验充足 | Vue 3 + Nuxt（生态稍弱但学习成本低）；Svelte（性能好但生态不成熟） |
+| **样式方案** | Tailwind CSS 3 + CSS Variables | 与 UI 设计 Token 天然匹配，零运行时开销，构建时 Tree-shaking | CSS Modules（Token 管理复杂）；Styled-components（运行时性能开销） |
+| **后端框架** | FastAPI (Python) | 异步原生支持高并发文档解析和 LLM 流式响应，Pydantic 模型与 API Schema 自动生成，RAG 生态最成熟（LangChain/LlamaIndex 原生 Python） | Node.js Express（LLM SDK 生态弱）；Go Gin（RAG 库几乎为零） |
+| **文档解析** | Unstructured.io + PyMuPDF + Markdown-it | Unstructured 支持 20+ 格式（PDF/Word/HTML/MD），PyMuPDF 做 PDF 文本提取，Markdown-it 做 MD/HTML 结构化解析 | LlamaParse（商业但解析质量高）；Tika（Java 依赖重） |
+| **向量数据库** | Chroma (开发) → Milvus (生产) | Chroma 零配置本地运行适合开发；Milvus 支持分布式、10亿级向量、租户隔离（Partition）、混合检索（向量+标量过滤） | Pinecone（SaaS 托管，成本高，数据无法本地化）；Qdrant（Rust 实现性能好但生态略弱） |
+| **Embedding 模型** | BAAI/bge-large-zh-v1.5 (本地) + OpenAI text-embedding-3-small (云端) | 中文场景 bge 效果最优（MTEB 中文榜前3），本地部署零 API 成本；OpenAI 作为高质量降级方案 | text2vec-large-chinese（效果略差）；m3e（已停止维护） |
+| **LLM** | GPT-4o-mini (主) + Qwen2-7B (本地降级) | GPT-4o-mini 性价比最高（$0.15/M input tokens），流式响应快；Qwen2 本地部署作为成本控制和离线降级 | Claude 3 Haiku（价格相当但中文略弱）；DeepSeek-V2（中文强但需自部署） |
+| **RAG 框架** | LangChain + 自定义检索流水线 | LangChain 生态最全（文档加载器/文本分割器/检索器/输出解析器），但抽象层较重，核心检索逻辑自定义 | LlamaIndex（索引管理更强但灵活性差）；Haystack（企业级但社区小） |
+| **消息队列** | Redis Streams | 异步处理文档解析和向量化任务，支持消费者组和消息持久化 | RabbitMQ（重量级）；Celery（依赖 Redis/RabbitMQ 双组件） |
+| **缓存** | Redis 7 | 缓存频繁提问的答案（TTL=1h），缓存 Embedding 结果，存储会话状态 | Memcached（仅缓存，无数据结构能力） |
+| **认证** | JWT + OAuth2 Proxy | 无状态认证，适合 API 服务；OAuth2 Proxy 作为反向代理网关提供 SSO 集成 | Session-based（有状态，不适合水平扩展）；Auth0（SaaS 依赖） |
+| **部署** | Docker Compose (开发) → Kubernetes (生产) | Docker Compose 快速启动；K8s 支持自动扩缩容、滚动更新、资源隔离 | AWS ECS（厂商锁定）；Nomad（社区小） |
 
-**技术选型核心权衡**：
-
-| 决策 | 收益 | 成本 |
-|------|------|------|
-| Vanilla JS 而非框架 | 体积<50KB，零构建，部署即用 | 无组件化，手动管理DOM状态 |
-| localStorage 而非 IndexedDB | 同步API，代码简单，<20行存储逻辑 | 5MB上限，无索引查询能力 |
-| 系统字体栈而非 Google Fonts | 零网络请求，首屏无FOUT | 视觉一致性略逊于Inter定制字体 |
-| Emoji 图标而非 SVG 图标库 | 零依赖，零代码量 | 跨平台渲染略有差异 |
-
-### 二、系统架构
-
-#### 模块划分
+### 选型决策逻辑
 
 ```
-┌──────────────────────────────────────────────────────┐
-│                    index.html                         │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  CSS (内联 <style>)                             │  │
-│  │  ├── CSS Variables (设计Token)                  │  │
-│  │  ├── Reset / Base                              │  │
-│  │  ├── Layout (Header / Columns / Footer)        │  │
-│  │  ├── Components (TodoCard / InputBar / Badge)   │  │
-│  │  ├── States (Empty / Hover / Focus / Active)    │  │
-│  │  ├── Animations (fadeIn / slideOut / scale)     │  │
-│  │  └── Media Queries (Responsive Breakpoints)     │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                       │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  HTML (语义化结构)                              │  │
-│  │  ├── <header> 标题区域                          │  │
-│  │  ├── <main>                                    │  │
-│  │  │   ├── <section#todo-column> 待办列          │  │
-│  │  │   ├── <section#done-column> 已完成列        │  │
-│  │  │   └── <div#empty-state> 空状态              │  │
-│  │  └── <footer> 输入栏                           │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                       │
-│  ┌────────────────────────────────────────────────┐  │
-│  │  JS (内联 <script type="module">)               │  │
-│  │  ├── Storage Layer (getTodos / saveTodos)       │  │
-│  │  ├── Business Logic (add / toggle / delete)     │  │
-│  │  ├── DOM Render (renderTodos / renderEmpty)     │  │
-│  │  ├── Event Binding (submit / click / keydown)   │  │
-│  │  └── Init (DOMContentLoaded)                    │  │
-│  └────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────┘
-```
-
-#### 数据流
-
-```
-用户操作 (点击/输入)
+核心约束: 中文文档理解 + RAG 检索质量 + 成本可控
     │
-    ▼
-Event Handler (submit / click / keydown)
-    │
-    ▼
-Business Logic (addTodo / toggleTodo / deleteTodo)
-    │
-    ├──▶ Storage Layer (saveTodos → localStorage)
-    │
-    ▼
-DOM Render (renderTodos → innerHTML / insertAdjacentHTML)
-    │
-    ▼
-用户看到更新后的界面
+    ├─ 文档解析: 必须支持 PDF/MD/HTML/Word → Unstructured.io (唯一成熟方案)
+    ├─ 向量化: 中文 Embedding 质量 > 速度 → bge-large-zh-v1.5
+    ├─ 向量检索: 开发期零配置 → Chroma; 生产期可扩展 → Milvus
+    ├─ LLM: 成本优先 → GPT-4o-mini; 离线降级 → Qwen2-7B
+    └─ 后端: RAG 生态优先 → FastAPI (Python)
 ```
-
-**关键设计决策**：
-- **单向数据流**：所有状态变更经过 Storage Layer → Business Logic → DOM Render，避免双向绑定带来的状态不一致
-- **全量重渲染 vs 增量更新**：任务数 ≤ 500 时，全量重渲染性能可接受（<5ms），选择 `innerHTML` 全量重绘以保持代码简洁；后续如需优化可改为 `insertAdjacentHTML` 增量更新
-- **事件委托**：在列容器上使用事件委托处理所有子任务卡片的点击事件，避免为每个任务绑定/解绑事件
-
-### 三、数据模型
-
-```javascript
-/**
- * @typedef {Object} Todo
- * @property {string} id - UUID v4，由 crypto.randomUUID() 生成
- * @property {string} text - 任务内容，纯文本，trim() 后非空
- * @property {boolean} completed - 完成状态
- * @property {string} createdAt - ISO 8601 时间戳
- */
-
-// localStorage 存储结构
-// key: "todos"
-// value: JSON.stringify(Todo[])
-// 示例: [
-//   { "id": "a1b2c3d4-...", "text": "买牛奶", "completed": false, "createdAt": "2024-01-15T10:30:00.000Z" },
-//   { "id": "e5f6g7h8-...", "text": "写周报", "completed": true, "createdAt": "2024-01-15T09:00:00.000Z" }
-// ]
-```
-
-**数据验证规则**：
-
-| 字段 | 验证规则 | 违反处理 |
-|------|----------|----------|
-| `id` | 必须是有效 UUID v4 格式 | 拒绝写入，抛异常 |
-| `text` | 非空字符串，trim() 后长度 ≥ 1，≤ 500 字符 | 空值拒绝添加，超长自动截断 |
-| `completed` | 必须是 boolean | 强制转换为 boolean |
-| `createdAt` | 必须是有效 ISO 8601 字符串 | 修复为当前时间戳 |
-
-**存储容量估算**：
-- 单条任务约 150-200 字节（JSON序列化后）
-- 500 条任务 ≈ 75-100KB
-- localStorage 配额 ~5MB，可支持 ~25,000 条任务
-- **安全阈值**：任务数 > 800 时在控制台输出警告，但不阻塞写入
-
-### 四、API 设计
-
-由于本项目是纯前端单页应用，无后端 API。以下是**内部模块接口**定义：
-
-#### 4.1 Storage Layer
-
-```javascript
-// 读取所有待办事项
-// @returns {Todo[]}
-function getTodos() { /* 读 localStorage */ }
-
-// 保存所有待办事项
-// @param {Todo[]} todos
-function saveTodos(todos) { /* 写 localStorage */ }
-```
-
-#### 4.2 Business Logic Layer
-
-```javascript
-// 新增待办
-// @param {string} text - 任务内容
-// @returns {Todo} 新创建的任务对象
-// @throws {Error} 当 text 为空或仅空白字符时
-function addTodo(text)
-
-// 切换完成状态
-// @param {string} id - 任务ID
-function toggleTodo(id)
-
-// 删除任务
-// @param {string} id - 任务ID
-function deleteTodo(id)
-
-// 获取所有待办（按创建时间降序）
-// @returns {Todo[]}
-function getAllTodos()
-
-// 获取待办列表
-// @returns {Todo[]}
-function getPendingTodos()
-
-// 获取已完成列表
-// @returns {Todo[]}
-function getCompletedTodos()
-```
-
-#### 4.3 DOM Render Layer
-
-```javascript
-// 渲染整个看板
-function renderBoard()
-
-// 渲染空状态
-function renderEmptyState()
-
-// 渲染待办列
-function renderTodoColumn(todos)
-
-// 渲染已完成列
-function renderDoneColumn(todos)
-
-// 渲染单个任务卡片
-// @param {Todo} todo
-// @returns {string} HTML 字符串
-function renderTodoCard(todo)
-```
-
-#### 4.4 Event Bindings
-
-| 事件 | 元素 | 处理逻辑 |
-|------|------|----------|
-| `submit` | 输入表单 | 阻止默认提交，调用 addTodo，重置输入框，刷新视图 |
-| `keydown` (Enter) | 输入框 | 触发表单提交 |
-| `click` (委托) | 列容器 `.todo-card .checkbox` | 调用 toggleTodo(id)，刷新视图 |
-| `click` (委托) | 列容器 `.todo-card .delete-btn` | 调用 deleteTodo(id)，刷新视图 |
-| `click` | 已完成列折叠按钮（移动端） | 切换 `.collapsed` class |
-| `click` | 空状态引导按钮 | 聚焦到输入框 |
-
-### 五、风险与降级
-
-| 风险 | 概率 | 影响 | 降级方案 |
-|------|------|------|----------|
-| **localStorage 写入失败**（配额满 / 隐私模式） | 低 | 高 — 数据无法保存 | try-catch 捕获异常，显示 Toast 提示"存储空间不足，请清理旧任务"，功能降级为内存中可用但刷新丢失 |
-| **`backdrop-filter` 不支持**（旧浏览器） | 中 | 低 — 视觉降级 | `@supports (backdrop-filter: blur(20px))` 检测，不支持时回退为 `rgba(255,255,255,0.85)` 纯色背景，功能完全不受影响 |
-| **`crypto.randomUUID()` 不支持**（旧浏览器） | 低 | 低 — ID 生成失败 | 回退方案：`Date.now().toString(36) + Math.random().toString(36).slice(2, 8)` 生成短ID |
-| **用户误删除任务** | 中 | 低 — 数据丢失 | 删除不弹确认（保持轻量），但在删除时保存最后删除的任务到内存变量，支持 Undo（5秒内按 Ctrl+Z 恢复） |
-| **XSS 注入**（用户输入恶意内容） | 低 | 中 — 脚本执行 | 使用 `textContent` 而非 `innerHTML` 渲染任务文本；输入时不做任何 HTML 转义处理（因为根本不使用 innerHTML） |
-| **大量任务渲染性能**（>1000条） | 低 | 中 — 页面卡顿 | 渲染时限制最大显示 500 条，超出时显示"显示前500条，共N条"提示；使用 `requestAnimationFrame` 分片渲染 |
-
-### 六、实施路线图
-
-#### Phase 1: 项目骨架与核心功能（预估 4h）
-**依赖**: 无（从零开始）
-**交付物**: 可运行的 `index.html`，支持新增/完成/删除/持久化
-
-| 任务 | 工时 | 产出 |
-|------|------|------|
-| 创建 `index.html` 骨架（HTML结构 + CSS Variables + 空状态） | 1h | HTML 结构和样式系统 |
-| 实现 Storage Layer（getTodos / saveTodos） | 0.5h | 数据持久化 |
-| 实现 Business Logic（addTodo / toggleTodo / deleteTodo） | 1h | 核心 CRUD |
-| 实现 DOM Render（renderBoard / renderTodoCard） | 1h | 视图渲染 |
-| 实现事件绑定 + 初始化流程 | 0.5h | 交互功能 |
-
-#### Phase 2: UI 打磨与交互体验（预估 3h）
-**依赖**: Phase 1 完成
-
-| 任务 | 工时 | 产出 |
-|------|------|------|
-| 毛玻璃效果实现 + `@supports` 回退 | 0.5h | 视觉风格 |
-| 复选框自定义样式（`appearance: none` + 伪元素） | 0.5h | 设计规范对齐 |
-| 交互动画（hover / active / fadeIn / slideOut） | 1h | 流畅体验 |
-| 空状态 + 已完成列空状态 | 0.5h | 边界状态覆盖 |
-| 键盘可访问性（Tab / Enter / Escape / aria-label） | 0.5h | 无障碍 |
-
-#### Phase 3: 响应式适配与兼容（预估 2h）
-**依赖**: Phase 2 完成
-
-| 任务 | 工时 | 产出 |
-|------|------|------|
-| 桌面端双列布局（≥1024px） | 0.5h | 大屏适配 |
-| 平板端双列缩小（768-1023px） | 0.5h | 中屏适配 |
-| 手机端单列 + 已完成列折叠（≤767px） | 0.5h | 小屏适配 |
-| 底部输入栏 fixed + safe-area-inset-bottom | 0.5h | 移动端安全区域 |
-
-#### Phase 4: QA 与部署（预估 1h）
-**依赖**: Phase 3 完成
-
-| 任务 | 工时 | 产出 |
-|------|------|------|
-| 功能验收测试（US-01 到 US-07） | 0.5h | 测试报告 |
-| 浏览器兼容测试（Chrome/Firefox/Safari/Edge） | 0.25h | 兼容性确认 |
-| 部署到 GitHub Pages / Vercel | 0.25h | 生产环境 URL |
-
-**总工时预估**: 10h（约 1.5 个工作日）
-**关键路径**: Phase 1 → Phase 2 → Phase 3 → Phase 4（串行依赖，不可并行）
 
 ---
 
-### 文件清单
+## 二、系统架构
 
-以下为 `src/` 和 `config/` 目录下需要创建的全部文件：
+### 2.1 模块划分
 
-| 文件路径 | 职责 | 预估行数 |
-|----------|------|----------|
-| `src/index.html` | 单页面应用入口，内联所有 CSS 和 JS，零外部依赖 | ~80 行 HTML + ~300 行 CSS + ~150 行 JS |
-| `config/.nojekyll` | GitHub Pages 部署标记（空文件，禁用 Jekyll 处理） | 0 行 |
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                           Client Layer                               │
+│  ┌──────────────────────┐  ┌──────────────────────────────────────┐  │
+│  │  Web App (React SPA)  │  │  (未来) Mobile / API Client         │  │
+│  └──────────┬───────────┘  └──────────────────┬───────────────────┘  │
+└─────────────┼──────────────────────────────────┼──────────────────────┘
+              │ HTTPS + SSE (流式)               │ HTTPS + JWT
+              ▼                                  ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Gateway Layer                                 │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  Nginx / OAuth2 Proxy                                        │   │
+│  │  - TLS 终止 / 静态资源缓存 / 速率限制 / JWT 验证              │   │
+│  └──────────────────────────┬───────────────────────────────────┘   │
+└─────────────────────────────┼────────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Service Layer                                 │
+│                                                                      │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  │
+│  │  Chat Service    │  │  Document       │  │  Knowledge Base     │  │
+│  │  (FastAPI)       │  │  Service        │  │  Service            │  │
+│  │                  │  │  (FastAPI)      │  │  (FastAPI)          │  │
+│  │  - 对话管理       │  │                 │  │                     │  │
+│  │  - 流式响应       │  │  - 文件上传      │  │  - 文档管理 CRUD    │  │
+│  │  - 引用标注       │  │  - 格式解析      │  │  - 知识库配置       │  │
+│  │  - 会话历史       │  │  - 文本分块      │  │  - 索引状态追踪     │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └──────────┬──────────┘  │
+│           │                     │                       │             │
+│           │            ┌────────▼────────┐              │             │
+│           │            │  RAG Pipeline    │              │             │
+│           │            │  (异步 Worker)   │              │             │
+│           │            │                  │              │             │
+│           │            │  1. Embedding    │              │             │
+│           │            │  2. 向量存储      │              │             │
+│           │            │  3. 检索+重排序   │              │             │
+│           │            │  4. LLM 生成     │              │             │
+│           │            └────────┬─────────┘              │             │
+└───────────┼─────────────────────┼────────────────────────┼─────────────┘
+            │                     │                        │
+            ▼                     ▼                        ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                        Data Layer                                    │
+│                                                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐ │
+│  │ PostgreSQL│  │  Redis    │  │  Milvus   │  │  Object Storage     │ │
+│  │           │  │          │  │  (向量库)  │  │  (MinIO/S3)         │ │
+│  │ - 用户     │  │ - 缓存   │  │           │  │                     │ │
+│  │ - 会话     │  │ - 会话   │  │ - 文档向量 │  │ - 原始文档文件      │ │
+│  │ - 文档元数据│  │ - 消息队列│  │ - 租户隔离 │  │ - 解析后文本        │ │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
-> **架构决策**：本项目 PRD 明确要求"零构建步骤、单 HTML 文件交付"，因此所有代码（HTML/CSS/JS）集中在 `src/index.html` 中。`config/` 目录仅包含部署标记文件。无需 package.json、vite.config.ts、tsconfig.json 等构建配置。
+### 2.2 核心数据流
+
+**文档上传 → 索引流程**:
+```
+用户上传文档 → Document Service → 格式校验 → 存入对象存储(原始文件)
+    → Redis Streams (async task) → RAG Pipeline Worker:
+        1. Unstructured.io 解析 → 提取纯文本
+        2. 文本分割器 (RecursiveCharacterTextSplitter, chunk_size=512, overlap=50)
+        3. bge-large-zh-v1.5 生成 Embedding
+        4. 存入 Milvus (含 tenant_id, document_id, chunk_index 标量字段)
+        5. 更新 PostgreSQL 文档状态为 "已索引"
+```
+
+**用户提问 → 回答流程**:
+```
+用户提问 → Chat Service → 安全检查(Prompt注入检测)
+    → 生成 Query Embedding (bge)
+    → Milvus 检索 (Top-K=5, filter: tenant_id)
+    → 重排序 (Cross-encoder, 取 Top-3)
+    → 构建 Prompt (System + 检索片段 + 用户问题)
+    → LLM 流式生成 (GPT-4o-mini)
+    → 输出后处理 (引用标注 [1][2], PII 过滤)
+    → SSE 流式返回给前端
+    → 异步保存对话历史到 PostgreSQL
+```
+
+### 2.3 核心接口
+
+| 接口 | 方法 | 路径 | 描述 |
+|------|------|------|------|
+| 上传文档 | POST | `/api/v1/documents/upload` | 上传文档文件 |
+| 文档列表 | GET | `/api/v1/documents` | 获取文档列表（分页+状态过滤） |
+| 文档详情 | GET | `/api/v1/documents/{id}` | 获取文档详情及索引状态 |
+| 删除文档 | DELETE | `/api/v1/documents/{id}` | 删除文档及向量数据 |
+| 重建索引 | POST | `/api/v1/documents/{id}/reindex` | 重新解析和索引文档 |
+| 发送消息 | POST | `/api/v1/chat/messages` | 发送用户消息，SSE 流式返回 |
+| 会话历史 | GET | `/api/v1/chat/sessions/{id}/messages` | 获取会话消息历史 |
+| 新建会话 | POST | `/api/v1/chat/sessions` | 创建新会话 |
+| 获取引用 | GET | `/api/v1/documents/{id}/chunks/{chunk_id}` | 获取引用片段原文 |
+| 知识库统计 | GET | `/api/v1/knowledge-base/stats` | 文档数/片段数/索引状态 |
+| 系统设置 | GET/PUT | `/api/v1/settings` | LLM 配置/检索参数 |
 
 ---
 
-### 自检清单
+## 三、数据模型
 
-- ✅ 技术选型包含 ≥2 个备选方案对比（React/Vue/Vanilla JS；localStorage/IndexedDB/SessionStorage）
-- ✅ 系统架构包含模块划分、数据流图、关键设计决策
-- ✅ 数据模型包含完整字段定义、类型注释、验证规则、容量估算
-- ✅ API 设计包含所有内部模块接口（Storage / Business Logic / DOM Render / Events）
-- ✅ 风险与降级包含 ≥5 项风险及具体降级方案
-- ✅ 实施路线图包含 4 个阶段、每个阶段有工时预估和依赖关系
-- ✅ 文件清单列出 `src/` 和 `config/` 下所有需要创建的文件
-- ✅ 架构方案填写完整，无空模板或占位符
+### 3.1 PostgreSQL Schema
+
+```sql
+-- 租户/组织
+CREATE TABLE tenants (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            VARCHAR(255) NOT NULL,
+    plan            VARCHAR(50) NOT NULL DEFAULT 'free',  -- free, pro, enterprise
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 用户
+CREATE TABLE users (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id),
+    email           VARCHAR(255) UNIQUE NOT NULL,
+    display_name    VARCHAR(100) NOT NULL,
+    role            VARCHAR(50) NOT NULL DEFAULT 'member',  -- admin, member
+    password_hash   VARCHAR(255) NOT NULL,
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_users_tenant ON users(tenant_id);
+
+-- 文档
+CREATE TABLE documents (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id),
+    filename        VARCHAR(500) NOT NULL,
+    original_name   VARCHAR(500) NOT NULL,
+    file_size       BIGINT NOT NULL,  -- bytes
+    mime_type       VARCHAR(100) NOT NULL,
+    storage_path    VARCHAR(1000) NOT NULL,  -- 对象存储路径
+    page_count      INTEGER,  -- PDF 页数
+    chunk_count     INTEGER DEFAULT 0,
+    status          VARCHAR(50) NOT NULL DEFAULT 'pending',
+        -- pending → parsing → indexing → indexed
+        -- pending → parsing → failed
+    error_message   TEXT,
+    parsed_text_path VARCHAR(1000),  -- 解析后文本的存储路径
+    uploaded_by     UUID NOT NULL REFERENCES users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_documents_tenant ON documents(tenant_id);
+CREATE INDEX idx_documents_status ON documents(status);
+
+-- 文档块（元数据，向量数据在 Milvus 中）
+CREATE TABLE document_chunks (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    document_id     UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id),
+    chunk_index     INTEGER NOT NULL,
+    chunk_text      TEXT NOT NULL,
+    token_count     INTEGER NOT NULL,
+    milvus_id       VARCHAR(100),  -- Milvus 中的向量 ID
+    metadata        JSONB DEFAULT '{}',  -- 页码、标题等
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_chunks_document ON document_chunks(document_id);
+CREATE INDEX idx_chunks_tenant ON document_chunks(tenant_id);
+
+-- 会话
+CREATE TABLE chat_sessions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id),
+    user_id         UUID NOT NULL REFERENCES users(id),
+    title           VARCHAR(255) DEFAULT '新对话',
+    is_active       BOOLEAN NOT NULL DEFAULT true,
+    message_count   INTEGER DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_sessions_tenant_user ON chat_sessions(tenant_id, user_id);
+
+-- 消息
+CREATE TABLE chat_messages (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id      UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role            VARCHAR(50) NOT NULL,  -- user, assistant, system
+    content         TEXT NOT NULL,
+    tokens_used     INTEGER,
+    sources         JSONB DEFAULT '[]',  -- [{document_id, chunk_id, chunk_index, score}]
+    latency_ms      INTEGER,  -- LLM 响应时间
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_messages_session ON chat_messages(session_id);
+CREATE INDEX idx_messages_created ON chat_messages(created_at);
+
+-- 系统设置
+CREATE TABLE system_settings (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) UNIQUE,
+    llm_provider    VARCHAR(50) NOT NULL DEFAULT 'openai',
+    llm_model       VARCHAR(100) NOT NULL DEFAULT 'gpt-4o-mini',
+    llm_temperature REAL NOT NULL DEFAULT 0.7,
+    llm_max_tokens  INTEGER NOT NULL DEFAULT 2048,
+    embedding_model VARCHAR(100) NOT NULL DEFAULT 'bge-large-zh-v1.5',
+    chunk_size      INTEGER NOT NULL DEFAULT 512,
+    chunk_overlap   INTEGER NOT NULL DEFAULT 50,
+    top_k           INTEGER NOT NULL DEFAULT 5,
+    enable_rerank   BOOLEAN NOT NULL DEFAULT true,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 审计日志
+CREATE TABLE audit_logs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id),
+    user_id         UUID NOT NULL REFERENCES users(id),
+    action          VARCHAR(100) NOT NULL,  -- document.upload, document.delete, chat.send, settings.update
+    resource_type   VARCHAR(50),
+    resource_id     UUID,
+    details         JSONB DEFAULT '{}',
+    ip_address      INET,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_audit_tenant_created ON audit_logs(tenant_id, created_at DESC);
+```
+
+### 3.2 存储选型策略
+
+| 数据类型 | 存储 | 理由 |
+|---------|------|------|
+| 结构化业务数据（用户/文档元数据/会话/设置） | PostgreSQL | ACID 事务，外键约束，JSONB 灵活字段 |
+| 文档原始文件和解析后文本 | MinIO (S3 兼容) | 大文件存储成本低，CDN 加速 |
+| 向量数据（文档块 Embedding） | Milvus | 支持十亿级向量检索，Partition 实现租户隔离，混合检索（向量+标量过滤） |
+| 会话缓存 / 热点问答缓存 / 消息队列 | Redis 7 | 低延迟缓存，Redis Streams 异步任务 |
+| 对话历史 | PostgreSQL
 
 ---
 
 ## 并行评审反馈
 
 ### 并行评审意见 — security
-[delegate→security | steps=4]
+[delegate→security | steps=2]
 
-## 安全性审阅报告：待办看板架构方案
+# 架构方案安全审计报告
 
-**审计依据**: OWASP Top 10 (2021) / 最小权限原则  
-**审计范围**: JWT 配置、数据加密、网络隔离、最小权限  
-**审阅目标**: 仅列出安全问题，不重新设计架构
-
----
-
-### 发现的安全问题
-
-#### 1. JWT 配置 — 架构文档中完全缺失
-
-**严重程度**: 高  
-
-架构方案的技术选型表中未提及 JWT、认证或会话管理。PRD 中未明确要求用户认证，但架构方案作为"完整架构方案"应当明确说明：
-- 是否使用 JWT？如果否，理由是什么？
-- 如果使用 localStorage 存储待办数据，同一浏览器不同用户之间如何隔离？
-- 如果未来需要多用户支持，当前架构无任何 JWT 配置预留（无密钥管理、无过期策略、无刷新令牌机制）。
-
-**违反原则**: OWASP A01:2021 — 失效的访问控制；最小权限原则要求明确谁可以访问什么资源，当前方案对此完全未定义。
+**审计对象**: 智能客服问答系统架构设计方案 (Draft v1.0)  
+**审计依据**: OWASP Top 10 (2021) / 最小权限原则 / 数据安全最佳实践  
+**审计范围**: JWT 配置、数据加密、网络隔离、最小权限
 
 ---
 
-#### 2. 数据加密 — 敏感数据明文存储
+## 发现的安全问题
 
-**严重程度**: 高  
+### 1. JWT 配置 — 关键设计缺失
 
-架构方案明确选择 `localStorage` 作为存储方案，且数据模型中的 `text` 字段为纯文本。存在以下风险：
+**严重性**: 高危  
+**问题描述**: 架构文档中仅提及使用 JWT + OAuth2 Proxy 进行认证，但完全缺失以下关键安全配置：
+- 未指定 JWT 签名算法（若默认使用 `HS256` 而非 `RS256`，存在密钥泄露后伪造 token 的风险）
+- 未提及 JWT 过期时间（`exp`）和刷新机制（`refresh token`）
+- 未说明 JWT 密钥的存储方式（硬编码？环境变量？密钥管理服务？）
+- 未提及 JWT 的 `jti` (JWT ID) 声明用于防重放攻击
+- 未说明 OAuth2 Proxy 与 JWT 的关系——是二选一还是叠加使用？若叠加，认证流程不清晰
 
-- **明文存储**: 所有待办事项内容以明文形式存储在浏览器的 `localStorage` 中。任何能够访问该浏览器（同源）的 JavaScript（包括浏览器扩展、第三方脚本、XSS 攻击载荷）都可以读取所有待办数据。
-- **无传输加密**: 架构方案选择"单 HTML 交付"部署方式，如果通过 HTTP 而非 HTTPS 提供服务，待办数据在传输过程中也是明文的。
-- **无加密密钥管理**: 即使考虑加密，方案中也没有任何密钥派生、存储或轮换的设计。
-
-**违反原则**: OWASP A02:2021 — 加密机制失效；OWASP A04:2021 — 不安全的设计（数据保护未被纳入架构决策）。
-
----
-
-#### 3. 网络隔离 — 零防护设计
-
-**严重程度**: 中  
-
-架构方案描述为"单 HTML 交付"、"零服务器、零运维"，这意味着：
-
-- **无后端 API 网关**: 所有逻辑在浏览器端执行，无法实施任何网络层面的访问控制、速率限制或 IP 白名单。
-- **无 CORS 策略**: 方案未提及任何 CORS 配置。如果未来引入第三方服务（如备份到云端），当前架构无任何跨域安全策略。
-- **无 CSP 头**: 方案未提及 Content-Security-Policy。单 HTML 交付模式下，如果通过 CDN 或静态托管服务部署，默认通常不设置 CSP 头，增加了 XSS 风险。
-- **无 HTTPS 强制**: 方案未要求 HTTPS。在 HTTP 环境下，localStorage 数据可能被中间人攻击者注入恶意脚本窃取。
-
-**违反原则**: OWASP A05:2021 — 安全配置错误；网络隔离的缺失使得整个应用暴露于浏览器端的所有攻击面。
+**OWASP 映射**: A02:2021 – Cryptographic Failures
 
 ---
 
-#### 4. 最小权限 — 未定义任何权限模型
+### 2. 数据加密 — 传输层与存储层均不完整
 
-**严重程度**: 高  
+**严重性**: 高危  
+**问题描述**:
 
-架构方案中完全没有权限模型的设计：
+**2.1 传输层加密**
+- 架构图中标注了 `HTTPS + SSE`，但未说明内部服务间通信（Chat Service → Document Service → Knowledge Base Service → Vector DB / LLM）是否启用 mTLS 或至少 TLS
+- 若服务间通信为明文 HTTP，攻击者通过内网横向移动即可截获：
+  - 用户上传的原始文档内容
+  - Embedding 向量（可反向推断文档语义）
+  - LLM 请求/响应中的敏感信息
+  - JWT token（若在内部 API 间透传）
 
-- **无用户身份**: 方案未定义任何用户身份概念，所有操作（添加、修改、删除）默认对所有访问者开放。
-- **无操作授权**: 架构中的数据流图显示"用户操作 → Event Handler → Business Logic → Storage Layer"，没有任何权限检查步骤。
-- **无数据隔离**: 同一浏览器上的所有用户共享同一个 `localStorage` key (`todos`)，无法区分数据归属。
-- **无管理功能保护**: 方案未区分普通用户和管理员角色，任何功能对所有用户平等开放。
+**2.2 存储层加密**
+- 未提及向量数据库（Chroma / Milvus）中向量数据的加密存储
+- 未提及 Redis 中缓存的问答数据（TTL=1h）是否加密
+- 未提及文档原始文件在存储层的加密（文件系统加密 / 对象存储加密）
+- 未提及 Embedding 模型本地部署时模型文件的完整性校验
 
-**违反原则**: OWASP A01:2021 — 失效的访问控制（最严重的安全问题之一）；最小权限原则被完全忽略。
+**OWASP 映射**: A02:2021 – Cryptographic Failures | A04:2021 – Insecure Design
 
 ---
 
-#### 5. 额外发现：XSS 风险
+### 3. 网络隔离 — 架构图显示为扁平网络
 
-**严重程度**: 高  
+**严重性**: 中危  
+**问题描述**: 架构图中所有服务（Chat Service、Document Service、Knowledge Base Service、Redis、Vector DB、LLM）均处于同一网络平面，缺乏以下隔离机制：
+- 未划分 DMZ、应用层、数据层网络区域
+- 未说明 Gateway Layer（Nginx/OAuth2 Proxy）是否与 Service Layer 物理/逻辑隔离
+- 未说明向量数据库和 Redis 是否部署在独立私有子网，仅允许 Service Layer 特定端口访问
+- 未提及 LLM API 调用是否通过专用出口 IP / 代理，避免直接暴露公网
+- 未说明 Kubernetes 环境下的 NetworkPolicy 配置策略
 
-架构方案中 DOM Render 层使用 `innerHTML` 全量重绘：
+**风险场景**: 若 Document Service 被攻破（如恶意文件上传漏洞），攻击者可直接横向访问向量数据库和 Redis，窃取所有知识库文档和缓存数据。
 
-> "选择 `innerHTML` 全量重绘以保持代码简洁"
+**OWASP 映射**: A01:2021 – Broken Access Control | A04:2021 – Insecure Design
 
-如果待办事项的 `text` 字段包含用户输入且未经过适当的 HTML 转义，这将直接导致存储型 XSS 攻击。攻击者可以创建一条包含 `<script>` 标签或 `onerror` 事件处理器的待办事项，当其他用户（或同一用户刷新页面后）查看时，恶意脚本将在浏览器上下文中执行，可以窃取 localStorage 中的所有数据。
+---
+
+### 4. 最小权限 — 服务间权限未定义
+
+**严重性**: 中危  
+**问题描述**: 架构文档未定义任何服务间的最小权限策略：
+- 未说明 Chat Service 对 Document Service 的 API 访问范围（是否允许删除文档？是否允许列出所有文档？）
+- 未说明 Document Service 对向量数据库的写入权限是否应限制为仅写入自身租户的 partition
+- 未说明 Knowledge Base Service 对 Redis 的访问是否应限制为特定 key 前缀
+- 未说明 OAuth2 Proxy 与后端服务之间的 JWT 是否携带角色/权限声明（`roles` / `permissions` c
+
+### 并行评审意见 — developer
+[delegate→developer | steps=4]
+
+## 架构方案审阅报告
+
+**审阅对象**: 智能客服问答系统 — 架构设计方案 v1.0
+**审阅范围**: 技术选型、系统架构、API 设计、数据模型、存储方案
+**审阅视角**: 全栈工程可实现性（API 设计完整性、数据模型可实现性、技术栈熟悉度）
+**审阅结论**: **APPROVED**（附带 3 项中优先级修复项）
+
+---
+
+### 总体评价
+
+该架构方案整体质量较高，技术选型逻辑清晰，决策链条完整（核心约束→选型→替代方案），模块划分合理。FastAPI + React + LangChain 的选型组合在当前 RAG 场景下是最成熟的技术栈之一，团队经验充足。以下列出 3 个最重要的可实现性顾虑：
+
+---
+
+### 顾虑 1：API 设计缺失 — 流式响应接口未定义
+
+**严重程度**: 高
+**问题描述**: 架构方案中提到了"流式响应"（SSE），但未给出任何 API 端点定义。智能客服的核心交互是流式对话，缺少 `/api/chat/stream` 端点的请求/响应 Schema 定义，会导致前后端联调时出现接口不一致。
+
+**具体缺失**:
+- 请求体结构（session_id, message, context, model_params 等）
+- 响应格式（SSE event 类型：`token`, `done`, `error`, `source` 等）
+- 错误处理（流中断、超时、重试策略）
+
+**修复建议**:
+```
+POST /api/v1/chat/stream
+Request: { session_id: string, message: string, context?: { document_ids?: string[] } }
+Response: SSE stream
+  event: token    data: { text: string }
+  event: source   data: { document_id: string, chunk: string, score: float }
+  event: done     data: { session_id: string, token_usage: {...} }
+  event: error    data: { code: string, message: string }
+```
+
+---
+
+### 顾虑 2：数据模型未定义 — 核心实体缺失
+
+**严重程度**: 高
+**问题描述**: 架构方案中完全没有定义数据模型（ERD 或至少核心表结构）。智能客服系统至少需要以下实体，缺失会导致后端开发时数据层设计不一致：
+
+**必须定义的模型**:
+1. **Conversation（会话）**: id, user_id, title, status, created_at, updated_at
+2. **Message（消息）**: id, conversation_id, role(user/assistant/system), content, sources(json), token_usage, created_at
+3. **Document（文档）**: id, user_id, filename, file_type, status(processing/ready/failed), chunk_count, created_at
+4. **DocumentChunk（文档块）**: id, document_id, chunk_index, content, embedding(vector), metadata(json)
+5. **KnowledgeBase（知识库）**: id, user_id, name, description, document_ids, created_at
+
+**修复建议**: 在架构文档中补充核心 ERD 或至少列出以上 5 个核心实体的字段定义，并标注向量字段类型（pgvector 或 Milvus 的 vector 类型）。
+
+---
+
+### 顾虑 3：文档解析异步任务链路不完整
+
+**严重程度**: 中
+**问题描述**: 架构方案中提到了 Redis Streams 用于异步处理文档解析和向量化，但未说明以下关键细节：
+
+**缺失环节**:
+1. **任务队列结构**: Redis Stream 的 consumer group 设计、消息格式、重试次数、死信队列
+2. **解析流程状态机**: 文档上传 → 解析中 → 向量化中 → 就绪 / 失败，状态变更如何通知前端（轮询

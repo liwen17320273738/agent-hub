@@ -45,6 +45,11 @@ models:
   #   model: gemini-2.5-pro
   #   api_key: $GEMINI_API_KEY
   #   max_tokens: 8192
+  #
+  # NOTE: GOOGLE_API_KEY/GEMINI_API_KEY also powers visual generation —
+  # design-stage UI mockups + architecture-stage diagrams via Nano Banana Pro
+  # (gemini-3-pro-image-preview). Requires `google-genai` + a billing-enabled
+  # project; otherwise the pipeline falls back to HTML/Mermaid.
 
   # Dashscope (Qwen)
   # - name: qwen-max

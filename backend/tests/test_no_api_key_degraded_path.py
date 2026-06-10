@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import io
-import json
 import os
 import tempfile
 import zipfile
@@ -28,8 +27,14 @@ pytestmark = pytest.mark.asyncio
 # ── 辅助函数 ──────────────────────────────────────────────────────────────
 
 
+# Settings fields that may carry an API key loaded from .env (not os.environ).
+# Image generation resolves the Gemini key via settings.google_api_key, so a
+# true "no key" simulation must blank these too — not just environment vars.
+_SETTINGS_KEY_FIELDS = ("google_api_key", "openai_api_key")
+
+
 def _clear_api_keys() -> dict:
-    """清除所有 LLM/图片生成相关的 API Key 环境变量。"""
+    """清除所有 LLM/图片生成相关的 API Key（环境变量 + settings 字段）。"""
     cleared = {}
     keys_to_clear = [
         "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY",
@@ -42,16 +47,33 @@ def _clear_api_keys() -> dict:
         if k in os.environ:
             cleared[k] = os.environ[k]
         os.environ[k] = ""
+
+    # Also blank settings-level keys loaded from .env (image gen reads these).
+    from app.config import settings as _settings
+
+    settings_saved = {}
+    for field in _SETTINGS_KEY_FIELDS:
+        if hasattr(_settings, field):
+            settings_saved[field] = getattr(_settings, field)
+            setattr(_settings, field, "")
+    cleared["__settings__"] = settings_saved
     return cleared
 
 
 def _restore_api_keys(cleared: dict):
-    """恢复被清除的环境变量。"""
+    """恢复被清除的环境变量与 settings 字段。"""
+    settings_saved = cleared.pop("__settings__", {})
     for k, v in cleared.items():
         if v:
             os.environ[k] = v
         else:
             os.environ.pop(k, None)
+
+    if settings_saved:
+        from app.config import settings as _settings
+
+        for field, value in settings_saved.items():
+            setattr(_settings, field, value)
 
 
 # ── Task 1: 资源检查降级 — 设计阶段 ──────────────────────────────────────

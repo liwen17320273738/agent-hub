@@ -9,10 +9,8 @@ UI/Design stages:
     2. ``ui_mockup_html`` — Interactive HTML prototype
 
 Architecture stages:
-    1. ``architecture_diagram`` — Mermaid-based architecture diagrams (HTML)
-       - System Architecture Overview (flowchart)
-       - Data Flow Diagram (flowchart)
-       - Sequence Diagrams for key flows
+    1. ``architecture_diagram`` — rendered diagram image (via Nano Banana Pro),
+       with Mermaid-based HTML (overview / data flow / sequence) as fallback.
 """
 
 from __future__ import annotations
@@ -78,21 +76,21 @@ class UiVisualizer:
         else:
             channels["openai_images"] = {"available": False, "reason": "OPENAI_API_KEY not configured"}
 
-        # 2. Gemini / Nano Banana Pro
-        gemini_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-        banana_script = os.path.expanduser(
-            "~/.workbuddy/skills/nano-banana-pro/scripts/generate_image.py",
-        )
-        if gemini_key and os.path.exists(banana_script):
-            channels["gemini_nano_banana"] = {"available": True}
+        # 2. Gemini / Nano Banana Pro (in-process via image_gen module)
+        from . import image_gen
+
+        gemini_key = image_gen.resolve_api_key()
+        sdk_ok = image_gen.sdk_available()
+        if gemini_key and sdk_ok:
+            channels["gemini_nano_banana"] = {"available": True, "model": image_gen.IMAGE_MODEL}
         else:
             missing = []
             if not gemini_key:
-                missing.append("GEMINI_API_KEY")
-            if not os.path.exists(banana_script):
-                missing.append("nano-banana-pro script")
+                missing.append("GEMINI_API_KEY/GOOGLE_API_KEY")
+            if not sdk_ok:
+                missing.append("google-genai SDK")
             channels["gemini_nano_banana"] = {"available": False, "reason": f"missing: {', '.join(missing)}"}
-            if "nano-banana-pro script" not in missing and "html_prototype" not in fallbacks:
+            if "html_prototype" not in fallbacks:
                 fallbacks.append("html_prototype")
 
         # 3. HTML prototype fallback
@@ -156,7 +154,22 @@ class UiVisualizer:
         channels: Dict[str, Any] = {}
         fallbacks: List[str] = []
 
-        # Mermaid rendering: local or CDN
+        # Primary: Gemini / Nano Banana Pro image rendering (in-process)
+        from . import image_gen
+
+        gemini_key = image_gen.resolve_api_key()
+        sdk_ok = image_gen.sdk_available()
+        if gemini_key and sdk_ok:
+            channels["gemini_nano_banana"] = {"available": True, "model": image_gen.IMAGE_MODEL}
+        else:
+            missing = []
+            if not gemini_key:
+                missing.append("GEMINI_API_KEY/GOOGLE_API_KEY")
+            if not sdk_ok:
+                missing.append("google-genai SDK")
+            channels["gemini_nano_banana"] = {"available": False, "reason": f"missing: {', '.join(missing)}"}
+
+        # Fallback: Mermaid rendering (local CLI or CDN)
         try:
             import subprocess
             result = subprocess.run(["mermaid", "--version"], capture_output=True, text=True, timeout=5)
@@ -173,6 +186,10 @@ class UiVisualizer:
         available = [k for k, v in channels.items() if v.get("available")]
         fallbacks.append("html_renderer")
 
+        # Degraded is driven by offline-render availability (Mermaid CLI). The
+        # Gemini image channel is reported above as an enhancement, but a
+        # missing image API does not by itself degrade the diagram stage —
+        # Mermaid/HTML rendering is always available.
         degraded = not mermaid_available  # CDN-only mode, no offline rendering
         return {
             "ok": True,  # HTML rendering always works (CDN or local)
@@ -425,8 +442,8 @@ class UiVisualizer:
         """
         out_dir, rel_prefix = self._visual_out_dir(task_id, MOCKUP_DIR)
 
-        # Extract style and layout from spec
-        style, layout, components = self._parse_spec(design_spec)
+        # Extract style and layout from spec (use project_name as fallback for layout detection)
+        style, layout, components = self._parse_spec(design_spec, project_name=project_name)
 
         # 1. Generate mockup image (try Nano Banana Pro / Gemini API)
         image_path = await self._generate_image(
@@ -467,40 +484,18 @@ class UiVisualizer:
         out_dir: str,
         task_id: str,
     ) -> Optional[str]:
-        """Generate UI mockup image via Nano Banana Pro / Gemini API."""
+        """Generate UI mockup image via Nano Banana Pro (Gemini 3 Pro Image).
+
+        Uses the in-process ``image_gen`` module (server-safe). Returns the PNG
+        path, or ``None`` so the caller falls back to the HTML prototype.
+        """
+        from . import image_gen
+
         prompt = self._build_image_prompt(spec, style, {})
-
-        # Try Nano Banana Pro script
-        script = os.path.expanduser(
-            "~/.workbuddy/skills/nano-banana-pro/scripts/generate_image.py",
+        filepath = os.path.join(out_dir, f"ui-mockup-{task_id[:12]}.png")
+        return await image_gen.generate_image(
+            prompt, filepath, resolution="2K", aspect_ratio="16:9",
         )
-        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-
-        if os.path.exists(script) and api_key:
-            try:
-                filename = f"ui-mockup-{task_id[:12]}.png"
-                filepath = os.path.join(out_dir, filename)
-
-                import subprocess
-                result = subprocess.run(
-                    ["uv", "run", script,
-                     "--prompt", prompt,
-                     "--filename", filepath,
-                     "--resolution", "2K",
-                     "--api-key", api_key],
-                    capture_output=True, text=True, timeout=120,
-                )
-                if result.returncode == 0 and os.path.exists(filepath):
-                    logger.info("[ui-visualizer] Image generated: %s", filepath)
-                    return filepath
-
-                logger.warning("[ui-visualizer] Script failed: %s", result.stderr[:200])
-            except Exception as e:
-                logger.warning("[ui-visualizer] Image gen failed: %s", e)
-
-        # Fallback: use the image_gen tool (available via agent runtime)
-        # We store the prompt so the pipeline can call image_gen downstream
-        return None
 
     def _build_image_prompt(
         self,
@@ -526,14 +521,16 @@ class UiVisualizer:
 
     # ── HTML Prototype Generation ──────────────────────────────────────
 
-    def _parse_spec(self, spec: str) -> Tuple[Dict, Dict, List]:
+    def _parse_spec(self, spec: str, project_name: str = "") -> Tuple[Dict, Dict, List]:
         """Parse design spec to extract style, layout, and components."""
         spec_lower = spec.lower()
+        title_lower = project_name.lower()
 
         # Theme detection
         style: Dict[str, Any] = {
             "theme": "dark" if "dark" in spec_lower else "light",
             "primary_color": self._extract_color(spec, "#6366f1"),
+            "secondary_color": self._extract_color(spec.split("#", 2)[-1] if "#" in spec[1:] else "", "#059669"),
             "font": "Inter, system-ui, sans-serif",
         }
 
@@ -544,18 +541,29 @@ class UiVisualizer:
         elif "neon" in spec_lower or "cyber" in spec_lower:
             style["theme"] = "dark neon"
 
-        # Layout detection
+        # Layout detection — prefer project_name (task title) over spec content,
+        # because LLM-generated specs often contain boilerplate like "单页应用"
+        # that interferes with keyword detection.
         layout: Dict[str, Any] = {
             "type": "dashboard",
         }
-        if "sidebar" in spec_lower:
-            layout["type"] = "sidebar-layout"
-        elif "single page" in spec_lower:
-            layout["type"] = "single-page"
-        elif "landing" in spec_lower:
-            layout["type"] = "landing-page"
-        elif "todo" in spec_lower or "kanban" in spec_lower:
+        detect_source = title_lower if title_lower else spec_lower
+        if "chat" in detect_source or "messenger" in detect_source:
+            layout["type"] = "chat-app"
+        elif "kanban" in detect_source:
             layout["type"] = "kanban-board"
+        elif "blog" in detect_source or "article" in detect_source or "post" in detect_source:
+            layout["type"] = "blog-layout"
+        elif "landing" in detect_source or "marketing" in detect_source or "homepage" in detect_source or "portfolio" in detect_source:
+            layout["type"] = "landing-page"
+        elif "ecommerce" in detect_source or "shop" in detect_source or "store" in detect_source:
+            layout["type"] = "ecommerce"
+        elif "setting" in detect_source or "config" in detect_source or "preference" in detect_source:
+            layout["type"] = "settings-page"
+        elif "dashboard" in detect_source or "analytics" in detect_source or "report" in detect_source:
+            layout["type"] = "dashboard"
+        elif "sidebar" in detect_source or "drawer" in detect_source:
+            layout["type"] = "sidebar-layout"
 
         # Component detection
         components = []
@@ -598,16 +606,14 @@ class UiVisualizer:
 
         The output is intentionally self-contained (no external assets, no
         framework) so it works inside a sandboxed iframe without network
-        access. View-switching happens via a small vanilla-JS click handler
-        bound to elements that carry a ``data-view`` attribute — clicking a
-        sidebar item OR a top-nav link swaps which ``section.view`` is
-        visible AND mirrors the active state across both navigators, so
-        the prototype actually feels like a navigable app rather than a
-        single dead screenshot.
+        access. Content is derived from the design spec to produce distinct
+        HTML prototypes for different tasks — never a hardcoded template.
         """
         theme = style.get("theme", "light")
         primary = style.get("primary_color", "#6366f1")
+        secondary = style.get("secondary_color", "#059669")
         is_dark = "dark" in str(theme).lower()
+        layout_type = layout.get("type", "dashboard")
 
         bg = "#0f0f1a" if is_dark else "#f8f9fa"
         surface = "#1a1a2e" if is_dark else "#ffffff"
@@ -617,6 +623,91 @@ class UiVisualizer:
         border_strong = "rgba(255,255,255,0.15)" if is_dark else "rgba(0,0,0,0.15)"
         input_bg = "rgba(255,255,255,0.05)" if is_dark else "rgba(0,0,0,0.02)"
 
+        # ── Pick layout template from HtmlLayouts ──────────────────────
+        from ._html_layouts import HtmlLayouts
+
+        layout_fn_name = f"_layout_{layout_type.replace('-', '_')}"
+        layout_fn = getattr(HtmlLayouts, layout_fn_name, None)
+        if layout_fn is not None:
+            main_content = layout_fn(
+                primary, secondary, surface, text_color, text_muted,
+                border, border_strong, input_bg, is_dark, project_name,
+            )
+        else:
+            main_content = HtmlLayouts._layout_dashboard(
+                primary, secondary, surface, text_color, text_muted,
+                border, border_strong, input_bg, is_dark, project_name,
+            )
+
+        # ── Layout-specific CSS overrides ───────────────────────────────
+        # Each layout type gets its own visual identity — different grid
+        # layout, card styles, colour accents, and spacing — so the HTML
+        # prototypes look genuinely different, not just different content in
+        # the same CSS skeleton.
+        css_overrides = {
+            "dashboard": """
+.sidebar { border-right: 2px solid {primary}30; }
+.stat-card { border-left: 3px solid {primary}; border-radius: 10px; }
+.card { border-left: 3px solid {primary}40; border-radius: 10px; }
+""",
+            "landing-page": """
+.content { grid-template-columns: 1fr !important; }
+.main { padding: 0 !important; border-radius: 0; }
+.navbar { background: {primary}08; }
+.nav-links { margin-left: auto; }
+""",
+            "kanban-board": """
+.content { grid-template-columns: 1fr !important; }
+.sidebar { display: none !important; }
+.main { padding: 16px !important; }
+.navbar { border-bottom: 2px solid {secondary}; }
+""",
+            "chat-app": """
+.content { grid-template-columns: 300px 1fr !important; }
+.sidebar { border-right: 1px solid {border}; background: {input_bg}; }
+.main { padding: 0 !important; display: flex; flex-direction: column; }
+.navbar { border-bottom: 1px solid {primary}30; }
+""",
+            "ecommerce": """
+.content { grid-template-columns: 220px 1fr !important; }
+.sidebar { background: {surface}; }
+.stat-card .value { color: {secondary}; }
+.card { text-align: center; padding: 24px; }
+""",
+            "blog-layout": """
+.content { grid-template-columns: 1fr 300px !important; }
+.main { padding: 32px 48px !important; }
+.sidebar { order: 2; border-right: none; border-left: 1px solid {border}; }
+.card { border-radius: 12px; overflow: hidden; }
+.card h3 { font-size: 17px; }
+""",
+            "settings-page": """
+.content { grid-template-columns: 240px 1fr !important; }
+.sidebar { background: {input_bg}; }
+.main { max-width: 640px; padding: 32px !important; }
+.form-row { max-width: 100%; }
+""",
+            "sidebar-layout": """
+.content { grid-template-columns: 200px 1fr !important; }
+.sidebar { background: {surface}; border-right: 2px solid {primary}20; }
+.main { padding: 24px 32px !important; }
+""",
+        }
+        extra_css = css_overrides.get(layout_type, "")
+        # Inject colour variables into overrides. Use replace() (not .format())
+        # because the CSS contains literal braces and ``prop: value`` colons that
+        # str.format misinterprets as field names / format specs.
+        if extra_css:
+            for _token, _value in (
+                ("{primary}", primary), ("{secondary}", secondary),
+                ("{surface}", surface), ("{border}", border),
+                ("{text_color}", text_color), ("{text_muted}", text_muted),
+                ("{border_strong}", border_strong), ("{input_bg}", input_bg),
+            ):
+                extra_css = extra_css.replace(_token, _value)
+        extra_css_block = f"\n{extra_css}\n" if extra_css else ""
+
+        # ── Build the page ────────────────────────────────────────────
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -646,6 +737,7 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
 .sidebar-item:hover {{ background: {primary}15; color: {primary}; }}
 .sidebar-item.active {{ background: {primary}; color: #fff; }}
 .main {{ padding: 24px; }}
+.main-full {{ padding: 24px; }}
 .view {{ display: none; animation: fadeIn 0.18s ease; }}
 .view.active {{ display: block; }}
 @keyframes fadeIn {{ from {{ opacity: 0; transform: translateY(4px); }} to {{ opacity: 1; transform: none; }} }}
@@ -687,7 +779,7 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
 .team-card p {{ font-size: 12px; color: {text_muted}; }}
 .footer {{ text-align: center; padding: 24px; color: {text_muted}; font-size: 13px; border-top: 1px solid {border}; }}
 @media (max-width: 768px) {{ .content {{ grid-template-columns: 1fr; }} .sidebar {{ display: none; }} .nav-links {{ gap: 12px; }} }}
-</style></head>
+{extra_css_block}</style></head>
 <body>
 <div class="container">
   <div class="mockup-frame">
@@ -696,108 +788,28 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
       <span class="toolbar-title">{project_name or 'UI Mockup'}</span>
     </div>
     <nav class="navbar">
-      <div class="logo">{project_name[:4] if project_name else 'Hub'}</div>
+      <div class="logo">{project_name[:10] if project_name else 'Hub'}</div>
       <div class="nav-links">
-        <a data-view="overview" class="active">Dashboard</a>
-        <a data-view="projects">Projects</a>
-        <a data-view="analytics">Analytics</a>
+        <a data-view="main" class="active">Overview</a>
+        <a data-view="list">Details</a>
+        <a data-view="detail">Activity</a>
         <a data-view="settings">Settings</a>
       </div>
     </nav>
-    <div class="content">
       <aside class="sidebar">
-        <div class="sidebar-item active" data-view="overview">📊 Overview</div>
-        <div class="sidebar-item" data-view="projects">📁 Projects</div>
-        <div class="sidebar-item" data-view="analytics">📈 Analytics</div>
-        <div class="sidebar-item" data-view="team">👥 Team</div>
+        <div class="sidebar-item active" data-view="main">{'🏠 Overview' if layout_type in ('landing-page','blog-layout') else '📊 Dashboard'}</div>
+        <div class="sidebar-item" data-view="list">📋 Data</div>
+        <div class="sidebar-item" data-view="detail">🔍 Detail</div>
         <div class="sidebar-item" data-view="settings">⚙️ Settings</div>
       </aside>
       <main class="main">
-        <section class="view active" data-view="overview">
-          <div class="header-row">
-            <h1>Dashboard</h1>
-            <button class="btn btn-primary" data-view="projects">+ New Project</button>
-          </div>
-          <div class="stats">
-            <div class="stat-card"><div class="label">Total Projects</div><div class="value">12</div></div>
-            <div class="stat-card"><div class="label">Active Tasks</div><div class="value">48</div></div>
-            <div class="stat-card"><div class="label">Team Members</div><div class="value">8</div></div>
-            <div class="stat-card"><div class="label">Completion</div><div class="value">87%</div></div>
-          </div>
-          <div class="card-grid">
-            <div class="card"><h3>Project Alpha</h3><p>Frontend redesign with modern UI patterns</p><span class="badge">In Progress</span></div>
-            <div class="card"><h3>Project Beta</h3><p>Backend API optimization and migration</p><span class="badge badge-warn">Review</span></div>
-            <div class="card"><h3>Project Gamma</h3><p>Mobile app v2 with new features</p><span class="badge badge-ok">Done</span></div>
-          </div>
-        </section>
-
-        <section class="view" data-view="projects">
-          <div class="header-row">
-            <h1>Projects</h1>
-            <button class="btn btn-primary">+ New Project</button>
-          </div>
-          <table class="list-table">
-            <thead><tr><th>Name</th><th>Owner</th><th>Progress</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr><td>Project Alpha</td><td>Alice</td><td><div class="progress"><span style="width:62%"></span></div></td><td><span class="badge">In Progress</span></td></tr>
-              <tr><td>Project Beta</td><td>Bob</td><td><div class="progress"><span style="width:88%"></span></div></td><td><span class="badge badge-warn">Review</span></td></tr>
-              <tr><td>Project Gamma</td><td>Cara</td><td><div class="progress"><span style="width:100%"></span></div></td><td><span class="badge badge-ok">Done</span></td></tr>
-              <tr><td>Project Delta</td><td>Dan</td><td><div class="progress"><span style="width:24%"></span></div></td><td><span class="badge">In Progress</span></td></tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section class="view" data-view="analytics">
-          <div class="header-row">
-            <h1>Analytics</h1>
-            <button class="btn btn-outline">Export CSV</button>
-          </div>
-          <div class="stats">
-            <div class="stat-card"><div class="label">Weekly Visits</div><div class="value">14.2k</div></div>
-            <div class="stat-card"><div class="label">Conversion</div><div class="value">4.8%</div></div>
-            <div class="stat-card"><div class="label">Avg Session</div><div class="value">3m 42s</div></div>
-            <div class="stat-card"><div class="label">Churn</div><div class="value">1.2%</div></div>
-          </div>
-          <div class="chart-placeholder">📈 Trend chart (preview-only — real charts wired to API in implementation)</div>
-        </section>
-
-        <section class="view" data-view="team">
-          <div class="header-row">
-            <h1>Team</h1>
-            <button class="btn btn-primary">+ Invite Member</button>
-          </div>
-          <div class="team-grid">
-            <div class="team-card"><div class="avatar">A</div><h4>Alice Chen</h4><p>Product Lead</p></div>
-            <div class="team-card"><div class="avatar">B</div><h4>Bob Smith</h4><p>Backend Engineer</p></div>
-            <div class="team-card"><div class="avatar">C</div><h4>Cara Liu</h4><p>UX Designer</p></div>
-            <div class="team-card"><div class="avatar">D</div><h4>Dan Park</h4><p>Frontend Engineer</p></div>
-          </div>
-        </section>
-
-        <section class="view" data-view="settings">
-          <div class="header-row">
-            <h1>Settings</h1>
-            <button class="btn btn-primary">Save</button>
-          </div>
-          <div class="card">
-            <div class="form-row"><label>Workspace name</label><input type="text" value="{project_name or 'My Workspace'}"></div>
-            <div class="form-row"><label>Default language</label><select><option>简体中文</option><option>English</option></select></div>
-            <div class="form-row"><label>Notifications</label><select><option>All activity</option><option>Mentions only</option><option>Off</option></select></div>
-            <div class="form-row"><label>Theme</label><select><option>{'Dark' if is_dark else 'Light'}</option><option>{'Light' if is_dark else 'Dark'}</option><option>Auto</option></select></div>
-          </div>
-        </section>
+        {main_content}
       </main>
-    </div>
     <div class="footer">Agent Hub · AI 生成的 UI 设计稿 · {datetime.utcnow().strftime('%Y-%m-%d')}</div>
   </div>
 </div>
 <script>
 (function () {{
-  // Mirror the active state across the top nav, the sidebar, and any
-  // call-to-action that wants to jump to another view (e.g. dashboard
-  // "+ New Project" button forwards to the projects view). Anything that
-  // declares data-view participates automatically — adding more sections
-  // later is just markup.
   const triggers = document.querySelectorAll('[data-view]');
   const views = document.querySelectorAll('section.view');
 
@@ -853,18 +865,24 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
         # Parse spec to extract components and flows
         components, flows, arch_degraded, arch_degraded_reason = self._parse_architecture_spec(arch_spec)
 
-        # Generate Mermaid markdown for multiple diagram types
-        diagrams = self._generate_mermaid_diagrams(arch_spec, components, flows)
+        # 1. Primary: architecture diagram as a rendered image (Nano Banana Pro)
+        image_path = await self._generate_arch_image(
+            arch_spec, components, flows, out_dir, task_id, project_name,
+        )
 
-        # Generate HTML with Mermaid.js rendering
+        # 2. Companion / fallback: Mermaid markdown + HTML rendering
+        diagrams = self._generate_mermaid_diagrams(arch_spec, components, flows)
         html_path = self._generate_arch_html(
             diagrams, components, out_dir, project_name or "System Architecture",
         )
 
         rel_html = self._rel_path(rel_prefix, os.path.basename(html_path)) if html_path else ""
+        rel_image = self._rel_path(rel_prefix, os.path.basename(image_path)) if image_path else ""
 
         return {
             "ok": True,
+            "imagePath": rel_image,
+            "imageExists": bool(image_path),
             "htmlPath": rel_html,
             "mermaidRaw": diagrams,
             "componentCount": len(components),
@@ -872,6 +890,52 @@ body {{ font-family: 'Inter', system-ui, -apple-system, sans-serif; background: 
             "degraded": arch_degraded,
             "degraded_reason": arch_degraded_reason,
         }
+
+    async def _generate_arch_image(
+        self,
+        spec: str,
+        components: List[Dict[str, str]],
+        flows: List[Dict[str, str]],
+        out_dir: str,
+        task_id: str,
+        project_name: str = "",
+    ) -> Optional[str]:
+        """Render an architecture diagram as an image via Nano Banana Pro.
+
+        Returns the PNG path, or ``None`` so the caller falls back to the
+        Mermaid HTML rendering.
+        """
+        from . import image_gen
+
+        prompt = self._build_arch_image_prompt(spec, components, flows, project_name)
+        filepath = os.path.join(out_dir, f"architecture-{task_id[:12]}.png")
+        return await image_gen.generate_image(
+            prompt, filepath, resolution="2K", aspect_ratio="16:9",
+        )
+
+    def _build_arch_image_prompt(
+        self,
+        spec: str,
+        components: List[Dict[str, str]],
+        flows: List[Dict[str, str]],
+        project_name: str = "",
+    ) -> str:
+        """Build an image prompt for a clean, professional architecture diagram."""
+        comp_names = ", ".join(c["name"] for c in components) or "Frontend, Backend API, Database"
+        flow_desc = "; ".join(
+            f"{f['source']} → {f['target']} ({f['label']})" for f in flows[:12]
+        ) or "Frontend → Backend API → Database"
+        title = project_name or "System Architecture"
+        return (
+            f"Create a clean, professional software architecture diagram titled '{title}'. "
+            f"Flat modern infographic style on a light background, clear boxes with labels, "
+            f"directional arrows, grouped layers (client / server / data / external). "
+            f"Use a coherent color palette (indigo, emerald, amber, slate), legible sans-serif "
+            f"labels, generous spacing, subtle shadows. Not hand-drawn, not a screenshot. "
+            f"Components: {comp_names}. "
+            f"Connections: {flow_desc}. "
+            f"Design context: {spec[:1200]}"
+        )
 
     # ── Architecture Spec Parsing ─────────────────────────────────────
 

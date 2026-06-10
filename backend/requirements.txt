@@ -26,6 +26,10 @@ cachetools>=5.3.0
 # Firecrawl — Web scraping API (cloud or self-hosted)
 firecrawl-py>=1.0.0
 
+# Nano Banana Pro (Gemini 3 Pro Image) — UI mockups + architecture diagrams
+google-genai>=1.0.0
+pillow>=10.0.0
+
 # Optional: VibeVoice ASR local model (requires GPU + PyTorch)
 # transformers>=5.3.0
 # torch>=2.0.0
